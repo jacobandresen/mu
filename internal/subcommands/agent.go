@@ -244,6 +244,29 @@ func runAgent(cfg agentConfig) error {
 	projectDir, _ := os.Getwd()
 	autonomousSystem := buildAutonomousSystem(projectDir)
 
+	// Lint gate for combined-mode file (bypassed the write loop's lint check)
+	if combinedSrc != "" {
+		if fi, statErr := os.Stat(combinedSrc); statErr == nil {
+			if lintCmd := lintCommand(combinedSrc, p); lintCmd != "" {
+				lintLog := filepath.Join(logDir, "lint-combined.log")
+				if !runLint(lintCmd, lintLog) {
+					agentLog("Lint failed for combined-mode %s — invoking repair.", combinedSrc)
+					lintFixLog := filepath.Join(logDir, "lint-combined-fix.log")
+					lintHead := headFile(lintLog, 60)
+					runRepairLint(&cfg, lintCmd, combinedSrc, lintHead, lintFixLog, sessionDir, autonomousSystem)
+					if !runLint(lintCmd, lintLog) {
+						exitCode = 3
+						return fmt.Errorf("lint failed for combined-mode %s", combinedSrc)
+					}
+					agentLog("Lint passed after repair for combined-mode %s.", combinedSrc)
+				} else {
+					agentLog("Lint passed: %s", combinedSrc)
+				}
+			}
+			_ = fi
+		}
+	}
+
 	// Write loop
 	for i := 1; i <= cfg.MaxIter; i++ {
 		task := plan.NextTask(p)
@@ -269,7 +292,7 @@ func runAgent(cfg agentConfig) error {
 					task.FilePath, cfg.Goal, p.PlanContext)
 				retrySessionDir := filepath.Join(logDir, "code-session-retry")
 				retryCfg := cfg
-				retryCfg.WriterThinking = "auto" // enable thinking on retry to unblock stalled models
+				retryCfg.WriterThinking = "medium"
 				if !runWriterWithSession(&retryCfg, task.FilePath, retryLog, retryErrLog, retryPrompt, autonomousSystem, retrySessionDir) {
 					agentLog("Iteration %d: %s not written after retry.", i, task.FilePath)
 					exitCode = 3
@@ -293,7 +316,7 @@ func runAgent(cfg agentConfig) error {
 					task.FilePath, cfg.Goal, p.PlanContext)
 				stubRetrySessionDir := filepath.Join(logDir, "code-session-stub-retry")
 				retryCfg := cfg
-				retryCfg.WriterThinking = "auto"
+				retryCfg.WriterThinking = "medium"
 				if !runWriterWithSession(&retryCfg, task.FilePath, stubRetryLog, stubRetryErrLog, stubRetryPrompt, autonomousSystem, stubRetrySessionDir) {
 					agentLog("Iteration %d: %s still near-empty after retry.", i, task.FilePath)
 				}
@@ -321,6 +344,9 @@ func runAgent(cfg agentConfig) error {
 		if plan.IsBuildFile(task.FilePath) && strings.EqualFold(filepath.Base(task.FilePath), "makefile") {
 			if fixedGo, _ := fixGoMakefile(task.FilePath); fixedGo {
 				agentLog("Fixed Go Makefile: added go mod init + go get before go build.")
+			}
+			if fixedPy, _ := plan.FixPythonMakefileTest(task.FilePath); fixedPy {
+				agentLog("Fixed Python Makefile: added PYTHONPATH=. before pytest.")
 			}
 		}
 
@@ -940,7 +966,7 @@ func runRepairLint(cfg *agentConfig, lintCmd, filePath, lintHead, fixLog, sesDir
 	// Lint repair starts fresh (no --continue) so it isn't affected by corrupted/compacted
 	// session state from a stalled first-attempt writer.
 	args := []string{
-		"--thinking", "auto", // enable thinking so the model can reason about the exact syntax error
+		"--thinking", "medium",
 		"--model", cfg.AgentModel,
 		"--session-dir", sesDir,
 		"--append-system-prompt", autonomousSystem,

@@ -489,6 +489,48 @@ func NormalizeTestCommand(planPath string) (bool, error) {
 	return true, os.WriteFile(planPath, []byte(updated), 0644)
 }
 
+// FixPythonMakefileTest rewrites pytest invocations in a Makefile to prepend
+// PYTHONPATH=. so tests can import modules from the project root.
+// Models frequently emit bare "pytest" which fails with ModuleNotFoundError when
+// the test file does "import app" and pytest doesn't add cwd to sys.path.
+func FixPythonMakefileTest(makefilePath string) (bool, error) {
+	data, err := os.ReadFile(makefilePath)
+	if err != nil {
+		return false, err
+	}
+	content := string(data)
+	// Only act on Makefiles that call pytest without PYTHONPATH already set
+	if !strings.Contains(content, "pytest") {
+		return false, nil
+	}
+	if strings.Contains(content, "PYTHONPATH") {
+		return false, nil
+	}
+	// Replace tab-indented "pytest" and "python -m pytest" recipe lines
+	lines := strings.Split(content, "\n")
+	changed := false
+	for i, line := range lines {
+		if len(line) == 0 || line[0] != '\t' {
+			continue
+		}
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "pytest" || strings.HasPrefix(trimmed, "pytest ") {
+			lines[i] = "\tPYTHONPATH=. " + trimmed
+			changed = true
+		} else if trimmed == "python3 -m pytest" || strings.HasPrefix(trimmed, "python3 -m pytest ") {
+			lines[i] = "\tPYTHONPATH=. " + trimmed
+			changed = true
+		} else if trimmed == "python -m pytest" || strings.HasPrefix(trimmed, "python -m pytest ") {
+			lines[i] = "\tPYTHONPATH=. " + trimmed
+			changed = true
+		}
+	}
+	if !changed {
+		return false, nil
+	}
+	return true, os.WriteFile(makefilePath, []byte(strings.Join(lines, "\n")), 0644)
+}
+
 // FixNoMakefileTestCommand rewrites "make" test commands when no Makefile is listed
 // in the plan's file tasks. Derives an inline compile+run command from the first
 // source file's extension so trivial programs don't stall on a missing Makefile.
