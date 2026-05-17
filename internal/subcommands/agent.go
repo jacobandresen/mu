@@ -12,21 +12,16 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jacobandresen/mu/internal/agent"
 	"github.com/jacobandresen/mu/internal/archive"
 	"github.com/jacobandresen/mu/internal/ollama"
 	"github.com/jacobandresen/mu/internal/plan"
 	"github.com/jacobandresen/mu/internal/ui"
+	"github.com/jacobandresen/mu/skills"
 	"github.com/spf13/cobra"
 )
 
-const (
-	logDir     = ".mu"
-	sessionDir = ".mu/code-session"
-
-	// requiredSkillsVersion is the minimum dotfiles skills tag this agent was built against.
-	// Update this when task-planner or other skills change in ~/Projects/dotfiles.
-	requiredSkillsVersion = "skills-v1.1"
-)
+const logDir = ".mu"
 
 type agentConfig struct {
 	Goal            string
@@ -159,8 +154,7 @@ func runAgent(cfg agentConfig) error {
 			return err
 		}
 	} else {
-		planLog := filepath.Join(logDir, "plan.log")
-		if err := runPlanningPhase(&cfg, planLog); err != nil {
+		if err := runPlanningPhase(&cfg); err != nil {
 			exitCode = 1
 			return err
 		}
@@ -251,9 +245,8 @@ func runAgent(cfg agentConfig) error {
 				lintLog := filepath.Join(logDir, "lint-combined.log")
 				if !runLint(lintCmd, lintLog) {
 					agentLog("Lint failed for combined-mode %s — invoking repair.", combinedSrc)
-					lintFixLog := filepath.Join(logDir, "lint-combined-fix.log")
-					lintHead := headFile(lintLog, 60)
-					runRepairLint(&cfg, lintCmd, combinedSrc, lintHead, lintFixLog, sessionDir, autonomousSystem)
+						lintHead := headFile(lintLog, 60)
+					runRepairLint(&cfg, lintCmd, combinedSrc, lintHead, autonomousSystem)
 					if !runLint(lintCmd, lintLog) {
 						exitCode = 3
 						return fmt.Errorf("lint failed for combined-mode %s", combinedSrc)
@@ -276,24 +269,16 @@ func runAgent(cfg agentConfig) error {
 		}
 
 		agentLog("Iteration %d / %d: %s", i, cfg.MaxIter, task.FilePath)
-		iterLog := filepath.Join(logDir, fmt.Sprintf("iter-%02d.log", i))
-		iterErrLog := filepath.Join(logDir, fmt.Sprintf("iter-%02d.err", i))
-
 		writePrompt := buildWritePrompt(cfg.Goal, task, p, projectDir)
 
-		if !runWriter(&cfg, task.FilePath, iterLog, iterErrLog, writePrompt, autonomousSystem) {
+		if !runWriter(&cfg, task.FilePath, writePrompt, autonomousSystem) {
 			if _, err := os.Stat(task.FilePath); err != nil {
-				// Retry with simpler prompt in a fresh session (avoids corrupted compaction context)
-				// Enable thinking so the model can reason before writing
 				agentLog("Writer did not produce %s — retrying.", task.FilePath)
-				retryLog := filepath.Join(logDir, fmt.Sprintf("iter-%02d-retry.log", i))
-				retryErrLog := filepath.Join(logDir, fmt.Sprintf("iter-%02d-retry.err", i))
 				retryPrompt := fmt.Sprintf("Write file NOW: `%s`\nYou ONLY have the Write tool. Use it immediately — do not try to run commands or install packages.\nCall Write exactly once with the complete file contents. Stop immediately after.\n\nGOAL: %s\n%s",
 					task.FilePath, cfg.Goal, p.PlanContext)
-				retrySessionDir := filepath.Join(logDir, "code-session-retry")
 				retryCfg := cfg
 				retryCfg.WriterThinking = "medium"
-				if !runWriterWithSession(&retryCfg, task.FilePath, retryLog, retryErrLog, retryPrompt, autonomousSystem, retrySessionDir) {
+				if !runWriterWithSession(&retryCfg, task.FilePath, retryPrompt, autonomousSystem) {
 					agentLog("Iteration %d: %s not written after retry.", i, task.FilePath)
 					exitCode = 3
 					return fmt.Errorf("stalled: model did not write %s", task.FilePath)
@@ -310,14 +295,11 @@ func runAgent(cfg agentConfig) error {
 			if !plan.IsBuildFile(task.FilePath) && !isConfigLike {
 				agentLog("Writer produced near-empty %s (%d bytes) — retrying with thinking.", task.FilePath, fi.Size())
 				_ = os.Remove(task.FilePath)
-				stubRetryLog := filepath.Join(logDir, fmt.Sprintf("iter-%02d-stub-retry.log", i))
-				stubRetryErrLog := filepath.Join(logDir, fmt.Sprintf("iter-%02d-stub-retry.err", i))
 				stubRetryPrompt := fmt.Sprintf("Write file NOW: `%s`\nYou ONLY have the Write tool. Use it immediately — do not try to run commands or install packages.\nCall Write exactly once with the complete file contents. Stop immediately after.\n\nGOAL: %s\n%s",
 					task.FilePath, cfg.Goal, p.PlanContext)
-				stubRetrySessionDir := filepath.Join(logDir, "code-session-stub-retry")
 				retryCfg := cfg
 				retryCfg.WriterThinking = "medium"
-				if !runWriterWithSession(&retryCfg, task.FilePath, stubRetryLog, stubRetryErrLog, stubRetryPrompt, autonomousSystem, stubRetrySessionDir) {
+				if !runWriterWithSession(&retryCfg, task.FilePath, stubRetryPrompt, autonomousSystem) {
 					agentLog("Iteration %d: %s still near-empty after retry.", i, task.FilePath)
 				}
 			}
@@ -355,9 +337,8 @@ func runAgent(cfg agentConfig) error {
 			lintLog := filepath.Join(logDir, fmt.Sprintf("lint-iter-%02d.log", i))
 			if !runLint(lintCmd, lintLog) {
 				agentLog("Lint failed for %s — invoking repair.", task.FilePath)
-				lintFixLog := filepath.Join(logDir, fmt.Sprintf("lint-fix-%02d.log", i))
 				lintHead := headFile(lintLog, 60)
-				runRepairLint(&cfg, lintCmd, task.FilePath, lintHead, lintFixLog, sessionDir, autonomousSystem)
+				runRepairLint(&cfg, lintCmd, task.FilePath, lintHead, autonomousSystem)
 				if !runLint(lintCmd, lintLog) {
 					agentLog("Lint still failing after repair for %s.", task.FilePath)
 					exitCode = 3
@@ -375,9 +356,8 @@ func runAgent(cfg agentConfig) error {
 			testLog := filepath.Join(logDir, fmt.Sprintf("tests-iter-%02d.log", i))
 			if !runTests(testCmd, testLog) {
 				agentLog("Tests failing after %s — invoking repair agent.", task.FilePath)
-				fixLog := filepath.Join(logDir, fmt.Sprintf("fix-%02d.log", i))
 				testTail := tailFile(testLog, 80)
-				runRepair(&cfg, testCmd, testTail, fixLog, sessionDir, autonomousSystem)
+				runRepair(&cfg, testCmd, testTail, autonomousSystem)
 				if !runTests(testCmd, testLog) {
 					agentLog("Tests still failing after repair for %s.", task.FilePath)
 					exitCode = 3
@@ -555,13 +535,10 @@ func validateExistingPlan() error {
 	return nil
 }
 
-func runPlanningPhase(cfg *agentConfig, planLog string) error {
+func runPlanningPhase(cfg *agentConfig) error {
 	const maxAttempts = 2
-	var planEC error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		logFile := planLog
 		if attempt > 1 {
-			logFile = filepath.Join(logDir, fmt.Sprintf("plan-attempt-%02d.log", attempt))
 			agentLog("Planner attempt %d / %d (previous attempt produced no PLAN.md)", attempt, maxAttempts)
 		} else {
 			agentLog("Planning: %s (planner=%s writer=%s timeout=%ds complexity=%s)",
@@ -569,32 +546,27 @@ func runPlanningPhase(cfg *agentConfig, planLog string) error {
 		}
 
 		if cfg.Combined == 1 && attempt == 1 {
-			agentLog("Using combined plan+write mode (single pi session).")
-			combinedSrc, err := runCombinedPlanner(cfg, logFile)
+			agentLog("Using combined plan+write mode (single session).")
+			combinedSrc, err := runCombinedPlanner(cfg)
 			if err == nil && combinedSrc != "" {
 				os.Setenv("_MU_AGENT_COMBINED_SRC", combinedSrc)
 			}
 		} else {
-			planEC = runPlanner(cfg, logFile)
+			runPlanner(cfg)
 		}
 
 		if _, err := os.Stat("PLAN.md"); err == nil {
 			break
 		}
-		if ok, _ := plan.RecoverFromLog(logFile, "PLAN.md"); ok {
-			agentLog("Recovered PLAN.md from fenced block in %s", logFile)
-			break
-		}
 		agentLog("Attempt %d: no PLAN.md produced", attempt)
 		if attempt == maxAttempts {
-			_ = planEC
-			return fmt.Errorf("task-planner did not create PLAN.md after %d attempts — see %s/plan*.log", maxAttempts, logDir)
+			return fmt.Errorf("task-planner did not create PLAN.md after %d attempts", maxAttempts)
 		}
 	}
 
 	data, _ := os.ReadFile("PLAN.md")
 	if !regexp.MustCompile(`(?m)^- \[[ x~]\]`).Match(data) {
-		return fmt.Errorf("PLAN.md has no task checklist — see %s/plan.log", logDir)
+		return fmt.Errorf("PLAN.md has no task checklist")
 	}
 	agentLog("PLAN.md created.")
 	fmt.Println()
@@ -603,35 +575,25 @@ func runPlanningPhase(cfg *agentConfig, planLog string) error {
 	return nil
 }
 
-func runPlanner(cfg *agentConfig, logFile string) error {
+func runPlanner(cfg *agentConfig) {
 	projectDir, _ := os.Getwd()
 	prompt := buildPlannerPrompt(cfg.Goal, projectDir)
 	autonomousSystem := buildAutonomousSystem(projectDir)
 
-	args := []string{
-		"--thinking", cfg.PlannerThinking,
-		"--model", cfg.AgentModel,
-		"--append-system-prompt", autonomousSystem,
+	systemPrompt := autonomousSystem
+	if skillContent := skills.Load("task-planner"); skillContent != "" {
+		systemPrompt += "\n\n" + skillContent
 	}
-	// Load task-planner skill from dotfiles if available (requiredSkillsVersion)
-	if skillContent := loadSkill("task-planner"); skillContent != "" {
-		args = append(args, "--append-system-prompt", skillContent)
-	}
-	args = append(args, "-p", prompt)
-	return runBackground("pi", args, logFile, cfg.PlannerTimeout, "PLAN.md", nil)
-}
 
-func loadSkill(name string) string {
-	home, _ := os.UserHomeDir()
-	path := filepath.Join(home, ".pi", "agent", "skills", name, "SKILL.md")
-	data, err := os.ReadFile(path)
+	sess := agent.NewSession(systemPrompt)
+	timeout := time.Duration(cfg.PlannerTimeout) * time.Second
+	_, err := sess.Run(cfg.AgentModel, prompt, cfg.PlannerThinking, "Planning", 20, "PLAN.md", timeout)
 	if err != nil {
-		return ""
+		agentLog("Planner: %v", err)
 	}
-	return string(data)
 }
 
-func runCombinedPlanner(cfg *agentConfig, logFile string) (string, error) {
+func runCombinedPlanner(cfg *agentConfig) (string, error) {
 	projectDir, _ := os.Getwd()
 
 	var prompt string
@@ -657,29 +619,22 @@ Do not pause between steps. Write both files and then STOP. No explanations.
 
 GOAL: %s`, projectDir, cfg.Goal)
 	} else {
-		// simple: use the full planner prompt, then immediately write the first source file
 		prompt = buildPlannerPrompt(cfg.Goal, projectDir) + "\n\nAfter writing PLAN.md, immediately write the FIRST source file listed in ## Files. Do not pause between the two writes. Stop after the first source file is written."
 	}
 
 	autonomousSystem := buildAutonomousSystem(projectDir)
-	combinedTimeout := cfg.PlannerTimeout + cfg.WriterTimeout
-
-	args := []string{
-		"--thinking", cfg.PlannerThinking,
-		"--model", cfg.AgentModel,
-		"--append-system-prompt", autonomousSystem,
+	systemPrompt := autonomousSystem
+	if skillContent := skills.Load("task-planner"); skillContent != "" {
+		systemPrompt += "\n\n" + skillContent
 	}
-	if skillContent := loadSkill("task-planner"); skillContent != "" {
-		args = append(args, "--append-system-prompt", skillContent)
-	}
-	args = append(args, "-p", prompt)
 
-	err := runBackgroundCombined(args, logFile, combinedTimeout)
+	combinedTimeout := time.Duration(cfg.PlannerTimeout+cfg.WriterTimeout) * time.Second
+	sess := agent.NewSession(systemPrompt)
+	_, err := sess.Run(cfg.AgentModel, prompt, cfg.PlannerThinking, "Planning", 30, "", combinedTimeout)
 	if err != nil {
-		return "", err
+		agentLog("Combined planner: %v", err)
 	}
 
-	// Find the source file that was written
 	if _, e := os.Stat("PLAN.md"); e != nil {
 		return "", fmt.Errorf("PLAN.md not written")
 	}
@@ -693,198 +648,27 @@ GOAL: %s`, projectDir, cfg.Goal)
 	return "", nil
 }
 
-// ── Background process management ────────────────────────────────────────────
-
-func runBackground(name string, args []string, logFile string, timeout int, watchFile string, combinedWatch *string) error {
-	f, err := os.Create(logFile)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	cmd := exec.Command(name, args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Stdout = f
-	cmd.Stderr = f
-	cmd.Stdin, _ = os.Open(os.DevNull)
-
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start %s: %w", name, err)
-	}
-	pid := cmd.Process.Pid
-
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-
-	start := time.Now()
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-done:
-			fmt.Print("\r\033[K")
-			if watchFile != "" {
-				if _, err := os.Stat(watchFile); err == nil {
-					return nil
-				}
-			}
-			return nil
-		case <-ticker.C:
-			elapsed := int(time.Since(start).Seconds())
-			fmt.Printf("\r  %s %s", ui.Cyan("Planning"), ui.DrawProgressBar(elapsed, timeout, 40))
-
-			if watchFile != "" {
-				if _, err := os.Stat(watchFile); err == nil {
-					fmt.Print("\r\033[K")
-					agentLog("%s written — stopping planner early (%ds elapsed).", watchFile, elapsed)
-					killProcess(pid)
-					return nil
-				}
-			}
-			if elapsed >= timeout {
-				fmt.Print("\r\033[K")
-				agentLog("Planner timed out after %ds — killing.", timeout)
-				killProcess(pid)
-				return fmt.Errorf("planner timeout")
-			}
-		}
-	}
-}
-
-func runBackgroundCombined(args []string, logFile string, timeout int) error {
-	f, err := os.Create(logFile)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	cmd := exec.Command("pi", args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Stdout = f
-	cmd.Stderr = f
-	cmd.Stdin, _ = os.Open(os.DevNull)
-
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start pi: %w", err)
-	}
-	pid := cmd.Process.Pid
-
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-
-	start := time.Now()
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	var srcFile string
-	planFoundAt := -1
-
-	for {
-		select {
-		case <-done:
-			fmt.Print("\r\033[K")
-			return nil
-		case <-ticker.C:
-			elapsed := int(time.Since(start).Seconds())
-			fmt.Printf("\r  %s %s", ui.Cyan("Planning"), ui.DrawProgressBar(elapsed, timeout, 40))
-
-			if srcFile == "" {
-				if _, err := os.Stat("PLAN.md"); err == nil {
-					if p, _ := plan.Parse("PLAN.md"); p != nil && len(p.Tasks) > 0 {
-						srcFile = p.Tasks[0].FilePath
-						planFoundAt = elapsed
-						agentLog("Combined: PLAN.md ready at %ds — watching for: %s", planFoundAt, srcFile)
-					}
-				}
-			}
-			if srcFile != "" {
-				if _, err := os.Stat(srcFile); err == nil {
-					fmt.Print("\r\033[K")
-					agentLog("Combined: PLAN.md + %s written in %ds.", srcFile, elapsed)
-					killProcess(pid)
-					return nil
-				}
-			}
-			if elapsed >= timeout {
-				fmt.Print("\r\033[K")
-				agentLog("Combined planner+writer timed out after %ds.", timeout)
-				killProcess(pid)
-				return fmt.Errorf("timeout")
-			}
-		}
-	}
-}
-
-func killProcess(pid int) {
-	_ = syscall.Kill(-pid, syscall.SIGTERM)
-	time.Sleep(200 * time.Millisecond)
-	_ = syscall.Kill(-pid, syscall.SIGKILL)
-}
-
 // ── Writer ────────────────────────────────────────────────────────────────────
 
-func runWriter(cfg *agentConfig, targetFile, logFile, errLogFile, prompt, autonomousSystem string) bool {
-	return runWriterWithSession(cfg, targetFile, logFile, errLogFile, prompt, autonomousSystem, sessionDir)
+func runWriter(cfg *agentConfig, targetFile, prompt, autonomousSystem string) bool {
+	return runWriterWithSession(cfg, targetFile, prompt, autonomousSystem)
 }
 
-func runWriterWithSession(cfg *agentConfig, targetFile, logFile, errLogFile, prompt, autonomousSystem, sesDir string) bool {
+func runWriterWithSession(cfg *agentConfig, targetFile, prompt, autonomousSystem string) bool {
 	if dir := filepath.Dir(targetFile); dir != "." {
 		os.MkdirAll(dir, 0755)
 	}
 
-	fOut, _ := os.Create(logFile)
-	fErr, _ := os.Create(errLogFile)
-	defer fOut.Close()
-	defer fErr.Close()
-
 	writeRules := "REMINDER: Call Write ONCE for the file you are given. Complete, runnable content. Stop immediately after. Nothing else."
-	args := []string{
-		"--thinking", cfg.WriterThinking,
-		"--model", cfg.AgentModel,
-		"--session-dir", sesDir,
-		"--append-system-prompt", autonomousSystem,
-		"--append-system-prompt", writeRules,
-		"-p", prompt,
+	systemPrompt := autonomousSystem + "\n\n" + writeRules
+
+	sess := agent.NewSession(systemPrompt)
+	timeout := time.Duration(cfg.WriterTimeout) * time.Second
+	ok, err := sess.Run(cfg.AgentModel, prompt, cfg.WriterThinking, "Writing", 15, targetFile, timeout)
+	if err != nil {
+		agentLog("Writer: %v", err)
 	}
-
-	cmd := exec.Command("pi", args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Stdout = fOut
-	cmd.Stderr = fErr
-	cmd.Stdin, _ = os.Open(os.DevNull)
-
-	if err := cmd.Start(); err != nil {
-		return false
-	}
-	pid := cmd.Process.Pid
-
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-
-	start := time.Now()
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-done:
-			_, err := os.Stat(targetFile)
-			return err == nil
-		case <-ticker.C:
-			elapsed := int(time.Since(start).Seconds())
-			if _, err := os.Stat(targetFile); err == nil {
-				agentLog("%s written — stopping writer (%ds).", targetFile, elapsed)
-				killProcess(pid)
-				return true
-			}
-			if elapsed >= cfg.WriterTimeout {
-				agentLog("Writer timed out after %ds for %s.", cfg.WriterTimeout, targetFile)
-				killProcess(pid)
-				return false
-			}
-		}
-	}
+	return ok
 }
 
 // ── Test gate ─────────────────────────────────────────────────────────────────
@@ -899,118 +683,39 @@ func runTests(cmd, logFile string) bool {
 	return err == nil
 }
 
-func runRepair(cfg *agentConfig, testCmd, testTail, fixLog, sesDir, autonomousSystem string) {
+func runRepair(cfg *agentConfig, testCmd, testTail, autonomousSystem string) {
 	fixRules := fmt.Sprintf(`REPAIR PROTOCOL — follow these steps exactly:
 1. Run '%s' via Bash to read the current failure output.
 2. Fix the broken file: use Write to rewrite it entirely, or Edit with 3-5 lines of surrounding context so old_string is unique.
 3. Stop immediately after writing the fix — do not run tests again, do not explain. The harness will verify.
 4. Do not modify PLAN.md.`, testCmd)
 
-	args := []string{
-		"--thinking", cfg.WriterThinking,
-		"--model", cfg.AgentModel,
-		"--session-dir", sesDir,
-		"--continue",
-		"--append-system-prompt", autonomousSystem,
-		"--append-system-prompt", fixRules,
-		"-p", fmt.Sprintf("Tests are failing. Fix the broken code now — do not explain, just call Write or Edit.\n\nTest command: `%s`\nLast output (tail):\n%s", testCmd, testTail),
-	}
-	f, _ := os.Create(fixLog)
-	defer f.Close()
+	prompt := fmt.Sprintf("Tests are failing. Fix the broken code now — do not explain, just call Write or Edit.\n\nTest command: `%s`\nLast output (tail):\n%s", testCmd, testTail)
+	systemPrompt := autonomousSystem + "\n\n" + fixRules
 
-	cmd := exec.Command("pi", args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Stdout = f
-	cmd.Stderr = f
-	cmd.Stdin, _ = os.Open(os.DevNull)
-
-	if err := cmd.Start(); err != nil {
-		return
-	}
-	pid := cmd.Process.Pid
-
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-
-	start := time.Now()
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-done:
-			return
-		case <-ticker.C:
-			elapsed := int(time.Since(start).Seconds())
-			if testsSilent(testCmd) {
-				agentLog("Repair: tests pass after %ds — stopping pi.", elapsed)
-				killProcess(pid)
-				return
-			}
-			if elapsed >= cfg.WriterTimeout {
-				agentLog("Repair timed out after %ds — killing.", cfg.WriterTimeout)
-				killProcess(pid)
-				return
-			}
-		}
+	sess := agent.NewSession(systemPrompt)
+	timeout := time.Duration(cfg.WriterTimeout) * time.Second
+	_, err := sess.Run(cfg.AgentModel, prompt, cfg.WriterThinking, "Repairing", 10, "", timeout)
+	if err != nil {
+		agentLog("Repair: %v", err)
 	}
 }
 
-func runRepairLint(cfg *agentConfig, lintCmd, filePath, lintHead, fixLog, sesDir, autonomousSystem string) {
+func runRepairLint(cfg *agentConfig, lintCmd, filePath, lintHead, autonomousSystem string) {
 	fixRules := fmt.Sprintf(`REPAIR PROTOCOL — follow these steps exactly:
 1. Read the lint output below carefully to identify the exact syntax error.
 2. Fix the broken file %s: use Write to rewrite it entirely, or Edit with surrounding context.
 3. Stop immediately after writing the fix — do not re-run lint. The harness will verify.
 4. Do not modify PLAN.md.`, filePath)
 
-	// Lint repair starts fresh (no --continue) so it isn't affected by corrupted/compacted
-	// session state from a stalled first-attempt writer.
-	args := []string{
-		"--thinking", "medium",
-		"--model", cfg.AgentModel,
-		"--session-dir", sesDir,
-		"--append-system-prompt", autonomousSystem,
-		"--append-system-prompt", fixRules,
-		"-p", fmt.Sprintf("Lint is failing for %s. Fix the broken code now — do not explain, just call Write or Edit.\n\nLint command: `%s`\nLint output (first errors):\n%s", filePath, lintCmd, lintHead),
-	}
-	f, _ := os.Create(fixLog)
-	defer f.Close()
+	prompt := fmt.Sprintf("Lint is failing for %s. Fix the broken code now — do not explain, just call Write or Edit.\n\nLint command: `%s`\nLint output (first errors):\n%s", filePath, lintCmd, lintHead)
+	systemPrompt := autonomousSystem + "\n\n" + fixRules
 
-	cmd := exec.Command("pi", args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Stdout = f
-	cmd.Stderr = f
-	cmd.Stdin, _ = os.Open(os.DevNull)
-
-	if err := cmd.Start(); err != nil {
-		return
-	}
-	pid := cmd.Process.Pid
-
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-
-	start := time.Now()
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-done:
-			return
-		case <-ticker.C:
-			elapsed := int(time.Since(start).Seconds())
-			if testsSilent(lintCmd) {
-				agentLog("Lint repair: passes after %ds — stopping pi.", elapsed)
-				killProcess(pid)
-				return
-			}
-			if elapsed >= cfg.WriterTimeout {
-				agentLog("Lint repair timed out after %ds — killing.", cfg.WriterTimeout)
-				killProcess(pid)
-				return
-			}
-		}
+	sess := agent.NewSession(systemPrompt)
+	timeout := time.Duration(cfg.WriterTimeout) * time.Second
+	_, err := sess.Run(cfg.AgentModel, prompt, "medium", "Repairing", 10, "", timeout)
+	if err != nil {
+		agentLog("Lint repair: %v", err)
 	}
 }
 
@@ -1042,9 +747,8 @@ func finalTestGate(cfg *agentConfig, p *plan.Plan, autonomousSystem string) erro
 			return fmt.Errorf("final tests failed")
 		}
 		agentLog("Final tests failed — repair retry %d / %d", attempt+1, maxRetries)
-		retryLog := filepath.Join(logDir, fmt.Sprintf("final-retry-%02d.log", attempt+1))
 		testTail := tailFile(testLog, 200)
-		runRepair(cfg, testCmd, testTail, retryLog, sessionDir, autonomousSystem)
+		runRepair(cfg, testCmd, testTail, autonomousSystem)
 	}
 	return nil
 }

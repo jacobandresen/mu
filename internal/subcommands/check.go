@@ -25,8 +25,6 @@ var deps = []struct {
 		{"gcc", "gcc", "mu setup"},
 	}},
 	{"Language runtimes", []dep{
-		{"node", "node", "mu setup"},
-		{"npm", "npm", "mu setup (included with node)"},
 		{"python3", "python3", "mu setup"},
 	}},
 	{"Tools", []dep{
@@ -46,7 +44,6 @@ var deps = []struct {
 		{"cargo clippy (Rust)", "cargo", "rustup toolchain install stable"},
 	}},
 	{"AI backend", []dep{
-		{"pi", "pi", "npm install -g @earendil-works/pi-coding-agent"},
 		{"ollama", "ollama", "mu setup  [local model server]"},
 	}},
 }
@@ -79,7 +76,6 @@ with install hints. Exits non-zero if anything is missing.`,
 			}
 			fmt.Printf("%s\n", ui.Yellow(fmt.Sprintf("%d missing, %d present.", fail, pass)))
 			fmt.Println(ui.Dim("Run: mu setup"))
-			fmt.Println(ui.Dim("For pi: npm install -g @earendil-works/pi-coding-agent"))
 			return fmt.Errorf("%d missing", fail)
 		},
 	}

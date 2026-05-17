@@ -144,3 +144,55 @@ func UnloadOthers(keep string) error {
 	}
 	return nil
 }
+
+// ── Chat API ──────────────────────────────────────────────────────────────────
+
+type Message struct {
+	Role      string     `json:"role"`
+	Content   string     `json:"content,omitempty"`
+	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+}
+
+type ToolCall struct {
+	ID       string           `json:"id,omitempty"`
+	Function ToolCallFunction `json:"function"`
+}
+
+type ToolCallFunction struct {
+	Index     int            `json:"index,omitempty"`
+	Name      string         `json:"name"`
+	Arguments map[string]any `json:"arguments"`
+}
+
+type ToolDef struct {
+	Type     string       `json:"type"`
+	Function ToolFunction `json:"function"`
+}
+
+type ToolFunction struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Parameters  map[string]any `json:"parameters"`
+}
+
+func Chat(model string, messages []Message, tools []ToolDef, timeout time.Duration) (Message, error) {
+	body := map[string]any{
+		"model":    model,
+		"messages": messages,
+		"stream":   false,
+	}
+	if len(tools) > 0 {
+		body["tools"] = tools
+	}
+	data, err := post("/api/chat", body, timeout)
+	if err != nil {
+		return Message{}, err
+	}
+	var resp struct {
+		Message Message `json:"message"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return Message{}, err
+	}
+	return resp.Message, nil
+}
