@@ -271,6 +271,13 @@ func runAgent(cfg agentConfig) error {
 			}
 		}
 
+		// Post-write: fix .csproj TargetFramework to match installed dotnet version
+		if strings.HasSuffix(task.FilePath, ".csproj") {
+			if fixedFw, _ := fixCsprojTargetFramework(task.FilePath); fixedFw {
+				agentLog("Fixed TargetFramework in %s to match installed dotnet.", task.FilePath)
+			}
+		}
+
 		// Test gate after test files
 		testCmd := p.TestCommand
 		if testCmd != "" && isTestFile(task.FilePath) {
@@ -1029,6 +1036,37 @@ func buildWritePrompt(goal string, task *plan.Task, p *plan.Plan, projectDir str
 
 	_ = projectDir
 	return sb.String()
+}
+
+// fixCsprojTargetFramework rewrites the TargetFramework in a .csproj to match
+// the installed dotnet major version. Models often generate net8.0 or net6.0
+// even when a newer runtime is installed.
+func fixCsprojTargetFramework(f string) (bool, error) {
+	out, err := exec.Command("dotnet", "--version").Output()
+	if err != nil {
+		return false, nil
+	}
+	ver := strings.TrimSpace(string(out))
+	// Extract major version (e.g. "10.0.300" → "10")
+	parts := strings.SplitN(ver, ".", 2)
+	if len(parts) == 0 {
+		return false, nil
+	}
+	major := parts[0]
+	want := "net" + major + ".0"
+
+	data, err := os.ReadFile(f)
+	if err != nil {
+		return false, err
+	}
+	content := string(data)
+	// Replace any <TargetFramework>netX.Y</TargetFramework> where X != major
+	re := regexp.MustCompile(`<TargetFramework>net\d+\.\d+</TargetFramework>`)
+	fixed := re.ReplaceAllString(content, "<TargetFramework>"+want+"</TargetFramework>")
+	if fixed == content {
+		return false, nil
+	}
+	return true, os.WriteFile(f, []byte(fixed), 0644)
 }
 
 func isSDLSource(f string) bool {

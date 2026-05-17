@@ -169,6 +169,29 @@ The repair agent cannot fix missing infrastructure (project files) by rewriting 
 Updated `task-planner/SKILL.md` to add dotnet section:
 ```
 C# / dotnet: every project needs a .csproj file. List it before the .cs files.
-For single-file programs: one .csproj + one Program.cs, test command: dotnet run.
+For single-file programs: one .csproj + one Program.cs, test command: dotnet run --project <name>.csproj.
 For test suites: list app.csproj, src/*.cs, tests.csproj, tests/*.cs — test command: dotnet test.
 ```
+
+### Additional bugs found during iteration
+
+| # | Description | Severity |
+|---|---|---|
+| 11 | `## What good looks like` section in write prompt causes model to generate only thinking tokens, empty tool call | High |
+| 12 | `.csproj` targets `net8.0` but installed runtime is `net10.0` — `dotnet run` fails to find framework | High |
+| 13 | Planner takes >360s on first attempt when prompt includes long dotnet guidance + skill | Medium |
+
+### Fixes (additional)
+
+7. **Remove `## What good looks like`** from `buildWritePrompt` — negative examples trigger
+   over-deliberation and empty tool call response from qwen3:ralph.
+
+8. **`fixCsprojTargetFramework`**: after writing any `.csproj`, detect installed dotnet major
+   version via `dotnet --version`, rewrite `<TargetFramework>netX.Y</TargetFramework>` to match.
+
+9. **`FixDotnetTestCommand`** in plan/parse.go: after plan parsing, if test command is bare
+   `dotnet test` or `dotnet run` without explicit `.csproj`, rewrite to reference the `.csproj`
+   found in the file list (or `dotnet run --project` for single-csproj plans).
+
+10. **Binary was not rebuilt**: `go build ./...` compiles packages but does not update `bin/mu`.
+    Must run `go build -o bin/mu ./cmd/mu/` to deploy changes.
