@@ -22,6 +22,10 @@ import (
 const (
 	logDir     = ".mu"
 	sessionDir = ".mu/code-session"
+
+	// requiredSkillsVersion is the minimum dotfiles skills tag this agent was built against.
+	// Update this when task-planner or other skills change in ~/Projects/dotfiles.
+	requiredSkillsVersion = "skills-v1.1"
 )
 
 type agentConfig struct {
@@ -108,9 +112,6 @@ func runAgent(cfg agentConfig) error {
 		return err
 	}
 
-	// Print banner
-	ui.PrintBanner(cfg.Goal)
-
 	// Setup
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		return fmt.Errorf("create log dir: %w", err)
@@ -179,12 +180,31 @@ func runAgent(cfg agentConfig) error {
 		agentLog("Rewrote graphical test command to compile-only.")
 	}
 
+	// Normalize test command portability (python → python3, etc.)
+	if fixed, _ := plan.NormalizeTestCommand("PLAN.md"); fixed {
+		agentLog("Normalized test command for portability.")
+	}
+
 	p, err := plan.Parse("PLAN.md")
 	if err != nil {
 		exitCode = 1
 		return fmt.Errorf("parse PLAN.md: %w", err)
 	}
 	currentPlan = p
+
+	// Fix "make" test command when no Makefile is in the task list (trivial programs)
+	if fixed, _ := plan.FixNoMakefileTestCommand("PLAN.md", p); fixed {
+		agentLog("Rewrote trivial test command: no Makefile in plan, using inline compile.")
+		p, _ = plan.Parse("PLAN.md")
+		currentPlan = p
+	}
+
+	// Fix dotnet test/run command when no matching .csproj is referenced
+	if fixed, _ := plan.FixDotnetTestCommand("PLAN.md", p); fixed {
+		agentLog("Rewrote dotnet test command to reference .csproj from file list.")
+		p, _ = plan.Parse("PLAN.md")
+		currentPlan = p
+	}
 
 	ok, missing := plan.CheckGoalAlignment(p, cfg.Goal)
 	if !ok {
@@ -313,7 +333,7 @@ func detectComplexity(cfg *agentConfig) {
 
 	var complexity string
 	switch {
-	case hasLib || words > 8:
+	case hasLib:
 		complexity = "complex"
 	case words <= 4:
 		complexity = "trivial"
@@ -332,7 +352,7 @@ func detectComplexity(cfg *agentConfig) {
 	if cfg.PlannerTimeout == 0 {
 		cfg.PlannerTimeout = map[string]int{"trivial": 120, "simple": 200, "complex": 360}[complexity]
 	}
-	cfg.WriterTimeout = map[string]int{"trivial": 90, "simple": 150, "complex": 240}[complexity]
+	cfg.WriterTimeout = map[string]int{"trivial": 90, "simple": 220, "complex": 300}[complexity]
 
 	if cfg.Combined == -1 {
 		if complexity == "trivial" {
@@ -491,9 +511,23 @@ func runPlanner(cfg *agentConfig, logFile string) error {
 		"--thinking", cfg.PlannerThinking,
 		"--model", cfg.AgentModel,
 		"--append-system-prompt", autonomousSystem,
-		"-p", prompt,
 	}
+	// Load task-planner skill from dotfiles if available (requiredSkillsVersion)
+	if skillContent := loadSkill("task-planner"); skillContent != "" {
+		args = append(args, "--append-system-prompt", skillContent)
+	}
+	args = append(args, "-p", prompt)
 	return runBackground("pi", args, logFile, cfg.PlannerTimeout, "PLAN.md", nil)
+}
+
+func loadSkill(name string) string {
+	home, _ := os.UserHomeDir()
+	path := filepath.Join(home, ".pi", "agent", "skills", name, "SKILL.md")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 func runCombinedPlanner(cfg *agentConfig, logFile string) (string, error) {
@@ -757,8 +791,8 @@ func runRepair(cfg *agentConfig, testCmd, testTail, fixLog, sesDir, autonomousSy
 	fixRules := fmt.Sprintf(`REPAIR PROTOCOL — follow these steps exactly:
 1. Run '%s' via Bash to read the current failure output.
 2. Fix the broken file: use Write to rewrite it entirely, or Edit with 3-5 lines of surrounding context so old_string is unique.
-3. Run '%s' again via Bash to confirm it passes.
-4. Stop when tests exit 0. Do not explain the fix. Do not modify PLAN.md.`, testCmd, testCmd)
+3. Stop immediately after writing the fix — do not run tests again, do not explain. The harness will verify.
+4. Do not modify PLAN.md.`, testCmd)
 
 	args := []string{
 		"--thinking", cfg.WriterThinking,
@@ -770,13 +804,51 @@ func runRepair(cfg *agentConfig, testCmd, testTail, fixLog, sesDir, autonomousSy
 		"-p", fmt.Sprintf("Tests are failing. Fix the broken code now — do not explain, just call Write or Edit.\n\nTest command: `%s`\nLast output (tail):\n%s", testCmd, testTail),
 	}
 	f, _ := os.Create(fixLog)
+	defer f.Close()
+
 	cmd := exec.Command("pi", args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Stdout = f
 	cmd.Stderr = f
 	cmd.Stdin, _ = os.Open(os.DevNull)
-	_ = cmd.Run()
-	f.Close()
+
+	if err := cmd.Start(); err != nil {
+		return
+	}
+	pid := cmd.Process.Pid
+
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+
+	start := time.Now()
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			elapsed := int(time.Since(start).Seconds())
+			if testsSilent(testCmd) {
+				agentLog("Repair: tests pass after %ds — stopping pi.", elapsed)
+				killProcess(pid)
+				return
+			}
+			if elapsed >= cfg.WriterTimeout {
+				agentLog("Repair timed out after %ds — killing.", cfg.WriterTimeout)
+				killProcess(pid)
+				return
+			}
+		}
+	}
+}
+
+func testsSilent(cmd string) bool {
+	c := exec.Command("bash", "-c", cmd)
+	c.Stdout = nil
+	c.Stderr = nil
+	return c.Run() == nil
 }
 
 func finalTestGate(cfg *agentConfig, p *plan.Plan, autonomousSystem string) error {
@@ -905,6 +977,9 @@ REQUIREMENTS:
    - 'C' or 'using C' -> .c files compiled with gcc/clang. NEVER use C# (.cs / dotnet).
    - 'C++' or 'using C++' -> .cpp files compiled with g++/clang++.
    - 'Python' -> .py files. 'Go' -> .go files. 'Rust' -> .rs files. Etc.
+   - 'C#' or 'dotnet' -> MUST include a .csproj file. List it FIRST in ## Files.
+     Simple programs: one .csproj in root + Program.cs. Test Command: dotnet run --project <name>.csproj
+     NEVER use 'dotnet test' or 'dotnet run' unless the .csproj appears in ## Files.
 
 3. MAKEFILE COMPLETENESS: If the Test Command references a make target, the Makefile MUST define
    that target from the start. Define test targets with a recipe even if the test source file
@@ -950,12 +1025,7 @@ func buildWritePrompt(goal string, task *plan.Task, p *plan.Plan, projectDir str
 ## Steps
 1. Determine the complete, correct content for the file from the goal and plan.
 2. Call Write with the full, runnable content.
-3. Stop immediately after Write — no other output.
-
-## What good looks like
-Complete, functional code written once via Write — no stubs, no questions, no chat text.
-Wrong: "What format should I use?" — make your own decision.
-Wrong: Emitting code in a fenced block without calling Write.`)
+3. Stop immediately after Write — no other output.`)
 
 	_ = projectDir
 	return sb.String()

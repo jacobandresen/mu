@@ -261,7 +261,68 @@ func IsBuildFile(name string) bool {
 		"build.sh", "package.json", "pyproject.toml", "meson.build":
 		return true
 	}
+	if strings.HasSuffix(name, ".csproj") {
+		return true
+	}
 	return false
+}
+
+// FixDotnetTestCommand rewrites the test command when dotnet is used without a .csproj
+// in the file list. When the test command is "dotnet test" or bare "dotnet run" but no
+// test project is listed, rewrites to "dotnet run --project <first-csproj>".
+func FixDotnetTestCommand(planPath string, p *Plan) (bool, error) {
+	cmd := strings.TrimSpace(p.TestCommand)
+	isDotnetTest := cmd == "dotnet test" || strings.HasPrefix(cmd, "dotnet test ")
+	isDotnetRun := cmd == "dotnet run" || strings.HasPrefix(cmd, "dotnet run ")
+	if !isDotnetTest && !isDotnetRun {
+		return false, nil
+	}
+
+	// Find the first .csproj in the file list
+	var csproj string
+	for _, t := range p.Tasks {
+		if strings.HasSuffix(t.FilePath, ".csproj") {
+			csproj = t.FilePath
+			break
+		}
+	}
+	if csproj == "" {
+		return false, nil
+	}
+
+	// If test command already points to this csproj, nothing to do
+	if strings.Contains(cmd, csproj) {
+		return false, nil
+	}
+
+	// Rewrite bare "dotnet test" → "dotnet run --project <csproj>" for simple programs
+	// (when no separate test .csproj exists, just run the program as the test)
+	var newCmd string
+	testCsproj := ""
+	for _, t := range p.Tasks {
+		if strings.HasSuffix(t.FilePath, ".csproj") && t.FilePath != csproj {
+			testCsproj = t.FilePath
+			break
+		}
+	}
+	if testCsproj != "" {
+		// Two csproj files: src + tests — use the test one
+		newCmd = "dotnet test " + testCsproj
+	} else {
+		// Single csproj: run the program
+		newCmd = "dotnet run --project " + csproj
+	}
+
+	data, err := os.ReadFile(planPath)
+	if err != nil {
+		return false, err
+	}
+	content := string(data)
+	updated := strings.ReplaceAll(content, "\n"+cmd+"\n", "\n"+newCmd+"\n")
+	if updated == content {
+		return false, nil
+	}
+	return true, os.WriteFile(planPath, []byte(updated), 0644)
 }
 
 // NormalizeEmbeddedFiles extracts file content from plan sections like
@@ -403,6 +464,74 @@ func isRunCommand(cmd string) bool {
 	}
 	// pure "make" alone is fine (compile only)
 	return false
+}
+
+// NormalizeTestCommand applies portable fixups to the test command:
+//   - Replaces bare "python " with "python3 " so the command works in non-login
+//     bash subprocesses where the "python" alias is not available.
+func NormalizeTestCommand(planPath string) (bool, error) {
+	data, err := os.ReadFile(planPath)
+	if err != nil {
+		return false, err
+	}
+	content := string(data)
+	updated := content
+
+	// python → python3 (modern systems; avoids alias-not-found in bash -c)
+	updated = strings.ReplaceAll(updated, "\npython ", "\npython3 ")
+
+	if updated == content {
+		return false, nil
+	}
+	return true, os.WriteFile(planPath, []byte(updated), 0644)
+}
+
+// FixNoMakefileTestCommand rewrites "make" test commands when no Makefile is listed
+// in the plan's file tasks. Derives an inline compile+run command from the first
+// source file's extension so trivial programs don't stall on a missing Makefile.
+func FixNoMakefileTestCommand(planPath string, p *Plan) (bool, error) {
+	if p.TestCommand != "make" {
+		return false, nil
+	}
+	for _, t := range p.Tasks {
+		if IsBuildFile(t.FilePath) {
+			return false, nil
+		}
+	}
+	if len(p.Tasks) == 0 {
+		return false, nil
+	}
+	src := p.Tasks[0].FilePath
+	ext := extOf(baseOf(src))
+	stem := stemOf(baseOf(src))
+
+	var newCmd string
+	switch ext {
+	case "c":
+		newCmd = "gcc " + src + " -o " + stem + " && ./" + stem
+	case "cpp", "cc", "cxx":
+		newCmd = "g++ " + src + " -o " + stem + " && ./" + stem
+	case "py":
+		newCmd = "python3 " + src
+	case "go":
+		newCmd = "go run " + src
+	case "rs":
+		newCmd = "rustc " + src + " -o " + stem + " && ./" + stem
+	default:
+		return false, nil
+	}
+
+	data, err := os.ReadFile(planPath)
+	if err != nil {
+		return false, err
+	}
+	// Replace the test command line — it appears as a bare "make" line in the section
+	content := string(data)
+	updated := strings.ReplaceAll(content, "\nmake\n", "\n"+newCmd+"\n")
+	if updated == content {
+		return false, nil
+	}
+	return true, os.WriteFile(planPath, []byte(updated), 0644)
 }
 
 func RecoverFromLog(logPath, planPath string) (bool, error) {

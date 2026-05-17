@@ -25,12 +25,13 @@ func wrap(code, s string) string {
 	return "\033[" + code + "m" + s + "\033[0m"
 }
 
-func Green(s string) string  { return wrap("32", s) }
-func Yellow(s string) string { return wrap("33", s) }
-func Red(s string) string    { return wrap("31", s) }
-func Cyan(s string) string   { return wrap("36", s) }
-func Bold(s string) string   { return wrap("1", s) }
-func Dim(s string) string    { return wrap("2", s) }
+func Green(s string) string   { return wrap("32", s) }
+func Yellow(s string) string  { return wrap("33", s) }
+func Red(s string) string     { return wrap("31", s) }
+func Cyan(s string) string    { return wrap("36", s) }
+func Magenta(s string) string { return wrap("35", s) }
+func Bold(s string) string    { return wrap("1", s) }
+func Dim(s string) string     { return wrap("2", s) }
 
 var ansiRE = regexp.MustCompile(`\033\[[0-9;]*m`)
 

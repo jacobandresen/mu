@@ -29,4 +29,4 @@ make install
 
 ## Practice
 
-Rinzai Zen uses koans — direct problems that provoke insight through repeated confrontation. [PRACTICE.md](PRACTICE.md) is the koan set for mu: run the problems, inspect the logs, sharpen the agent.
+[PRACTICE.md](PRACTICE.md) has a problem set for mu: run the problems, inspect the logs, sharpen the agent.
