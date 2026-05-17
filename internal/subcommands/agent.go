@@ -244,14 +244,18 @@ func runAgent(cfg agentConfig) error {
 			if lintCmd := lintCommand(combinedSrc, p); lintCmd != "" {
 				lintLog := filepath.Join(logDir, "lint-combined.log")
 				if !runLint(lintCmd, lintLog) {
-					agentLog("Lint failed for combined-mode %s — invoking repair.", combinedSrc)
+					if ruffAutoFix(combinedSrc) && runLint(lintCmd, lintLog) {
+						agentLog("Lint auto-fixed (ruff --fix): %s", combinedSrc)
+					} else {
+						agentLog("Lint failed for combined-mode %s — invoking repair.", combinedSrc)
 						lintHead := headFile(lintLog, 60)
-					runRepairLint(&cfg, lintCmd, combinedSrc, lintHead, autonomousSystem)
-					if !runLint(lintCmd, lintLog) {
-						exitCode = 3
-						return fmt.Errorf("lint failed for combined-mode %s", combinedSrc)
+						runRepairLint(&cfg, lintCmd, combinedSrc, lintHead, autonomousSystem)
+						if !runLint(lintCmd, lintLog) {
+							exitCode = 3
+							return fmt.Errorf("lint failed for combined-mode %s", combinedSrc)
+						}
+						agentLog("Lint passed after repair for combined-mode %s.", combinedSrc)
 					}
-					agentLog("Lint passed after repair for combined-mode %s.", combinedSrc)
 				} else {
 					agentLog("Lint passed: %s", combinedSrc)
 				}
@@ -305,6 +309,14 @@ func runAgent(cfg agentConfig) error {
 			}
 		}
 
+		// Post-write: fix go.mod with invalid top-level directives (model sometimes writes
+		// "gin v1.9.1" instead of "require ( github.com/gin-gonic/gin v1.9.1 )")
+		if strings.EqualFold(filepath.Base(task.FilePath), "go.mod") {
+			if fixedMod, _ := fixGoMod(task.FilePath); fixedMod {
+				agentLog("Fixed go.mod: moved bare pkg directives into require block.")
+			}
+		}
+
 		// Post-write: fix SDL2 include path (model writes SDL2/SDL.h; macOS homebrew needs SDL.h)
 		if goalIsGraphical && isSDLSource(task.FilePath) {
 			if fixedSDL, _ := fixSDLInclude(task.FilePath); fixedSDL {
@@ -336,15 +348,21 @@ func runAgent(cfg agentConfig) error {
 		if lintCmd := lintCommand(task.FilePath, p); lintCmd != "" {
 			lintLog := filepath.Join(logDir, fmt.Sprintf("lint-iter-%02d.log", i))
 			if !runLint(lintCmd, lintLog) {
-				agentLog("Lint failed for %s — invoking repair.", task.FilePath)
-				lintHead := headFile(lintLog, 60)
-				runRepairLint(&cfg, lintCmd, task.FilePath, lintHead, autonomousSystem)
-				if !runLint(lintCmd, lintLog) {
-					agentLog("Lint still failing after repair for %s.", task.FilePath)
-					exitCode = 3
-					return fmt.Errorf("lint failed for %s", task.FilePath)
+				// Try ruff --fix before invoking the model — ruff can auto-fix many F401s
+				// and similar issues without LLM involvement, and does so correctly.
+				if ruffAutoFix(task.FilePath) && runLint(lintCmd, lintLog) {
+					agentLog("Lint auto-fixed (ruff --fix): %s", task.FilePath)
+				} else {
+					agentLog("Lint failed for %s — invoking repair.", task.FilePath)
+					lintHead := headFile(lintLog, 60)
+					runRepairLint(&cfg, lintCmd, task.FilePath, lintHead, autonomousSystem)
+					if !runLint(lintCmd, lintLog) {
+						agentLog("Lint still failing after repair for %s.", task.FilePath)
+						exitCode = 3
+						return fmt.Errorf("lint failed for %s", task.FilePath)
+					}
+					agentLog("Lint passed after repair for %s.", task.FilePath)
 				}
-				agentLog("Lint passed after repair for %s.", task.FilePath)
 			} else {
 				agentLog("Lint passed: %s", task.FilePath)
 			}
@@ -630,9 +648,25 @@ GOAL: %s`, projectDir, cfg.Goal)
 
 	combinedTimeout := time.Duration(cfg.PlannerTimeout+cfg.WriterTimeout) * time.Second
 	sess := agent.NewSession(systemPrompt)
+	// Exit as soon as PLAN.md and its first source file both exist — don't wait for
+	// the model's "I'm done" response, which can time out after the files are written.
+	sess.WatchFunc = func() bool {
+		if _, e := os.Stat("PLAN.md"); e != nil {
+			return false
+		}
+		p, e := plan.Parse("PLAN.md")
+		if e != nil || p == nil || len(p.Tasks) == 0 {
+			return false
+		}
+		_, e = os.Stat(p.Tasks[0].FilePath)
+		return e == nil
+	}
 	_, err := sess.Run(cfg.AgentModel, prompt, cfg.PlannerThinking, "Planning", 30, "", combinedTimeout)
 	if err != nil {
-		agentLog("Combined planner: %v", err)
+		// Suppress timeout noise when files were already written before the deadline fired
+		if _, e := os.Stat("PLAN.md"); e != nil {
+			agentLog("Combined planner: %v", err)
+		}
 	}
 
 	if _, e := os.Stat("PLAN.md"); e != nil {
@@ -684,36 +718,43 @@ func runTests(cmd, logFile string) bool {
 }
 
 func runRepair(cfg *agentConfig, testCmd, testTail, autonomousSystem string) {
-	fixRules := fmt.Sprintf(`REPAIR PROTOCOL — follow these steps exactly:
-1. Run '%s' via Bash to read the current failure output.
-2. Fix the broken file: use Write to rewrite it entirely, or Edit with 3-5 lines of surrounding context so old_string is unique.
-3. Stop immediately after writing the fix — do not run tests again, do not explain. The harness will verify.
-4. Do not modify PLAN.md.`, testCmd)
+	fixRules := `REPAIR PROTOCOL:
+- The test output is already provided below. Do not run any commands.
+- Call Edit to make the smallest targeted change. Only use Write if you must replace the entire file.
+- Only modify files that already exist in the project. Do not create new files.
+- One tool call only. Do not modify PLAN.md.`
 
-	prompt := fmt.Sprintf("Tests are failing. Fix the broken code now — do not explain, just call Write or Edit.\n\nTest command: `%s`\nLast output (tail):\n%s", testCmd, testTail)
+	prompt := fmt.Sprintf("GOAL: %s\n\nTests are failing. Fix the broken code now.\n\nTest output:\n%s", cfg.Goal, testTail)
 	systemPrompt := autonomousSystem + "\n\n" + fixRules
 
 	sess := agent.NewSession(systemPrompt)
+	sess.Tools = agent.RepairToolDefs
 	timeout := time.Duration(cfg.WriterTimeout) * time.Second
-	_, err := sess.Run(cfg.AgentModel, prompt, cfg.WriterThinking, "Repairing", 10, "", timeout)
+	_, err := sess.Run(cfg.AgentModel, prompt, cfg.WriterThinking, "Repairing", 4, "", timeout)
 	if err != nil {
 		agentLog("Repair: %v", err)
 	}
 }
 
 func runRepairLint(cfg *agentConfig, lintCmd, filePath, lintHead, autonomousSystem string) {
-	fixRules := fmt.Sprintf(`REPAIR PROTOCOL — follow these steps exactly:
-1. Read the lint output below carefully to identify the exact syntax error.
-2. Fix the broken file %s: use Write to rewrite it entirely, or Edit with surrounding context.
-3. Stop immediately after writing the fix — do not re-run lint. The harness will verify.
-4. Do not modify PLAN.md.`, filePath)
+	fileContent := ""
+	if data, err := os.ReadFile(filePath); err == nil {
+		fileContent = fmt.Sprintf("\n\nCurrent file:\n```\n%s\n```", string(data))
+	}
 
-	prompt := fmt.Sprintf("Lint is failing for %s. Fix the broken code now — do not explain, just call Write or Edit.\n\nLint command: `%s`\nLint output (first errors):\n%s", filePath, lintCmd, lintHead)
+	fixRules := fmt.Sprintf(`REPAIR PROTOCOL:
+- The lint errors and current file are provided below. Do not run any commands.
+- Call Edit to make the smallest targeted change to fix %s. Only use Write if you must replace the entire file.
+- Only modify %s. Do not create new files or modify other files.
+- One tool call only. Do not modify PLAN.md.`, filePath, filePath)
+
+	prompt := fmt.Sprintf("GOAL: %s\n\nLint failed for %s. Fix it now.\n\nLint errors:\n%s%s", cfg.Goal, filePath, lintHead, fileContent)
 	systemPrompt := autonomousSystem + "\n\n" + fixRules
 
 	sess := agent.NewSession(systemPrompt)
+	sess.Tools = agent.RepairToolDefs
 	timeout := time.Duration(cfg.WriterTimeout) * time.Second
-	_, err := sess.Run(cfg.AgentModel, prompt, "medium", "Repairing", 10, "", timeout)
+	_, err := sess.Run(cfg.AgentModel, prompt, "medium", "Repairing", 4, "", timeout)
 	if err != nil {
 		agentLog("Lint repair: %v", err)
 	}
@@ -736,7 +777,7 @@ func finalTestGate(cfg *agentConfig, p *plan.Plan, autonomousSystem string) erro
 		return nil
 	}
 
-	maxRetries := 3
+	maxRetries := 1
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		testLog := filepath.Join(logDir, "tests-final.log")
 		if runTests(testCmd, testLog) {
@@ -1034,6 +1075,19 @@ func lintCommand(filePath string, p *plan.Plan) string {
 	return ""
 }
 
+// ruffAutoFix runs "ruff check --fix" on filePath when ruff is available.
+// Returns true if ruff ran (regardless of whether it changed anything).
+func ruffAutoFix(filePath string) bool {
+	if _, err := exec.LookPath("ruff"); err != nil {
+		return false
+	}
+	if strings.ToLower(filepath.Ext(filePath)) != ".py" {
+		return false
+	}
+	exec.Command("ruff", "check", "--fix", "--select=E9,F", filePath).Run()
+	return true
+}
+
 func runLint(lintCmd, logFile string) bool {
 	f, _ := os.Create(logFile)
 	defer f.Close()
@@ -1116,6 +1170,59 @@ func fixGoMakefile(f string) (bool, error) {
 		return false, nil
 	}
 	return true, os.WriteFile(f, []byte(strings.Join(out, "\n")), 0644)
+}
+
+// fixGoMod detects go.mod files where the model wrote bare "pkg version" lines instead of
+// wrapping them in a require block. It collects those lines and rewrites them correctly.
+func fixGoMod(f string) (bool, error) {
+	data, err := os.ReadFile(f)
+	if err != nil {
+		return false, err
+	}
+	lines := strings.Split(string(data), "\n")
+	validDirectives := map[string]bool{
+		"module": true, "go": true, "require": true, "replace": true,
+		"exclude": true, "retract": true, "toolchain": true, "//": true, "": true,
+	}
+	var kept []string
+	var bareReqs []string
+	inBlock := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "//") {
+			kept = append(kept, line)
+			continue
+		}
+		if strings.HasSuffix(trimmed, "(") {
+			inBlock = true
+			kept = append(kept, line)
+			continue
+		}
+		if trimmed == ")" {
+			inBlock = false
+			kept = append(kept, line)
+			continue
+		}
+		if inBlock {
+			kept = append(kept, line)
+			continue
+		}
+		// Check if this is a known directive
+		first := strings.Fields(trimmed)[0]
+		if validDirectives[first] {
+			kept = append(kept, line)
+		} else {
+			// Looks like a bare "pkgname version" line — collect it as a require
+			bareReqs = append(bareReqs, "\t"+trimmed)
+		}
+	}
+	if len(bareReqs) == 0 {
+		return false, nil
+	}
+	result := strings.Join(kept, "\n")
+	result = strings.TrimRight(result, "\n")
+	result += "\n\nrequire (\n" + strings.Join(bareReqs, "\n") + "\n)\n"
+	return true, os.WriteFile(f, []byte(result), 0644)
 }
 
 func isSDLSource(f string) bool {

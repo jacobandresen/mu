@@ -26,6 +26,7 @@ var deps = []struct {
 	}},
 	{"Language runtimes", []dep{
 		{"python3", "python3", "mu setup"},
+		{"pytest", "pytest", "pip3 install pytest  [Python test runner]"},
 	}},
 	{"Tools", []dep{
 		{"fzf", "fzf", "mu setup"},

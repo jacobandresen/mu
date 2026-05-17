@@ -11,6 +11,8 @@ import (
 
 type Session struct {
 	SystemPrompt string
+	Tools        []ollama.ToolDef // if nil, defaults to ToolDefs
+	WatchFunc    func() bool      // optional: called after each tool dispatch; exit early if true
 }
 
 func NewSession(systemPrompt string) *Session {
@@ -66,7 +68,11 @@ func (s *Session) Run(model, userPrompt, thinking, label string, maxTurns int, w
 			return false, fmt.Errorf("timeout after %v", timeout)
 		}
 
-		msg, err := ollama.Chat(model, msgs, ToolDefs, remaining)
+		tools := s.Tools
+		if tools == nil {
+			tools = ToolDefs
+		}
+		msg, err := ollama.Chat(model, msgs, tools, remaining)
 		if err != nil {
 			return false, fmt.Errorf("chat: %w", err)
 		}
@@ -89,6 +95,9 @@ func (s *Session) Run(model, userPrompt, thinking, label string, maxTurns int, w
 				if _, statErr := os.Stat(watchFile); statErr == nil {
 					return true, nil
 				}
+			}
+			if s.WatchFunc != nil && s.WatchFunc() {
+				return true, nil
 			}
 		}
 	}

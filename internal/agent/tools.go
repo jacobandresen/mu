@@ -72,6 +72,19 @@ var ToolDefs = []ollama.ToolDef{
 	},
 }
 
+// RepairToolDefs is Write + Edit + Read only — no Bash.
+// Repair sessions already have the error output in the prompt; removing Bash
+// prevents the model from re-running test/lint commands instead of just fixing the file.
+var RepairToolDefs []ollama.ToolDef
+
+func init() {
+	for _, t := range ToolDefs {
+		if t.Function.Name != "Bash" {
+			RepairToolDefs = append(RepairToolDefs, t)
+		}
+	}
+}
+
 func DispatchTool(name string, args map[string]any) string {
 	switch name {
 	case "Write":
