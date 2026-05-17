@@ -51,7 +51,7 @@ func runSetup(yes bool) error {
 	case "darwin":
 		pkgs := []string{
 			"neovim", "make", "gcc", "llvm", "node", "python", "jq", "git",
-			"fpc", "fzf", "ripgrep", "fd", "ollama", "SDL2",
+			"fpc", "fzf", "ripgrep", "fd", "ollama", "SDL2", "ruff",
 		}
 		if err := runCmd(yes, "brew", append([]string{"install"}, pkgs...)...); err != nil {
 			return err
@@ -76,7 +76,7 @@ func runSetup(yes bool) error {
 			pkgs := []string{
 				"--needed", "neovim", "ttf-terminus-nerd", "base-devel", "make", "gcc",
 				"clang", "nodejs", "npm", "python", "jq", "git", "fpc", "fzf",
-				"wl-clipboard", "ripgrep", "fd", "ollama", "unzip",
+				"wl-clipboard", "ripgrep", "fd", "ollama", "unzip", "ruff",
 			}
 			if err := runCmd(yes, "sudo", append([]string{"pacman", "-S"}, pkgs...)...); err != nil {
 				return err
@@ -96,11 +96,14 @@ func runSetup(yes bool) error {
 			}
 			pkgs := []string{
 				"-y", "neovim", "build-essential", "make", "gcc", "clang", "clang-tidy",
-				"nodejs", "npm", "python3", "jq", "git", "fpc", "fzf",
+				"nodejs", "npm", "python3", "python3-pip", "jq", "git", "fpc", "fzf",
 				"ripgrep", "fd-find", "unzip",
 			}
 			if err := runCmd(yes, "sudo", append([]string{"apt-get", "install"}, pkgs...)...); err != nil {
 				return err
+			}
+			if err := runCmd(yes, "pip3", "install", "--user", "ruff"); err != nil {
+				fmt.Println("Warning: ruff install failed — Python linting unavailable")
 			}
 			// fd-find → fd symlink
 			if fdf, err := exec.LookPath("fdfind"); err == nil {
@@ -118,6 +121,9 @@ func runSetup(yes bool) error {
 		return fmt.Errorf("unsupported OS: %s", runtime.GOOS)
 	}
 
-	fmt.Println("\nInstalling pi...")
-	return runCmd(yes, "npm", "install", "-g", "@earendil-works/pi-coding-agent")
+	fmt.Println("\nInstalling npm globals (pi, typescript)...")
+	if err := runCmd(yes, "npm", "install", "-g", "@earendil-works/pi-coding-agent", "typescript"); err != nil {
+		return err
+	}
+	return nil
 }

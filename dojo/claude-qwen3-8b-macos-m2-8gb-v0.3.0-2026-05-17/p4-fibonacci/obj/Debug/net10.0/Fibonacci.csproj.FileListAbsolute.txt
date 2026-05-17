@@ -1,0 +1,15 @@
+/Users/jacob/Projects/mu/dojo/claude-qwen3-8b-macos-m2-8gb-v0.3.0-2026-05-17/p4-fibonacci/bin/Debug/net10.0/Fibonacci
+/Users/jacob/Projects/mu/dojo/claude-qwen3-8b-macos-m2-8gb-v0.3.0-2026-05-17/p4-fibonacci/bin/Debug/net10.0/Fibonacci.deps.json
+/Users/jacob/Projects/mu/dojo/claude-qwen3-8b-macos-m2-8gb-v0.3.0-2026-05-17/p4-fibonacci/bin/Debug/net10.0/Fibonacci.runtimeconfig.json
+/Users/jacob/Projects/mu/dojo/claude-qwen3-8b-macos-m2-8gb-v0.3.0-2026-05-17/p4-fibonacci/bin/Debug/net10.0/Fibonacci.dll
+/Users/jacob/Projects/mu/dojo/claude-qwen3-8b-macos-m2-8gb-v0.3.0-2026-05-17/p4-fibonacci/bin/Debug/net10.0/Fibonacci.pdb
+/Users/jacob/Projects/mu/dojo/claude-qwen3-8b-macos-m2-8gb-v0.3.0-2026-05-17/p4-fibonacci/obj/Debug/net10.0/Fibonacci.GeneratedMSBuildEditorConfig.editorconfig
+/Users/jacob/Projects/mu/dojo/claude-qwen3-8b-macos-m2-8gb-v0.3.0-2026-05-17/p4-fibonacci/obj/Debug/net10.0/Fibonacci.AssemblyInfoInputs.cache
+/Users/jacob/Projects/mu/dojo/claude-qwen3-8b-macos-m2-8gb-v0.3.0-2026-05-17/p4-fibonacci/obj/Debug/net10.0/Fibonacci.AssemblyInfo.cs
+/Users/jacob/Projects/mu/dojo/claude-qwen3-8b-macos-m2-8gb-v0.3.0-2026-05-17/p4-fibonacci/obj/Debug/net10.0/Fibonacci.csproj.CoreCompileInputs.cache
+/Users/jacob/Projects/mu/dojo/claude-qwen3-8b-macos-m2-8gb-v0.3.0-2026-05-17/p4-fibonacci/obj/Debug/net10.0/Fibonacci.sourcelink.json
+/Users/jacob/Projects/mu/dojo/claude-qwen3-8b-macos-m2-8gb-v0.3.0-2026-05-17/p4-fibonacci/obj/Debug/net10.0/Fibonacci.dll
+/Users/jacob/Projects/mu/dojo/claude-qwen3-8b-macos-m2-8gb-v0.3.0-2026-05-17/p4-fibonacci/obj/Debug/net10.0/refint/Fibonacci.dll
+/Users/jacob/Projects/mu/dojo/claude-qwen3-8b-macos-m2-8gb-v0.3.0-2026-05-17/p4-fibonacci/obj/Debug/net10.0/Fibonacci.pdb
+/Users/jacob/Projects/mu/dojo/claude-qwen3-8b-macos-m2-8gb-v0.3.0-2026-05-17/p4-fibonacci/obj/Debug/net10.0/Fibonacci.genruntimeconfig.cache
+/Users/jacob/Projects/mu/dojo/claude-qwen3-8b-macos-m2-8gb-v0.3.0-2026-05-17/p4-fibonacci/obj/Debug/net10.0/ref/Fibonacci.dll

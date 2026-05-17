@@ -27,6 +27,7 @@ func main() {
 		subcommands.NewExtractCmd(),
 		subcommands.NewPrimeCmd(),
 		subcommands.NewAgentCmd(),
+		subcommands.NewVersionCmd(),
 	)
 
 	if err := root.Execute(); err != nil {

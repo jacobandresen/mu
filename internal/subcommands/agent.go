@@ -128,6 +128,9 @@ func runAgent(cfg agentConfig) error {
 		}
 	}
 	_ = ollama.UnloadOthers(cfg.AgentModel)
+	if err := ollama.LoadModel(cfg.AgentModel, "30m"); err != nil {
+		agentLog("WARNING: could not pre-load model: %v", err)
+	}
 
 	// Session
 	sess, _ := archive.NewSession(cfg.Goal, cfg.ArchiveDir, logDir, cfg.MaxIter)
@@ -206,6 +209,13 @@ func runAgent(cfg agentConfig) error {
 		currentPlan = p
 	}
 
+	// Drop runtime-generated files (*.db, *.sqlite, *.o, etc.) the model mistakenly lists
+	if dropped := plan.DropRuntimeArtifacts("PLAN.md", p); len(dropped) > 0 {
+		agentLog("Dropped runtime artifact tasks from plan: %s", strings.Join(dropped, ", "))
+		p, _ = plan.Parse("PLAN.md")
+		currentPlan = p
+	}
+
 	ok, missing := plan.CheckGoalAlignment(p, cfg.Goal)
 	if !ok {
 		agentLog("WARNING: PLAN.md contains none of the goal keywords — plan may be misaligned.")
@@ -250,16 +260,42 @@ func runAgent(cfg agentConfig) error {
 
 		if !runWriter(&cfg, task.FilePath, iterLog, iterErrLog, writePrompt, autonomousSystem) {
 			if _, err := os.Stat(task.FilePath); err != nil {
-				// Retry with simpler prompt
+				// Retry with simpler prompt in a fresh session (avoids corrupted compaction context)
+				// Enable thinking so the model can reason before writing
 				agentLog("Writer did not produce %s — retrying.", task.FilePath)
 				retryLog := filepath.Join(logDir, fmt.Sprintf("iter-%02d-retry.log", i))
 				retryErrLog := filepath.Join(logDir, fmt.Sprintf("iter-%02d-retry.err", i))
-				retryPrompt := fmt.Sprintf("Write file NOW: `%s`\nDerive every detail from GOAL and PLAN.md. Make your own decisions.\nCall Write exactly once with the complete file contents. Stop immediately after.\n\nGOAL: %s\n%s",
+				retryPrompt := fmt.Sprintf("Write file NOW: `%s`\nYou ONLY have the Write tool. Use it immediately — do not try to run commands or install packages.\nCall Write exactly once with the complete file contents. Stop immediately after.\n\nGOAL: %s\n%s",
 					task.FilePath, cfg.Goal, p.PlanContext)
-				if !runWriter(&cfg, task.FilePath, retryLog, retryErrLog, retryPrompt, autonomousSystem) {
+				retrySessionDir := filepath.Join(logDir, "code-session-retry")
+				retryCfg := cfg
+				retryCfg.WriterThinking = "auto" // enable thinking on retry to unblock stalled models
+				if !runWriterWithSession(&retryCfg, task.FilePath, retryLog, retryErrLog, retryPrompt, autonomousSystem, retrySessionDir) {
 					agentLog("Iteration %d: %s not written after retry.", i, task.FilePath)
 					exitCode = 3
 					return fmt.Errorf("stalled: model did not write %s", task.FilePath)
+				}
+			}
+		}
+
+		// Detect near-empty written file (e.g. writer produced only "import app" for a test file).
+		// Any real source file is > 100 bytes; stubs from stalled models are much smaller.
+		if fi, statErr := os.Stat(task.FilePath); statErr == nil && fi.Size() < 100 {
+			ext := strings.ToLower(filepath.Ext(task.FilePath))
+			isConfigLike := ext == ".txt" || ext == ".toml" || ext == ".mod" || ext == ".sum" ||
+				ext == ".json" || ext == ".yaml" || ext == ".yml" || ext == ".lock"
+			if !plan.IsBuildFile(task.FilePath) && !isConfigLike {
+				agentLog("Writer produced near-empty %s (%d bytes) — retrying with thinking.", task.FilePath, fi.Size())
+				_ = os.Remove(task.FilePath)
+				stubRetryLog := filepath.Join(logDir, fmt.Sprintf("iter-%02d-stub-retry.log", i))
+				stubRetryErrLog := filepath.Join(logDir, fmt.Sprintf("iter-%02d-stub-retry.err", i))
+				stubRetryPrompt := fmt.Sprintf("Write file NOW: `%s`\nYou ONLY have the Write tool. Use it immediately — do not try to run commands or install packages.\nCall Write exactly once with the complete file contents. Stop immediately after.\n\nGOAL: %s\n%s",
+					task.FilePath, cfg.Goal, p.PlanContext)
+				stubRetrySessionDir := filepath.Join(logDir, "code-session-stub-retry")
+				retryCfg := cfg
+				retryCfg.WriterThinking = "auto"
+				if !runWriterWithSession(&retryCfg, task.FilePath, stubRetryLog, stubRetryErrLog, stubRetryPrompt, autonomousSystem, stubRetrySessionDir) {
+					agentLog("Iteration %d: %s still near-empty after retry.", i, task.FilePath)
 				}
 			}
 		}
@@ -271,10 +307,39 @@ func runAgent(cfg agentConfig) error {
 			}
 		}
 
-		// Post-write: fix .csproj TargetFramework to match installed dotnet version
+		// Post-write: fix .csproj TargetFramework and strip duplicate Compile items
 		if strings.HasSuffix(task.FilePath, ".csproj") {
 			if fixedFw, _ := fixCsprojTargetFramework(task.FilePath); fixedFw {
 				agentLog("Fixed TargetFramework in %s to match installed dotnet.", task.FilePath)
+			}
+			if fixedCI, _ := fixCsprojCompileItems(task.FilePath); fixedCI {
+				agentLog("Removed explicit <Compile Include> items from %s (SDK auto-includes .cs files).", task.FilePath)
+			}
+		}
+
+		// Post-write: fix Go Makefile — ensure go mod init / go get run before go build
+		if plan.IsBuildFile(task.FilePath) && strings.EqualFold(filepath.Base(task.FilePath), "makefile") {
+			if fixedGo, _ := fixGoMakefile(task.FilePath); fixedGo {
+				agentLog("Fixed Go Makefile: added go mod init + go get before go build.")
+			}
+		}
+
+		// Lint gate: run linter immediately after each source file is written
+		if lintCmd := lintCommand(task.FilePath, p); lintCmd != "" {
+			lintLog := filepath.Join(logDir, fmt.Sprintf("lint-iter-%02d.log", i))
+			if !runLint(lintCmd, lintLog) {
+				agentLog("Lint failed for %s — invoking repair.", task.FilePath)
+				lintFixLog := filepath.Join(logDir, fmt.Sprintf("lint-fix-%02d.log", i))
+				lintHead := headFile(lintLog, 60)
+				runRepairLint(&cfg, lintCmd, task.FilePath, lintHead, lintFixLog, sessionDir, autonomousSystem)
+				if !runLint(lintCmd, lintLog) {
+					agentLog("Lint still failing after repair for %s.", task.FilePath)
+					exitCode = 3
+					return fmt.Errorf("lint failed for %s", task.FilePath)
+				}
+				agentLog("Lint passed after repair for %s.", task.FilePath)
+			} else {
+				agentLog("Lint passed: %s", task.FilePath)
 			}
 		}
 
@@ -329,7 +394,8 @@ func runAgent(cfg agentConfig) error {
 
 // ── Complexity detection ─────────────────────────────────────────────────────
 
-var libRE = regexp.MustCompile(`(?i)SDL2|OpenGL|ncurses|dotnet|C#|csharp|tensorflow|pytorch|django|flask|opencv|wxwidgets`)
+var libRE = regexp.MustCompile(`(?i)SDL2|OpenGL|ncurses|dotnet|C#|csharp|tensorflow|pytorch|django|flask|opencv|wxwidgets|express|gin|cargo`)
+var hardLibRE = regexp.MustCompile(`(?i)pytest|jest|xunit|nunit|rspec|cargo\s+test`)
 
 // graphicalRE matches goals that produce windowed/graphical programs that cannot be run headlessly
 var graphicalRE = regexp.MustCompile(`(?i)SDL2|OpenGL|ncurses|wxwidgets`)
@@ -340,6 +406,8 @@ func detectComplexity(cfg *agentConfig) {
 
 	var complexity string
 	switch {
+	case hasLib && hardLibRE.MatchString(cfg.Goal):
+		complexity = "hard"
 	case hasLib:
 		complexity = "complex"
 	case words <= 4:
@@ -357,12 +425,12 @@ func detectComplexity(cfg *agentConfig) {
 	}
 
 	if cfg.PlannerTimeout == 0 {
-		cfg.PlannerTimeout = map[string]int{"trivial": 120, "simple": 200, "complex": 360}[complexity]
+		cfg.PlannerTimeout = map[string]int{"trivial": 120, "simple": 200, "complex": 360, "hard": 480}[complexity]
 	}
-	cfg.WriterTimeout = map[string]int{"trivial": 90, "simple": 220, "complex": 300}[complexity]
+	cfg.WriterTimeout = map[string]int{"trivial": 90, "simple": 220, "complex": 300, "hard": 400}[complexity]
 
 	if cfg.Combined == -1 {
-		if complexity == "trivial" {
+		if complexity == "trivial" || complexity == "simple" {
 			cfg.Combined = 1
 		} else {
 			cfg.Combined = 0
@@ -539,7 +607,10 @@ func loadSkill(name string) string {
 
 func runCombinedPlanner(cfg *agentConfig, logFile string) (string, error) {
 	projectDir, _ := os.Getwd()
-	prompt := fmt.Sprintf(`Write TWO files in sequence using the Write tool.
+
+	var prompt string
+	if cfg.Complexity == "trivial" {
+		prompt = fmt.Sprintf(`Write TWO files in sequence using the Write tool.
 
 STEP 1 — Write '%s/PLAN.md' with:
 
@@ -559,20 +630,24 @@ STEP 2 — Immediately after writing PLAN.md, write the source file listed in it
 Do not pause between steps. Write both files and then STOP. No explanations.
 
 GOAL: %s`, projectDir, cfg.Goal)
+	} else {
+		// simple: use the full planner prompt, then immediately write the first source file
+		prompt = buildPlannerPrompt(cfg.Goal, projectDir) + "\n\nAfter writing PLAN.md, immediately write the FIRST source file listed in ## Files. Do not pause between the two writes. Stop after the first source file is written."
+	}
 
 	autonomousSystem := buildAutonomousSystem(projectDir)
 	combinedTimeout := cfg.PlannerTimeout + cfg.WriterTimeout
 
-	// We need to watch for both PLAN.md and the source file
-	// Use a simple approach: run the background process and watch for both
 	args := []string{
 		"--thinking", cfg.PlannerThinking,
 		"--model", cfg.AgentModel,
 		"--append-system-prompt", autonomousSystem,
-		"-p", prompt,
 	}
+	if skillContent := loadSkill("task-planner"); skillContent != "" {
+		args = append(args, "--append-system-prompt", skillContent)
+	}
+	args = append(args, "-p", prompt)
 
-	// Run and watch for PLAN.md + source file
 	err := runBackgroundCombined(args, logFile, combinedTimeout)
 	if err != nil {
 		return "", err
@@ -724,6 +799,10 @@ func killProcess(pid int) {
 // ── Writer ────────────────────────────────────────────────────────────────────
 
 func runWriter(cfg *agentConfig, targetFile, logFile, errLogFile, prompt, autonomousSystem string) bool {
+	return runWriterWithSession(cfg, targetFile, logFile, errLogFile, prompt, autonomousSystem, sessionDir)
+}
+
+func runWriterWithSession(cfg *agentConfig, targetFile, logFile, errLogFile, prompt, autonomousSystem, sesDir string) bool {
 	if dir := filepath.Dir(targetFile); dir != "." {
 		os.MkdirAll(dir, 0755)
 	}
@@ -737,7 +816,7 @@ func runWriter(cfg *agentConfig, targetFile, logFile, errLogFile, prompt, autono
 	args := []string{
 		"--thinking", cfg.WriterThinking,
 		"--model", cfg.AgentModel,
-		"--session-dir", sessionDir,
+		"--session-dir", sesDir,
 		"--append-system-prompt", autonomousSystem,
 		"--append-system-prompt", writeRules,
 		"-p", prompt,
@@ -851,6 +930,64 @@ func runRepair(cfg *agentConfig, testCmd, testTail, fixLog, sesDir, autonomousSy
 	}
 }
 
+func runRepairLint(cfg *agentConfig, lintCmd, filePath, lintHead, fixLog, sesDir, autonomousSystem string) {
+	fixRules := fmt.Sprintf(`REPAIR PROTOCOL — follow these steps exactly:
+1. Read the lint output below carefully to identify the exact syntax error.
+2. Fix the broken file %s: use Write to rewrite it entirely, or Edit with surrounding context.
+3. Stop immediately after writing the fix — do not re-run lint. The harness will verify.
+4. Do not modify PLAN.md.`, filePath)
+
+	// Lint repair starts fresh (no --continue) so it isn't affected by corrupted/compacted
+	// session state from a stalled first-attempt writer.
+	args := []string{
+		"--thinking", "auto", // enable thinking so the model can reason about the exact syntax error
+		"--model", cfg.AgentModel,
+		"--session-dir", sesDir,
+		"--append-system-prompt", autonomousSystem,
+		"--append-system-prompt", fixRules,
+		"-p", fmt.Sprintf("Lint is failing for %s. Fix the broken code now — do not explain, just call Write or Edit.\n\nLint command: `%s`\nLint output (first errors):\n%s", filePath, lintCmd, lintHead),
+	}
+	f, _ := os.Create(fixLog)
+	defer f.Close()
+
+	cmd := exec.Command("pi", args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Stdout = f
+	cmd.Stderr = f
+	cmd.Stdin, _ = os.Open(os.DevNull)
+
+	if err := cmd.Start(); err != nil {
+		return
+	}
+	pid := cmd.Process.Pid
+
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+
+	start := time.Now()
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			elapsed := int(time.Since(start).Seconds())
+			if testsSilent(lintCmd) {
+				agentLog("Lint repair: passes after %ds — stopping pi.", elapsed)
+				killProcess(pid)
+				return
+			}
+			if elapsed >= cfg.WriterTimeout {
+				agentLog("Lint repair timed out after %ds — killing.", cfg.WriterTimeout)
+				killProcess(pid)
+				return
+			}
+		}
+	}
+}
+
 func testsSilent(cmd string) bool {
 	c := exec.Command("bash", "-c", cmd)
 	c.Stdout = nil
@@ -916,6 +1053,18 @@ func tailFile(path string, lines int) string {
 		return string(data)
 	}
 	return strings.Join(ls[len(ls)-lines:], "\n")
+}
+
+func headFile(path string, lines int) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	ls := strings.Split(string(data), "\n")
+	if len(ls) <= lines {
+		return string(data)
+	}
+	return strings.Join(ls[:lines], "\n")
 }
 
 func checkBuildFilePaths(buildFile string, p *plan.Plan) {
@@ -987,6 +1136,9 @@ REQUIREMENTS:
    - 'C#' or 'dotnet' -> MUST include a .csproj file. List it FIRST in ## Files.
      Simple programs: one .csproj in root + Program.cs. Test Command: dotnet run --project <name>.csproj
      NEVER use 'dotnet test' or 'dotnet run' unless the .csproj appears in ## Files.
+   - 'Go' with external libraries -> MUST include go.mod as the FIRST file in ## Files.
+     The Makefile should run 'go mod tidy && go build' or equivalent.
+     The go.mod file sets the module path and Go version; external imports are resolved at build time via the Makefile.
 
 3. MAKEFILE COMPLETENESS: If the Test Command references a make target, the Makefile MUST define
    that target from the start. Define test targets with a recipe even if the test source file
@@ -999,7 +1151,9 @@ REQUIREMENTS:
    All paths must be project-relative, not absolute.
    GRAPHICAL PROGRAMS: Test Command must be just 'make' (compile only).
 
-6. Include '## Dependencies' listing the compiler and any required tools.
+6. Include '## Dependencies' listing the compiler, required tools, AND the lint tool for
+   the language: Python → ruff, C/C++ → gcc or clang-tidy, Go → go vet (built-in),
+   Rust → cargo clippy, TypeScript → tsc, C# → dotnet format (built-in with SDK).
 
 7. Plan only — do not implement. Write PLAN.md and stop.
 
@@ -1067,6 +1221,171 @@ func fixCsprojTargetFramework(f string) (bool, error) {
 		return false, nil
 	}
 	return true, os.WriteFile(f, []byte(fixed), 0644)
+}
+
+// ── Lint ─────────────────────────────────────────────────────────────────────
+
+// lintCommand returns the lint command for filePath, or "" to skip.
+// Skips C/C++ files in Makefile projects (the compiler handles them via make).
+func lintCommand(filePath string, p *plan.Plan) string {
+	if plan.IsBuildFile(filePath) {
+		return ""
+	}
+	ext := strings.ToLower(filepath.Ext(filePath))
+
+	hasMakefile := false
+	for _, t := range p.Tasks {
+		if strings.EqualFold(filepath.Base(t.FilePath), "makefile") {
+			hasMakefile = true
+			break
+		}
+	}
+
+	hasCargo := false
+	for _, t := range p.Tasks {
+		if strings.EqualFold(filepath.Base(t.FilePath), "cargo.toml") {
+			hasCargo = true
+			break
+		}
+	}
+	hasTsConfig := false
+	for _, t := range p.Tasks {
+		base := strings.ToLower(filepath.Base(t.FilePath))
+		if base == "tsconfig.json" || base == "tsconfig.base.json" {
+			hasTsConfig = true
+			break
+		}
+	}
+
+	switch ext {
+	case ".py":
+		// ruff preferred; fall back to py_compile syntax-only check
+		if _, err := exec.LookPath("ruff"); err == nil {
+			return "ruff check --select=E9,F " + filePath
+		}
+		return "python3 -m py_compile " + filePath
+	case ".go":
+		// Skip go vet when Makefile handles the build — go vet requires deps to be
+		// downloaded first, which the Makefile does via go mod tidy / go get.
+		if hasMakefile {
+			return ""
+		}
+		dir := filepath.Dir(filePath)
+		if dir == "." {
+			return "go vet ."
+		}
+		return "go vet ./" + dir + "/..."
+	case ".rs":
+		if hasCargo {
+			return "cargo check"
+		}
+		base := filepath.Base(filePath)
+		stem := strings.TrimSuffix(base, filepath.Ext(base))
+		return fmt.Sprintf("rustc --edition=2021 -Dwarnings %s -o /tmp/mu_lint_%s && rm -f /tmp/mu_lint_%s", filePath, stem, stem)
+	case ".ts", ".tsx":
+		if _, err := exec.LookPath("tsc"); err != nil {
+			return ""
+		}
+		if hasTsConfig {
+			return "tsc --noEmit"
+		}
+		return "tsc --noEmit --strict --target ES2020 --module commonjs " + filePath
+	case ".c", ".h":
+		if hasMakefile {
+			return ""
+		}
+		return "gcc -fsyntax-only -Wall " + filePath
+	case ".cpp", ".cc", ".cxx", ".hpp":
+		if hasMakefile {
+			return ""
+		}
+		return "g++ -fsyntax-only -Wall " + filePath
+	}
+	return ""
+}
+
+func runLint(lintCmd, logFile string) bool {
+	f, _ := os.Create(logFile)
+	defer f.Close()
+	c := exec.Command("bash", "-c", lintCmd)
+	c.Stdout = f
+	c.Stderr = f
+	return c.Run() == nil
+}
+
+// fixCsprojCompileItems strips explicit <Compile Include="..."/> items from
+// SDK-style .csproj files. The .NET SDK auto-includes all .cs files by default,
+// so explicit includes cause NETSDK1022 "Duplicate 'Compile' items" errors.
+func fixCsprojCompileItems(f string) (bool, error) {
+	data, err := os.ReadFile(f)
+	if err != nil {
+		return false, err
+	}
+	content := string(data)
+	reCompile := regexp.MustCompile(`\s*<Compile\s+Include="[^"]*"\s*/>`)
+	fixed := reCompile.ReplaceAllString(content, "")
+	reEmptyIG := regexp.MustCompile(`(?s)\s*<ItemGroup>\s*</ItemGroup>`)
+	fixed = reEmptyIG.ReplaceAllString(fixed, "")
+	if fixed == content {
+		return false, nil
+	}
+	return true, os.WriteFile(f, []byte(fixed), 0644)
+}
+
+// fixGoMakefile ensures Go Makefiles run 'go mod init' and 'go get' BEFORE 'go build'.
+// Models commonly generate the build target with 'go build' first and 'go get' after,
+// which fails because the module isn't initialized when the build runs.
+func fixGoMakefile(f string) (bool, error) {
+	data, err := os.ReadFile(f)
+	if err != nil {
+		return false, err
+	}
+	content := string(data)
+
+	// Only act on Makefiles that reference Go source files
+	if !strings.Contains(content, "go build") {
+		return false, nil
+	}
+
+	// If go.mod setup already comes before go build, nothing to do
+	goBuildIdx := strings.Index(content, "go build")
+	goModIdx := strings.Index(content, "go mod")
+	goGetIdx := strings.Index(content, "go get")
+
+	// If go mod/get already precedes go build, it's fine
+	if (goModIdx >= 0 && goModIdx < goBuildIdx) || (goGetIdx >= 0 && goGetIdx < goBuildIdx) {
+		return false, nil
+	}
+
+	// Inject a go.mod bootstrap before the first build target's go build command.
+	// Strategy: insert module init + go get as the first lines of the first target that contains go build.
+	lines := strings.Split(content, "\n")
+	inTarget := false
+	fixed := false
+	var out []string
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		// Detect recipe lines (lines starting with \t)
+		if len(line) > 0 && line[0] == '\t' {
+			inTarget = true
+			// If this is the first go build line in a recipe, prepend module init
+			if !fixed && strings.HasPrefix(trimmed, "go build") {
+				out = append(out, "\ttest -f go.mod || go mod init server")
+				out = append(out, "\tgo mod tidy 2>/dev/null || go get ./... 2>/dev/null || true")
+				fixed = true
+			}
+		} else if trimmed != "" && !strings.HasPrefix(trimmed, "#") && !strings.HasPrefix(trimmed, ".PHONY") {
+			inTarget = false
+		}
+		_ = inTarget
+		_ = i
+		out = append(out, line)
+	}
+
+	if !fixed {
+		return false, nil
+	}
+	return true, os.WriteFile(f, []byte(strings.Join(out, "\n")), 0644)
 }
 
 func isSDLSource(f string) bool {

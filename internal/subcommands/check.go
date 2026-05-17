@@ -41,6 +41,9 @@ var deps = []struct {
 	}},
 	{"Static analysis", []dep{
 		{"clang-tidy", "clang-tidy", "mu setup  [C/C++ linter]"},
+		{"ruff", "ruff", "mu setup  [Python linter]"},
+		{"tsc (TypeScript)", "tsc", "mu setup  [TypeScript linter]"},
+		{"cargo clippy (Rust)", "cargo", "rustup toolchain install stable"},
 	}},
 	{"AI backend", []dep{
 		{"pi", "pi", "npm install -g @earendil-works/pi-coding-agent"},

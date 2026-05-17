@@ -10,7 +10,7 @@ Local AI coding toolkit. Drives an autonomous coding loop from a plain-English g
 |---|---|
 | `mu agent "goal"` | Autonomous goal-to-code loop |
 | `mu check` | Verify all dependencies are installed |
-| `mu clean` | Report large files in the current tree |
+| `mu clean [dir...]` | Report large files in the given directories (default: `/`) |
 | `mu model` | Manage the ollama model |
 | `mu optimize` | Tune ollama for the agent workload |
 | `mu prime` | Pull all curated models |
@@ -18,6 +18,26 @@ Local AI coding toolkit. Drives an autonomous coding loop from a plain-English g
 | `mu setup` | Install system dependencies |
 | `mu theme` | Pick and apply a base16 colour scheme |
 | `mu extract` | Salvage files from an agent session log |
+| `mu version` | Print mu version |
+
+## System dependencies
+
+`mu setup` installs the following packages (via `brew` on macOS, `pacman` on Arch, `apt` on Debian/Ubuntu):
+
+| Tool | Purpose |
+|------|---------|
+| `neovim` | Editor used by pi sessions |
+| `make`, `gcc`, `llvm`/`clang` | C/C++ compilation and linting (`clang-tidy`) |
+| `node`, `npm` | Required by pi |
+| `python` / `python3` | Python runtime |
+| `jq` | JSON processing |
+| `fzf` | Fuzzy finder (model picker, theme picker) |
+| `ripgrep`, `fd` | Fast search tools |
+| `ollama` | Local LLM runtime |
+| `SDL2` | Graphics library (for SDL2 practice problem) |
+| `ruff` | Python linter |
+| `fpc` | Free Pascal compiler |
+| `pi` (npm) | AI coding agent (core runtime) |
 
 ## Install
 
@@ -30,3 +50,5 @@ make install
 ## Practice
 
 [PRACTICE.md](PRACTICE.md) has a problem set for mu: run the problems, inspect the logs, sharpen the agent.
+
+[RUNS.md](RUNS.md) tracks timing results across sessions.

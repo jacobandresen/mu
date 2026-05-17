@@ -258,7 +258,7 @@ func IsBuildFile(name string) bool {
 	base := baseOf(name)
 	switch base {
 	case "Makefile", "CMakeLists.txt", "setup.py", "Cargo.toml",
-		"build.sh", "package.json", "pyproject.toml", "meson.build":
+		"build.sh", "package.json", "pyproject.toml", "meson.build", "go.mod":
 		return true
 	}
 	if strings.HasSuffix(name, ".csproj") {
@@ -478,7 +478,10 @@ func NormalizeTestCommand(planPath string) (bool, error) {
 	updated := content
 
 	// python → python3 (modern systems; avoids alias-not-found in bash -c)
+	// Replace both line-start and inline "python " (e.g. after "&&")
 	updated = strings.ReplaceAll(updated, "\npython ", "\npython3 ")
+	updated = strings.ReplaceAll(updated, "&& python ", "&& python3 ")
+	updated = strings.ReplaceAll(updated, "| python ", "| python3 ")
 
 	if updated == content {
 		return false, nil
@@ -489,8 +492,12 @@ func NormalizeTestCommand(planPath string) (bool, error) {
 // FixNoMakefileTestCommand rewrites "make" test commands when no Makefile is listed
 // in the plan's file tasks. Derives an inline compile+run command from the first
 // source file's extension so trivial programs don't stall on a missing Makefile.
+// makeWithoutMakefileRE matches "make" or "make && ./binary" test commands that rely
+// on a Makefile that isn't in the plan's file list.
+var makeWithoutMakefileRE = regexp.MustCompile(`^make(\s*&&.*)?$`)
+
 func FixNoMakefileTestCommand(planPath string, p *Plan) (bool, error) {
-	if p.TestCommand != "make" {
+	if !makeWithoutMakefileRE.MatchString(strings.TrimSpace(p.TestCommand)) {
 		return false, nil
 	}
 	for _, t := range p.Tasks {
@@ -532,6 +539,47 @@ func FixNoMakefileTestCommand(planPath string, p *Plan) (bool, error) {
 		return false, nil
 	}
 	return true, os.WriteFile(planPath, []byte(updated), 0644)
+}
+
+// runtimeArtifactExts lists file extensions that are generated at runtime and
+// should never appear as write targets in a plan.
+var runtimeArtifactExts = map[string]bool{
+	"db": true, "sqlite": true, "sqlite3": true,
+	"o": true, "obj": true, "pyc": true, "class": true, "bin": true,
+}
+
+// DropRuntimeArtifacts removes tasks whose file extension marks them as
+// runtime-generated artifacts (e.g. .db, .sqlite, .o). Returns the dropped paths.
+func DropRuntimeArtifacts(planPath string, p *Plan) []string {
+	var dropped []string
+	for _, t := range p.Tasks {
+		ext := strings.ToLower(extOf(baseOf(t.FilePath)))
+		if runtimeArtifactExts[ext] {
+			dropped = append(dropped, t.FilePath)
+		}
+	}
+	if len(dropped) == 0 {
+		return nil
+	}
+
+	data, err := os.ReadFile(planPath)
+	if err != nil {
+		return nil
+	}
+	lines := strings.Split(string(data), "\n")
+	var out []string
+	for _, line := range lines {
+		m := taskRE.FindStringSubmatch(line)
+		if m != nil {
+			ext := strings.ToLower(extOf(baseOf(m[2])))
+			if runtimeArtifactExts[ext] {
+				continue // drop this line
+			}
+		}
+		out = append(out, line)
+	}
+	_ = os.WriteFile(planPath, []byte(strings.Join(out, "\n")), 0644)
+	return dropped
 }
 
 func RecoverFromLog(logPath, planPath string) (bool, error) {
