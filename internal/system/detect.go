@@ -155,7 +155,13 @@ func ComputeOllamaSettings(info SystemInfo) map[string]string {
 	if tier == "low" {
 		parallel = "1"
 	}
-	context := map[string]string{"low": "2048", "mid": "4096", "high": "4096"}[tier]
+	// 4096 for low-memory (≤8 GB): on 8 GB M2, num_ctx drives KV-cache RAM and inference speed.
+	// 16384 leaves only 63 MB free, crashing inference to 3 tok/s with ollama 500 errors.
+	// 8192 (~550 MB KV Metal) gives 8 tok/s but times out on long file writes (2-3 min each).
+	// 4096 (~275 MB KV Metal) gives 14 tok/s — within all mu per-session timeouts.
+	// mu sessions are independent (planner, writer, repair each get fresh 4 k-token windows),
+	// so 4096 comfortably fits them all.
+	context := map[string]string{"low": "4096", "mid": "32768", "high": "40960"}[tier]
 	keepAlive := "-1"
 	if tier == "low" {
 		keepAlive = "300"

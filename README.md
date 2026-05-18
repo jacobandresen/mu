@@ -49,6 +49,4 @@ make install
 
 ## Practice
 
-[PRACTICE.md](PRACTICE.md) has a problem set for mu: run the problems, inspect the logs, sharpen the agent.
-
-[RUNS.md](RUNS.md) tracks timing results across sessions.
+The `dojo/` directory is where mu is stress-tested by running a guest model (e.g. `qwen3:8b`) through a fixed problem set (P1–P7). When a problem fails, the failure pattern drives an improvement to a skill file, a sensor, or a plan rule. [PRACTICE.md](PRACTICE.md) describes the problem set. [RUNS.md](RUNS.md) tracks results across sessions.

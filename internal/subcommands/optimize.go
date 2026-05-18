@@ -56,10 +56,14 @@ func runOptimize() error {
 
 	if system.MemoryTier(info.RAMMB) == "low" {
 		fmt.Println("Memory-pressure advice (<=8 GB host):")
+		fmt.Println("  * OLLAMA_CONTEXT_LENGTH=4096 set — on 8 GB M2, num_ctx drives KV-cache size and speed:")
+		fmt.Println("    16384 → 63 MB free, 3 tok/s, 500 errors; 8192 → 8 tok/s (writer timeouts on long files);")
+		fmt.Println("    4096 → 14 tok/s, fits all mu per-session windows (sessions are independent).")
+		fmt.Println("  * KV cache: q8_0 + flash attention already halve memory vs fp16 baseline")
+		fmt.Println("  * OLLAMA_NUM_PARALLEL=1 set — prevents multiple concurrent KV-cache slots")
+		fmt.Println("  * OLLAMA_KEEP_ALIVE=300 set — model stays warm for 5 min between requests")
 		fmt.Println("  * Prefer smaller quants — Q3_K_M or Q2_K save ~1 GB vs Q4_K_M")
-		fmt.Println("  * qwen3:4b uses ~2.5 GB VRAM, leaving ~5.5 GB for OS/apps")
-		fmt.Println("  * OLLAMA_KEEP_ALIVE=300 already set — model stays warm for 5 min")
-		fmt.Println("  * OLLAMA_CONTEXT_LENGTH=2048 already set — raise only if needed")
+		fmt.Println("  * qwen3:4b uses ~2.5 GB, leaving ~5.5 GB for OS/apps if RAM is critical")
 		fmt.Println()
 	}
 
@@ -67,11 +71,18 @@ func runOptimize() error {
 		if err := writeLaunchdEnv(settings); err != nil {
 			return err
 		}
-		fmt.Println("Restarting ollama...")
-		c := exec.Command("brew", "services", "restart", "ollama")
-		c.Stdout, c.Stderr = os.Stdout, os.Stderr
-		if err := c.Run(); err != nil {
-			return fmt.Errorf("restart ollama: %w", err)
+		// Use launchctl unload/load instead of 'brew services restart': brew regenerates
+		// the plist from its formula template on restart, wiping any env-var additions.
+		fmt.Println("Restarting ollama via launchctl...")
+		home, _ := os.UserHomeDir()
+		plistPath := filepath.Join(home, "Library", "LaunchAgents", "homebrew.mxcl.ollama.plist")
+		unload := exec.Command("launchctl", "unload", plistPath)
+		unload.Stdout, unload.Stderr = os.Stdout, os.Stderr
+		_ = unload.Run()
+		load := exec.Command("launchctl", "load", plistPath)
+		load.Stdout, load.Stderr = os.Stdout, os.Stderr
+		if err := load.Run(); err != nil {
+			return fmt.Errorf("reload ollama: %w", err)
 		}
 		fmt.Println("ollama restarted")
 	} else {

@@ -55,14 +55,19 @@ a file. If your turn ends without a Write tool call targeting `PLAN.md`, you hav
 - Simple program: `- [ ] Cargo.toml` then `- [ ] src/main.rs`, test command: `cargo run`
 - Binary name in test command must match the `name` field in `[[bin]]` (or defaults to the package name in `[package]`).
 - Use `cargo run` or `cargo build && ./target/debug/<name>`, not `cargo build --bin main` (the binary name is not `main` unless you set it in `[[bin]]`).
+- **Do not add a `[lib]` section** to Cargo.toml for a binary-only project. A `[lib]` entry requires `src/lib.rs` to exist — if it does not, cargo will fail with "can't find lib". Binary-only projects: just `[package]` + `[[bin]]` (or no `[[bin]]` at all if `src/main.rs` is the default).
 
 **Python**: Use `python3`, never `python`. The shell subprocess has no aliases.
+- Use triple-quoted strings (`"""..."""`) for any SQL or multi-line string passed to `execute()` or similar. Single-quoted strings cannot span multiple lines and will cause a syntax error.
+- Always close the `execute(` call with `)` immediately after the closing `"""`. The closing paren must appear on the same line as `"""` or on the very next line — never omit it. Wrong: `conn.execute("""SQL"""\n` — Right: `conn.execute("""SQL""")`.
 - When using pytest with a Makefile, the test recipe **must** use `PYTHONPATH=. pytest` (not bare `pytest`). Without this, `import app` and similar project-root imports fail with `ModuleNotFoundError` because pytest does not add the project root to `sys.path` by default.
 - Test files **must import every module they use**, including stdlib modules. If a test uses `sqlite3`, add `import sqlite3` at the top. Undefined names (`F821`) cause ruff to reject the file.
 - When the main module has module-level code that initializes state (e.g. creates a DB table on import), test files should import the module in a `conftest.py` fixture so the state is initialized before tests run. Do NOT open the database from tests directly without calling the setup code first.
 - **Flask REST API tests**: use only `app.test_client()` — never call `sqlite3.connect()` directly from test files. The app handles its own DB setup. Test by calling POST/GET endpoints on the client.
 
 **Go**: For projects with external packages (gin, gorilla, etc.), the Makefile must run `go mod tidy` (without suppressing errors) before building. Never silence it with `2>/dev/null || true` — a failed `go mod tidy` means the build will fail. The `go.sum` file is auto-generated; do **not** list it as a task.
+- In `go.mod`, always use the full module path for dependencies: `require github.com/gin-gonic/gin v1.9.1`. Never write bare names like `gin v1.9.1` — Go cannot resolve short names.
+- When using Gin, assign the engine: `r := gin.Default()`, then call `r.GET(...)`, `r.Run()`. Never prefix it with a different name like `ingin`.
 
 **C/C++**: Use `make` when a `Makefile` is in the file list; otherwise inline: `gcc main.c -o main && ./main`.
 
@@ -78,6 +83,11 @@ all:
 	go build -o app
 ```
 Every Makefile MUST have at least one `target:` line. Commands without a target are a syntax error.
+- **Never put a recipe on the same line as the target.** `build: go build -o server` is NOT a recipe — it means "target `build` with prerequisites `go`, `build`, `-o`, `server`". Make will then try to compile a file called `go` using implicit rules (e.g. Modula-2's `m2c`), which fails. Always put the recipe on the next line, tab-indented:
+  ```
+  build:
+  	go build -o server
+  ```
 
 ## Rules for the Test Command
 
@@ -105,6 +115,16 @@ approval. This includes:
 - Deploying to cloud services (Vercel, AWS, GCP, Fly, etc.)
 
 Always stop and ask before any of these. If in doubt, ask.
+
+## No interactive stdin
+
+Programs must **never** read from stdin unless the goal explicitly says "interactive" or "prompt the user".
+Fibonacci, helloworld, sequence printers, and all other demonstration programs must output their
+result without waiting for input. If the goal says "write the fibonacci sequence", produce fixed output
+(e.g. first 10 or 20 numbers, hardcoded N). Do NOT use `Console.ReadLine()`, `input()`, `scanf()`,
+or equivalent unless explicitly required.
+
+The test runs as a non-interactive subprocess — any `stdin.ReadLine()` call receives EOF and hangs.
 
 ## Autonomous execution
 

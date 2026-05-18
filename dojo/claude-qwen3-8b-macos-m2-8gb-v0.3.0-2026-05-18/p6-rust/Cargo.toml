@@ -1,8 +1,0 @@
-[package]
-name = "fibonacci"
-version = "0.1.0"
-authors = ["Your Name"]
-
-[bin]
-name = "fibonacci"
-path = "src/main.rs"

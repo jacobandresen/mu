@@ -1,6 +1,7 @@
 package subcommands
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -16,6 +17,7 @@ import (
 	"github.com/jacobandresen/mu/internal/archive"
 	"github.com/jacobandresen/mu/internal/ollama"
 	"github.com/jacobandresen/mu/internal/plan"
+	"github.com/jacobandresen/mu/internal/sensors"
 	"github.com/jacobandresen/mu/internal/ui"
 	"github.com/jacobandresen/mu/skills"
 	"github.com/spf13/cobra"
@@ -63,7 +65,7 @@ func NewAgentCmd() *cobra.Command {
 func runAgent(cfg agentConfig) error {
 	// Read env vars
 	cfg.AgentModel = orEnv(cfg.AgentModel, "MU_AGENT_MODEL")
-	cfg.BaseModel = orEnv("qwen3:8b", "MU_AGENT_BASE_MODEL")
+	cfg.BaseModel = orEnv("qwen2.5-coder:7b", "MU_AGENT_BASE_MODEL")
 	cfg.Thinking = os.Getenv("MU_AGENT_THINKING")
 	cfg.PlannerThinking = os.Getenv("MU_AGENT_PLANNER_THINKING")
 	cfg.WriterThinking = os.Getenv("MU_AGENT_WRITE_THINKING")
@@ -204,7 +206,7 @@ func runAgent(cfg agentConfig) error {
 	}
 
 	// Inject Cargo.toml when plan uses cargo but forgot to list it
-	if fixed := fixMissingCargoToml("PLAN.md", p); fixed {
+	if fixed := sensors.FixMissingCargoToml("PLAN.md", p); fixed {
 		agentLog("Injected Cargo.toml into plan (test command uses cargo but Cargo.toml was missing).")
 		p, _ = plan.Parse("PLAN.md")
 		currentPlan = p
@@ -258,18 +260,25 @@ func runAgent(cfg agentConfig) error {
 			if lintCmd := lintCommand(combinedSrc, p); lintCmd != "" {
 				lintLog := filepath.Join(logDir, "lint-combined.log")
 				if !runLint(lintCmd, lintLog) {
-					if ruffAutoFix(combinedSrc) && runLint(lintCmd, lintLog) {
+					if sensors.RuffAutoFix(combinedSrc) && runLint(lintCmd, lintLog) {
 						agentLog("Lint auto-fixed (ruff --fix): %s", combinedSrc)
 					} else {
 						agentLog("Lint failed for combined-mode %s — invoking repair.", combinedSrc)
 						lintHead := headFile(lintLog, 60)
-						runRepairLint(&cfg, lintCmd, combinedSrc, lintHead, autonomousSystem)
-						if !runLint(lintCmd, lintLog) {
-							recordFailedRepair(fmt.Sprintf("lint repair for combined-mode %s", combinedSrc), headFile(lintLog, 5))
-							exitCode = 3
-							return fmt.Errorf("lint failed for combined-mode %s", combinedSrc)
+						deterministicFixed := (sensors.FixMultilineSingleQuote(combinedSrc, lintHead) ||
+							sensors.FixMissingCloseParen(combinedSrc, lintHead)) &&
+							runLint(lintCmd, lintLog)
+						if deterministicFixed {
+							agentLog("Lint auto-fixed (deterministic): %s", combinedSrc)
+						} else {
+							runRepairLint(&cfg, lintCmd, combinedSrc, lintHead, autonomousSystem)
+							if !runLint(lintCmd, lintLog) {
+								recordFailedRepair(fmt.Sprintf("lint repair for combined-mode %s", combinedSrc), headFile(lintLog, 5))
+								exitCode = 3
+								return fmt.Errorf("lint failed for combined-mode %s", combinedSrc)
+							}
+							agentLog("Lint passed after repair for combined-mode %s.", combinedSrc)
 						}
-						agentLog("Lint passed after repair for combined-mode %s.", combinedSrc)
 					}
 				} else {
 					agentLog("Lint passed: %s", combinedSrc)
@@ -324,41 +333,56 @@ func runAgent(cfg agentConfig) error {
 			}
 		}
 
-		// Post-write: fix go.mod with invalid top-level directives (model sometimes writes
-		// "gin v1.9.1" instead of "require ( github.com/gin-gonic/gin v1.9.1 )")
+		// Post-write: fix go.mod with invalid top-level directives or bad versions
 		if strings.EqualFold(filepath.Base(task.FilePath), "go.mod") {
-			if fixedMod, _ := fixGoMod(task.FilePath); fixedMod {
+			if fixedMod, _ := sensors.FixGoMod(task.FilePath); fixedMod {
 				agentLog("Fixed go.mod: moved bare pkg directives into require block.")
+			}
+			if fixedVer, _ := sensors.FixGoModVersions(task.FilePath); fixedVer {
+				agentLog("Fixed go.mod: replaced hallucinated version(s) with known-stable pins.")
 			}
 		}
 
 		// Post-write: fix SDL2 include path (model writes SDL2/SDL.h; macOS homebrew needs SDL.h)
-		if goalIsGraphical && isSDLSource(task.FilePath) {
-			if fixedSDL, _ := fixSDLInclude(task.FilePath); fixedSDL {
+		if goalIsGraphical && sensors.IsSDLSource(task.FilePath) {
+			if fixedSDL, _ := sensors.FixSDLInclude(task.FilePath); fixedSDL {
 				agentLog("Fixed SDL2 include path in %s.", task.FilePath)
 			}
 		}
 
 		// Post-write: fix .csproj TargetFramework and strip duplicate Compile items
 		if strings.HasSuffix(task.FilePath, ".csproj") {
-			if fixedFw, _ := fixCsprojTargetFramework(task.FilePath); fixedFw {
+			if fixedFw, _ := sensors.FixCsprojTargetFramework(task.FilePath); fixedFw {
 				agentLog("Fixed TargetFramework in %s to match installed dotnet.", task.FilePath)
 			}
-			if fixedCI, _ := fixCsprojCompileItems(task.FilePath); fixedCI {
+			if fixedCI, _ := sensors.FixCsprojCompileItems(task.FilePath); fixedCI {
 				agentLog("Removed explicit <Compile Include> items from %s (SDK auto-includes .cs files).", task.FilePath)
 			}
 		}
 
 		// Post-write: fix Makefile issues
 		if plan.IsBuildFile(task.FilePath) && strings.EqualFold(filepath.Base(task.FilePath), "makefile") {
-			if fixedTargets, _ := fixMakefileNoTargets(task.FilePath); fixedTargets {
+			if fixedTargets, _ := sensors.FixNoTargets(task.FilePath); fixedTargets {
 				agentLog("Fixed Makefile: wrapped shell commands in all: target (model wrote plain script).")
 			}
-			if fixedGo, _ := fixGoMakefile(task.FilePath); fixedGo {
+			if fixedInline, _ := sensors.FixInlineRecipe(task.FilePath); fixedInline {
+				agentLog("Fixed Makefile: split inline recipe onto tab-indented line.")
+			}
+			if fixedDup, _ := sensors.FixDuplicateVar(task.FilePath); fixedDup {
+				agentLog("Fixed Makefile: removed duplicate variable assignments (kept first definition).")
+			}
+			if fixedGo, _ := sensors.FixGoMakefile(task.FilePath); fixedGo {
 				agentLog("Fixed Go Makefile: added go mod init + go get before go build.")
 			}
 			if fixedPy, _ := plan.FixPythonMakefileTest(task.FilePath); fixedPy {
 				agentLog("Fixed Python Makefile: added PYTHONPATH=. before pytest.")
+			}
+		}
+
+		// Post-write: fix Cargo.toml with orphan [lib] section pointing to non-existent file
+		if strings.EqualFold(filepath.Base(task.FilePath), "cargo.toml") {
+			if fixedLib, _ := sensors.FixCargoTomlOrphanLib(task.FilePath); fixedLib {
+				agentLog("Fixed Cargo.toml: removed [lib] section referencing non-existent file.")
 			}
 		}
 
@@ -368,28 +392,38 @@ func runAgent(cfg agentConfig) error {
 			if !runLint(lintCmd, lintLog) {
 				// Try ruff --fix before invoking the model — ruff can auto-fix many F401s
 				// and similar issues without LLM involvement, and does so correctly.
-				if ruffAutoFix(task.FilePath) && runLint(lintCmd, lintLog) {
+				if sensors.RuffAutoFix(task.FilePath) && runLint(lintCmd, lintLog) {
 					agentLog("Lint auto-fixed (ruff --fix): %s", task.FilePath)
 				} else {
 					agentLog("Lint failed for %s — invoking repair.", task.FilePath)
 					lintHead := headFile(lintLog, 60)
-					runRepairLint(&cfg, lintCmd, task.FilePath, lintHead, autonomousSystem)
-					if !runLint(lintCmd, lintLog) {
-						agentLog("Lint still failing after repair for %s.", task.FilePath)
-						recordFailedRepair(fmt.Sprintf("lint repair for %s", task.FilePath), headFile(lintLog, 5))
-						exitCode = 3
-						return fmt.Errorf("lint failed for %s", task.FilePath)
+					deterministicFixed := (sensors.FixMultilineSingleQuote(task.FilePath, lintHead) ||
+						sensors.FixMissingCloseParen(task.FilePath, lintHead) ||
+						sensors.FixCargoTomlOrphanLibOnRust(task.FilePath, lintHead) ||
+						sensors.FixRustPrintlnFormat(task.FilePath, lintHead)) &&
+						runLint(lintCmd, lintLog)
+					if deterministicFixed {
+						agentLog("Lint auto-fixed (deterministic): %s", task.FilePath)
+					} else {
+						runRepairLint(&cfg, lintCmd, task.FilePath, lintHead, autonomousSystem)
+						if !runLint(lintCmd, lintLog) {
+							agentLog("Lint still failing after repair for %s.", task.FilePath)
+							recordFailedRepair(fmt.Sprintf("lint repair for %s", task.FilePath), headFile(lintLog, 5))
+							exitCode = 3
+							return fmt.Errorf("lint failed for %s", task.FilePath)
+						}
+						agentLog("Lint passed after repair for %s.", task.FilePath)
 					}
-					agentLog("Lint passed after repair for %s.", task.FilePath)
 				}
 			} else {
 				agentLog("Lint passed: %s", task.FilePath)
 			}
 		}
 
-		// Test gate after test files
+		// Test gate after test files — but only if no future build-file tasks remain.
+		// Running "make test" before the Makefile is written always fails.
 		testCmd := p.TestCommand
-		if testCmd != "" && isTestFile(task.FilePath) {
+		if testCmd != "" && isTestFile(task.FilePath) && !plan.HasPendingBuildFile(p) {
 			testLog := filepath.Join(logDir, fmt.Sprintf("tests-iter-%02d.log", i))
 			if !runTests(testCmd, testLog) {
 				agentLog("Tests failing after %s — invoking repair agent.", task.FilePath)
@@ -468,10 +502,15 @@ func detectComplexity(cfg *agentConfig) {
 		cfg.WriterThinking = "off"
 	}
 
-	if cfg.PlannerTimeout == 0 {
-		cfg.PlannerTimeout = map[string]int{"trivial": 120, "simple": 200, "complex": 360, "hard": 480}[complexity]
+	ctxScale := 1.0
+	if ollama.NumCtx() >= 8000 {
+		ctxScale = 1.5
 	}
-	cfg.WriterTimeout = map[string]int{"trivial": 90, "simple": 220, "complex": 300, "hard": 400}[complexity]
+	if cfg.PlannerTimeout == 0 {
+		base := map[string]int{"trivial": 120, "simple": 200, "complex": 360, "hard": 480}[complexity]
+		cfg.PlannerTimeout = int(float64(base) * ctxScale)
+	}
+	cfg.WriterTimeout = int(float64(map[string]int{"trivial": 90, "simple": 220, "complex": 300, "hard": 400}[complexity]) * ctxScale)
 
 	if cfg.Combined == -1 {
 		if complexity == "trivial" || complexity == "simple" {
@@ -486,7 +525,7 @@ func detectComplexity(cfg *agentConfig) {
 
 func ensureAgentModel(base string) (string, error) {
 	parts := strings.SplitN(base, ":", 2)
-	target := parts[0] + ":ralph"
+	target := parts[0] + ":agent"
 
 	if _, err := ollama.ShowModel(target); err == nil {
 		return target, nil
@@ -494,18 +533,8 @@ func ensureAgentModel(base string) (string, error) {
 
 	agentLog("Creating %s (temperature=0, thinking disabled) from %s ...", target, base)
 
-	modelfile := fmt.Sprintf("FROM %s\nPARAMETER temperature 0\nPARAMETER num_ctx 4096\n", base)
-
-	// Try to fetch and patch the template
-	info, err := ollama.ShowModel(base)
-	if err == nil {
-		if tmpl, ok := info["template"].(string); ok && tmpl != "" {
-			tmpl = patchTemplate(tmpl)
-			modelfile += fmt.Sprintf("TEMPLATE \"\"\"\n%s\"\"\"\n", tmpl)
-		}
-	}
-
-	if err := ollama.CreateModel(target, modelfile); err != nil {
+	params := map[string]any{"temperature": 0, "num_ctx": ollama.NumCtx()}
+	if err := ollama.CreateModel(target, base, params); err != nil {
 		agentLog("WARNING: ollama create failed — using %s (temperature uncontrolled)", base)
 		return base, nil
 	}
@@ -515,13 +544,6 @@ func ensureAgentModel(base string) (string, error) {
 	return target, nil
 }
 
-func patchTemplate(t string) string {
-	old := "{{ if and $.IsThinkSet (not $.Think) -}}\n<think>\n\n</think>\n\n{{ end -}}"
-	t = strings.ReplaceAll(t, old, "<think>\n\n</think>\n\n")
-	old2 := "{{- if and $.IsThinkSet (eq $i $lastUserIdx) }}\n   {{- if $.Think -}}\n      {{- \" \"}}/think\n   {{- else -}}\n      {{- \" \"}}/no_think\n   {{- end -}}\n{{- end }}"
-	t = strings.ReplaceAll(t, old2, " /no_think")
-	return t
-}
 
 // ── Standalone guard ──────────────────────────────────────────────────────────
 
@@ -731,9 +753,13 @@ func runWriterWithSession(cfg *agentConfig, targetFile, prompt, autonomousSystem
 
 // ── Test gate ─────────────────────────────────────────────────────────────────
 
+// runTests runs cmd, writing output to logFile.  A hard 120-second wall-clock
+// timeout prevents interactive programs (reading stdin) from hanging forever.
 func runTests(cmd, logFile string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
 	f, _ := os.Create(logFile)
-	c := exec.Command("bash", "-c", cmd)
+	c := exec.CommandContext(ctx, "bash", "-c", cmd)
 	c.Stdout = f
 	c.Stderr = f
 	err := c.Run()
@@ -768,13 +794,24 @@ func runRepairLint(cfg *agentConfig, lintCmd, filePath, lintHead, autonomousSyst
 		fileContent = fmt.Sprintf("\n\nCurrent file:\n```\n%s\n```", string(data))
 	}
 
+	// Add targeted hint for common, hard-to-repair errors.
+	hint := ""
+	isSingleQuoteIssue := strings.Contains(lintHead, "missing closing quote in string literal") ||
+		(strings.Contains(lintHead, "invalid-syntax") && strings.Contains(lintHead, "execute('"))
+	isMissingParen := strings.Contains(lintHead, "invalid-syntax") && strings.Contains(lintHead, "execute(") && !isSingleQuoteIssue
+	if isSingleQuoteIssue {
+		hint = "\n\nHINT: The error is a multi-line SQL string using single quotes — Python does not allow single-quoted strings to span multiple lines. Use Write to rewrite the file, replacing every multi-line single-quoted string with a triple-quoted string. Example: conn.execute('SQL\\n...') → conn.execute(\"\"\"SQL\\n...\"\"\")."
+	} else if isMissingParen {
+		hint = "\n\nHINT: The error is a missing closing ')' after a triple-quoted string in an execute() call. Find the line that ends with `\"\"\"` where the matching `execute(\"\"\"` has no closing `)`, and add `)` after the closing `\"\"\"`."
+	}
+
 	fixRules := fmt.Sprintf(`REPAIR PROTOCOL:
 - Call Edit to make the smallest targeted change to fix %s. Only use Write if you must replace the entire file.
 - Only modify %s. Do not create new files or modify other files.
 - Do not modify PLAN.md.`, filePath, filePath)
 
 	history := repairHistory()
-	prompt := fmt.Sprintf("GOAL: %s\n\nLint failed for %s. Fix it now.\n\nLint errors:\n%s%s%s", cfg.Goal, filePath, lintHead, fileContent, history)
+	prompt := fmt.Sprintf("GOAL: %s\n\nLint failed for %s. Fix it now.\n\nLint errors:\n%s%s%s%s", cfg.Goal, filePath, lintHead, hint, fileContent, history)
 	systemPrompt := autonomousSystem + "\n\n" + fixRules
 
 	sess := agent.NewSession(systemPrompt)
@@ -838,7 +875,7 @@ func reapplyCsprojFix(p *plan.Plan) {
 	for _, task := range p.Tasks {
 		if strings.HasSuffix(task.FilePath, ".csproj") {
 			if _, err := os.Stat(task.FilePath); err == nil {
-				if fixed, _ := fixCsprojTargetFramework(task.FilePath); fixed {
+				if fixed, _ := sensors.FixCsprojTargetFramework(task.FilePath); fixed {
 					agentLog("Re-applied TargetFramework fix to %s after repair.", task.FilePath)
 				}
 			}
@@ -962,7 +999,8 @@ OFF-LIMITS:
 - Never ask questions or request confirmation. Never say "shall I proceed?", "is that okay?", or anything similar.
 - Never write files other than the one explicitly requested.
 - No arbitrary network calls (curl, wget, fetch, http, etc.).
-- Only install packages that are explicitly listed in PLAN.md.`, projectDir)
+- Only install packages that are explicitly listed in PLAN.md.
+- Never read from stdin (Console.ReadLine, input(), scanf, etc.) unless the goal explicitly says "interactive". Programs that read stdin hang in non-interactive test environments. Use hardcoded values or command-line arguments instead.`, projectDir)
 }
 
 func buildPlannerPrompt(goal, projectDir string) string {
@@ -1059,37 +1097,6 @@ func buildWritePrompt(goal string, task *plan.Task, p *plan.Plan, projectDir str
 	return sb.String()
 }
 
-// fixCsprojTargetFramework rewrites the TargetFramework in a .csproj to match
-// the installed dotnet major version. Models often generate net8.0 or net6.0
-// even when a newer runtime is installed.
-func fixCsprojTargetFramework(f string) (bool, error) {
-	out, err := exec.Command("dotnet", "--version").Output()
-	if err != nil {
-		return false, nil
-	}
-	ver := strings.TrimSpace(string(out))
-	// Extract major version (e.g. "10.0.300" → "10")
-	parts := strings.SplitN(ver, ".", 2)
-	if len(parts) == 0 {
-		return false, nil
-	}
-	major := parts[0]
-	want := "net" + major + ".0"
-
-	data, err := os.ReadFile(f)
-	if err != nil {
-		return false, err
-	}
-	content := string(data)
-	// Replace any <TargetFramework>netX.Y</TargetFramework> where X != major
-	re := regexp.MustCompile(`<TargetFramework>net\d+\.\d+</TargetFramework>`)
-	fixed := re.ReplaceAllString(content, "<TargetFramework>"+want+"</TargetFramework>")
-	if fixed == content {
-		return false, nil
-	}
-	return true, os.WriteFile(f, []byte(fixed), 0644)
-}
-
 // ── Lint ─────────────────────────────────────────────────────────────────────
 
 // lintCommand returns the lint command for filePath, or "" to skip.
@@ -1171,19 +1178,6 @@ func lintCommand(filePath string, p *plan.Plan) string {
 	return ""
 }
 
-// ruffAutoFix runs "ruff check --fix" on filePath when ruff is available.
-// Returns true if ruff ran (regardless of whether it changed anything).
-func ruffAutoFix(filePath string) bool {
-	if _, err := exec.LookPath("ruff"); err != nil {
-		return false
-	}
-	if strings.ToLower(filepath.Ext(filePath)) != ".py" {
-		return false
-	}
-	exec.Command("ruff", "check", "--fix", "--select=E9,F", filePath).Run()
-	return true
-}
-
 func runLint(lintCmd, logFile string) bool {
 	f, _ := os.Create(logFile)
 	defer f.Close()
@@ -1191,231 +1185,6 @@ func runLint(lintCmd, logFile string) bool {
 	c.Stdout = f
 	c.Stderr = f
 	return c.Run() == nil
-}
-
-// fixCsprojCompileItems strips explicit <Compile Include="..."/> items from
-// SDK-style .csproj files. The .NET SDK auto-includes all .cs files by default,
-// so explicit includes cause NETSDK1022 "Duplicate 'Compile' items" errors.
-func fixCsprojCompileItems(f string) (bool, error) {
-	data, err := os.ReadFile(f)
-	if err != nil {
-		return false, err
-	}
-	content := string(data)
-	reCompile := regexp.MustCompile(`\s*<Compile\s+Include="[^"]*"\s*/>`)
-	fixed := reCompile.ReplaceAllString(content, "")
-	reEmptyIG := regexp.MustCompile(`(?s)\s*<ItemGroup>\s*</ItemGroup>`)
-	fixed = reEmptyIG.ReplaceAllString(fixed, "")
-	if fixed == content {
-		return false, nil
-	}
-	return true, os.WriteFile(f, []byte(fixed), 0644)
-}
-
-// fixGoMakefile ensures Go Makefiles run 'go mod init' and 'go get' BEFORE 'go build'.
-// Models commonly generate the build target with 'go build' first and 'go get' after,
-// which fails because the module isn't initialized when the build runs.
-func fixGoMakefile(f string) (bool, error) {
-	data, err := os.ReadFile(f)
-	if err != nil {
-		return false, err
-	}
-	content := string(data)
-
-	// Only act on Makefiles that reference Go source files
-	if !strings.Contains(content, "go build") {
-		return false, nil
-	}
-
-	// If go.mod setup already comes before go build, nothing to do
-	goBuildIdx := strings.Index(content, "go build")
-	goModIdx := strings.Index(content, "go mod")
-	goGetIdx := strings.Index(content, "go get")
-
-	// If go mod/get already precedes go build, it's fine
-	if (goModIdx >= 0 && goModIdx < goBuildIdx) || (goGetIdx >= 0 && goGetIdx < goBuildIdx) {
-		return false, nil
-	}
-
-	// Inject a go.mod bootstrap before the first build target's go build command.
-	// Strategy: insert module init + go get as the first lines of the first target that contains go build.
-	lines := strings.Split(content, "\n")
-	inTarget := false
-	fixed := false
-	var out []string
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		// Detect recipe lines (lines starting with \t)
-		if len(line) > 0 && line[0] == '\t' {
-			inTarget = true
-			// If this is the first go build line in a recipe, prepend module init
-			if !fixed && strings.HasPrefix(trimmed, "go build") {
-				out = append(out, "\ttest -f go.mod || go mod init server")
-				out = append(out, "\tgo mod tidy 2>/dev/null || go get ./... 2>/dev/null || true")
-				fixed = true
-			}
-		} else if trimmed != "" && !strings.HasPrefix(trimmed, "#") && !strings.HasPrefix(trimmed, ".PHONY") {
-			inTarget = false
-		}
-		_ = inTarget
-		_ = i
-		out = append(out, line)
-	}
-
-	if !fixed {
-		return false, nil
-	}
-	return true, os.WriteFile(f, []byte(strings.Join(out, "\n")), 0644)
-}
-
-// fixGoMod detects go.mod files where the model wrote bare "pkg version" lines instead of
-// wrapping them in a require block. It collects those lines and rewrites them correctly.
-func fixGoMod(f string) (bool, error) {
-	data, err := os.ReadFile(f)
-	if err != nil {
-		return false, err
-	}
-	lines := strings.Split(string(data), "\n")
-	validDirectives := map[string]bool{
-		"module": true, "go": true, "require": true, "replace": true,
-		"exclude": true, "retract": true, "toolchain": true, "//": true, "": true,
-	}
-	var kept []string
-	var bareReqs []string
-	inBlock := false
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "//") {
-			kept = append(kept, line)
-			continue
-		}
-		if strings.HasSuffix(trimmed, "(") {
-			inBlock = true
-			kept = append(kept, line)
-			continue
-		}
-		if trimmed == ")" {
-			inBlock = false
-			kept = append(kept, line)
-			continue
-		}
-		if inBlock {
-			kept = append(kept, line)
-			continue
-		}
-		// Check if this is a known directive
-		first := strings.Fields(trimmed)[0]
-		if validDirectives[first] {
-			kept = append(kept, line)
-		} else {
-			// Looks like a bare "pkgname version" line — collect it as a require
-			bareReqs = append(bareReqs, "\t"+trimmed)
-		}
-	}
-	if len(bareReqs) == 0 {
-		return false, nil
-	}
-	result := strings.Join(kept, "\n")
-	result = strings.TrimRight(result, "\n")
-	result += "\n\nrequire (\n" + strings.Join(bareReqs, "\n") + "\n)\n"
-	return true, os.WriteFile(f, []byte(result), 0644)
-}
-
-func isSDLSource(f string) bool {
-	ext := strings.ToLower(filepath.Ext(f))
-	return ext == ".c" || ext == ".cpp" || ext == ".cc" || ext == ".cxx"
-}
-
-func fixSDLInclude(f string) (bool, error) {
-	data, err := os.ReadFile(f)
-	if err != nil {
-		return false, err
-	}
-	fixed := strings.ReplaceAll(string(data), `#include <SDL2/SDL.h>`, `#include <SDL.h>`)
-	fixed = strings.ReplaceAll(fixed, `#include "SDL2/SDL.h"`, `#include <SDL.h>`)
-	if fixed == string(data) {
-		return false, nil
-	}
-	return true, os.WriteFile(f, []byte(fixed), 0644)
-}
-
-// fixMakefileNoTargets detects a Makefile written as a plain shell script (no `target:` lines)
-// and wraps the commands in a default `all:` target with tab-indented recipes.
-// This happens when the model writes a Makefile like a shell script instead of proper make syntax.
-func fixMakefileNoTargets(f string) (bool, error) {
-	data, err := os.ReadFile(f)
-	if err != nil {
-		return false, err
-	}
-	content := string(data)
-	targetRE := regexp.MustCompile(`(?m)^[a-zA-Z_.][a-zA-Z0-9._-]*\s*:`)
-	if targetRE.MatchString(content) {
-		return false, nil // has at least one target
-	}
-	lines := strings.Split(strings.TrimRight(content, "\n"), "\n")
-	var recipes []string
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-		recipes = append(recipes, "\t"+trimmed)
-	}
-	if len(recipes) == 0 {
-		return false, nil
-	}
-	result := ".DEFAULT_GOAL := all\n\nall:\n" + strings.Join(recipes, "\n") + "\n"
-	return true, os.WriteFile(f, []byte(result), 0644)
-}
-
-// fixMissingCargoToml injects a minimal Cargo.toml task into PLAN.md when the test command
-// uses cargo but no Cargo.toml appears in the file list. Without Cargo.toml, every cargo
-// command fails immediately with "could not find Cargo.toml".
-func fixMissingCargoToml(planFile string, p *plan.Plan) bool {
-	if p == nil || !strings.Contains(strings.ToLower(p.TestCommand), "cargo") {
-		return false
-	}
-	for _, t := range p.Tasks {
-		if strings.EqualFold(filepath.Base(t.FilePath), "cargo.toml") {
-			return false // already present
-		}
-	}
-
-	// Derive package name from the first .rs file path, falling back to "app"
-	pkgName := "app"
-	for _, t := range p.Tasks {
-		if strings.HasSuffix(t.FilePath, ".rs") {
-			pkgName = strings.TrimSuffix(filepath.Base(t.FilePath), ".rs")
-			break
-		}
-	}
-
-	// Write a minimal Cargo.toml
-	cargoContent := fmt.Sprintf("[package]\nname = \"%s\"\nversion = \"0.1.0\"\nedition = \"2021\"\n", pkgName)
-	if err := os.WriteFile("Cargo.toml", []byte(cargoContent), 0644); err != nil {
-		return false
-	}
-
-	// Prepend Cargo.toml as the first task in PLAN.md
-	data, err := os.ReadFile(planFile)
-	if err != nil {
-		return false
-	}
-	content := string(data)
-	filesIdx := strings.Index(content, "## Files")
-	if filesIdx < 0 {
-		return false
-	}
-	// Find the first task line after ## Files
-	afterHeader := content[filesIdx:]
-	firstTask := strings.Index(afterHeader, "\n- [")
-	if firstTask < 0 {
-		return false
-	}
-	insertAt := filesIdx + firstTask + 1
-	entry := fmt.Sprintf("- [x] Cargo.toml — cargo project manifest (auto-injected)\n")
-	content = content[:insertAt] + entry + content[insertAt:]
-	return os.WriteFile(planFile, []byte(content), 0644) == nil
 }
 
 // fixDemonstrationScript detects when the model adds unnecessary test files to a

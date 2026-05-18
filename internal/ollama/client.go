@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -101,34 +102,26 @@ func ShowModel(model string) (map[string]any, error) {
 	return result, nil
 }
 
-func CreateModel(name string, modelfileContent string) error {
+func CreateModel(name, from string, params map[string]any) error {
 	client := &http.Client{Timeout: 10 * time.Minute}
 	body, _ := json.Marshal(map[string]any{
-		"name":      name,
-		"modelfile": modelfileContent,
-		"stream":    true,
+		"name":       name,
+		"from":       from,
+		"parameters": params,
+		"stream":     false,
 	})
 	resp, err := client.Post(Host()+"/api/create", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	dec := json.NewDecoder(resp.Body)
-	for {
-		var line map[string]any
-		if err := dec.Decode(&line); err == io.EOF {
-			break
-		} else if err != nil {
-			return err
-		}
-		if s, ok := line["status"].(string); ok {
-			fmt.Fprintf(os.Stderr, "\r%s", s)
-		}
-		if e, ok := line["error"].(string); ok {
-			return fmt.Errorf("create model: %s", e)
-		}
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return err
 	}
-	fmt.Fprintln(os.Stderr)
+	if e, ok := result["error"].(string); ok {
+		return fmt.Errorf("create model: %s", e)
+	}
 	return nil
 }
 
@@ -175,11 +168,36 @@ type ToolFunction struct {
 	Parameters  map[string]any `json:"parameters"`
 }
 
+func numCtx() int {
+	if s := os.Getenv("MU_NUM_CTX"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 4096
+}
+
+func NumCtx() int { return numCtx() }
+
+func numThread() int {
+	if s := os.Getenv("MU_NUM_THREAD"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 0
+}
+
 func Chat(model string, messages []Message, tools []ToolDef, timeout time.Duration) (Message, error) {
+	opts := map[string]any{"num_ctx": numCtx()}
+	if t := numThread(); t > 0 {
+		opts["num_thread"] = t
+	}
 	body := map[string]any{
 		"model":    model,
 		"messages": messages,
 		"stream":   false,
+		"options":  opts,
 	}
 	if len(tools) > 0 {
 		body["tools"] = tools

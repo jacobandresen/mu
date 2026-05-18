@@ -282,6 +282,18 @@ func IsBuildFile(name string) bool {
 	return false
 }
 
+// HasPendingBuildFile returns true if any build file (Makefile, Cargo.toml, etc.) is still
+// pending in the plan. Used to skip the inter-iteration test gate when the test command
+// depends on a Makefile/build-system that hasn't been written yet.
+func HasPendingBuildFile(p *Plan) bool {
+	for _, t := range p.Tasks {
+		if !t.Done && IsBuildFile(t.FilePath) {
+			return true
+		}
+	}
+	return false
+}
+
 // FixDotnetTestCommand rewrites the test command when dotnet is used without a .csproj
 // in the file list. When the test command is "dotnet test" or bare "dotnet run" but no
 // test project is listed, rewrites to "dotnet run --project <first-csproj>".
