@@ -755,19 +755,14 @@ func runRepair(cfg *agentConfig, testCmd, testTail, autonomousSystem string) {
 }
 
 func runRepairLint(cfg *agentConfig, lintCmd, filePath, lintHead, autonomousSystem string) {
-	fileContent := ""
-	if data, err := os.ReadFile(filePath); err == nil {
-		fileContent = fmt.Sprintf("\n\nCurrent file:\n```\n%s\n```", string(data))
-	}
-
 	fixRules := fmt.Sprintf(`REPAIR PROTOCOL:
-- The lint errors and current file are provided below. Do not run any commands.
+- Read the file first if you need to see its contents.
 - Call Edit to make the smallest targeted change to fix %s. Only use Write if you must replace the entire file.
 - Only modify %s. Do not create new files or modify other files.
-- One tool call only. Do not modify PLAN.md.`, filePath, filePath)
+- Do not modify PLAN.md.`, filePath, filePath)
 
 	history := repairHistory()
-	prompt := fmt.Sprintf("GOAL: %s\n\nLint failed for %s. Fix it now.\n\nLint errors:\n%s%s%s", cfg.Goal, filePath, lintHead, fileContent, history)
+	prompt := fmt.Sprintf("GOAL: %s\n\nLint failed for %s. Fix it now.\n\nLint errors:\n%s%s", cfg.Goal, filePath, lintHead, history)
 	systemPrompt := autonomousSystem + "\n\n" + fixRules
 
 	sess := agent.NewSession(systemPrompt)
