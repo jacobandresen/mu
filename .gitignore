@@ -13,3 +13,12 @@ dojo/**/.mu/
 dojo/**/target/
 dojo/**/node_modules/
 dojo/**/.git/
+dojo/**/obj/
+dojo/**/bin/
+dojo/**/__pycache__/
+dojo/**/*.pyc
+dojo/**/*.pdb
+dojo/**/.ruff_cache/
+dojo/**/.pytest_cache/
+dojo/**/.mu/
+dojo/**/Cargo.lock
