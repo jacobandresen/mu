@@ -34,7 +34,7 @@ For each problem below:
 1. Run it with `mu agent`
 2. Inspect the session logs in `~/.mu`
 3. Identify weaknesses in the agent
-4. Improve the agent code (Go source in this directory) **and/or** the pi skills it relies on
+4. Improve the agent code (Go source in this directory) **and/or** the skills it relies on
 5. Record findings in your dojo folder
 
 ### What you can improve
@@ -42,23 +42,16 @@ For each problem below:
 **Agent code** (`internal/` — Go source): orchestration logic, timeouts, plan validation,
 prompt construction, complexity detection, test normalization.
 
-**pi SKILLS** (`~/.pi/agent/skills/`): the skill files that shape how the underlying LLM
+**Skills** (`skills/` — embedded Markdown): the skill files that shape how the underlying LLM
 behaves during planning and writing. When you find the model consistently making the same
 mistake, a skill-level fix is often more durable than a prompt patch in Go.
 
 To improve a skill:
-1. Edit it directly in `~/Projects/dotfiles/pi/agent/skills/<name>/SKILL.md`
-2. Reload into `~/.pi/agent/skills/` with:
-   ```sh
-   make -C ~/Projects/dotfiles install-skills
-   ```
+1. Edit it directly in `skills/<name>/SKILL.md` in this repo
+2. Rebuild mu: `make build`
 3. Describe the change and its rationale in `findings.md`
 
-Skills in `~/Projects/dotfiles/pi/agent/skills/` are the canonical source.
-`~/.pi/agent/skills/` is the installed copy — always edit the dotfiles source and reinstall.
-
-**Skills must work without mu agent.** A human should be able to run `pi` standalone
-and invoke any skill without the mu agent wrapper. Keep skills self-contained.
+Skills are embedded into the mu binary at build time via `//go:embed`. No separate install step needed.
 
 ## Standards
 

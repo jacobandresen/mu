@@ -47,10 +47,31 @@ a file. If your turn ends without a Write tool call targeting `PLAN.md`, you hav
 - With tests: `- [ ] src/app.csproj`, `- [ ] src/Program.cs`, `- [ ] tests/tests.csproj`, `- [ ] tests/Tests.cs`, test command: `dotnet test tests/tests.csproj`
 - NEVER put `dotnet test` or `dotnet run` in Test Command unless the referenced `.csproj` appears in `## Files`.
 
+**Rust / cargo**: Every cargo project requires a `Cargo.toml` file. Without it, `cargo build` and
+`cargo run` fail immediately. List `Cargo.toml` **first** in `## Files`.
+- Simple program: `- [ ] Cargo.toml` then `- [ ] src/main.rs`, test command: `cargo run`
+- Binary name in test command must match the `name` field in `[[bin]]` (or defaults to the package name in `[package]`).
+- Use `cargo run` or `cargo build && ./target/debug/<name>`, not `cargo build --bin main` (the binary name is not `main` unless you set it in `[[bin]]`).
+
 **Python**: Use `python3`, never `python`. The shell subprocess has no aliases.
-- When using pytest with a Makefile, the test recipe **must** set `PYTHONPATH=. pytest` (not bare `pytest`). Without this, `import app` and similar project-root imports fail with `ModuleNotFoundError` because pytest does not add the project root to `sys.path` by default.
+- When using pytest with a Makefile, the test recipe **must** use `PYTHONPATH=. pytest` (not bare `pytest`). Without this, `import app` and similar project-root imports fail with `ModuleNotFoundError` because pytest does not add the project root to `sys.path` by default.
+- Test files **must import every module they use**, including stdlib modules. If a test uses `sqlite3`, add `import sqlite3` at the top. Undefined names (`F821`) cause ruff to reject the file.
+- When the main module has module-level code that initializes state (e.g. creates a DB table on import), test files should import the module in a `conftest.py` fixture so the state is initialized before tests run. Do NOT open the database from tests directly without calling the setup code first.
 
 **C/C++**: Use `make` when a `Makefile` is in the file list; otherwise inline: `gcc main.c -o main && ./main`.
+
+**Makefile format**: Makefiles use tab-indented recipes under a `target:` header. This is NOT valid:
+```
+go mod init server
+go build -o app
+```
+This IS valid:
+```
+all:
+	go mod init server
+	go build -o app
+```
+Every Makefile MUST have at least one `target:` line. Commands without a target are a syntax error.
 
 ## Rules for the Test Command
 

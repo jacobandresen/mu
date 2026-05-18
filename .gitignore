@@ -1,1 +1,15 @@
 bin/
+
+# dojo: ignore compiled binaries and build artifacts, keep source
+dojo/**/main
+dojo/**/server
+dojo/**/app
+dojo/**/*.o
+dojo/**/*.out
+dojo/**/*.exe
+dojo/**/*.db
+dojo/**/*.sqlite
+dojo/**/.mu/
+dojo/**/target/
+dojo/**/node_modules/
+dojo/**/.git/

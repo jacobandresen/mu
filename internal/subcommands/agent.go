@@ -335,8 +335,11 @@ func runAgent(cfg agentConfig) error {
 			}
 		}
 
-		// Post-write: fix Go Makefile — ensure go mod init / go get run before go build
+		// Post-write: fix Makefile issues
 		if plan.IsBuildFile(task.FilePath) && strings.EqualFold(filepath.Base(task.FilePath), "makefile") {
+			if fixedTargets, _ := fixMakefileNoTargets(task.FilePath); fixedTargets {
+				agentLog("Fixed Makefile: wrapped shell commands in all: target (model wrote plain script).")
+			}
 			if fixedGo, _ := fixGoMakefile(task.FilePath); fixedGo {
 				agentLog("Fixed Go Makefile: added go mod init + go get before go build.")
 			}
@@ -522,9 +525,13 @@ func checkStandalone(force bool) error {
 			fileCount++
 		}
 	}
+	// Only count commits when a .git directory exists directly here (not an ancestor repo).
+	// Without this check, target dirs nested inside a git repo (like dojo/) inherit its history.
 	gitCommits := 0
-	if out, err := exec.Command("git", "rev-list", "--count", "HEAD").Output(); err == nil {
-		gitCommits, _ = strconv.Atoi(strings.TrimSpace(string(out)))
+	if _, err := os.Stat(".git"); err == nil {
+		if out, err2 := exec.Command("git", "rev-list", "--count", "HEAD").Output(); err2 == nil {
+			gitCommits, _ = strconv.Atoi(strings.TrimSpace(string(out)))
+		}
 	}
 	if fileCount > 5 || gitCommits > 0 {
 		wd, _ := os.Getwd()
@@ -759,7 +766,7 @@ func runRepairLint(cfg *agentConfig, lintCmd, filePath, lintHead, autonomousSyst
 	sess := agent.NewSession(systemPrompt)
 	sess.Tools = agent.RepairToolDefs
 	timeout := time.Duration(cfg.WriterTimeout) * time.Second
-	_, err := sess.Run(cfg.AgentModel, prompt, "medium", "Repairing", 4, "", timeout)
+	_, err := sess.Run(cfg.AgentModel, prompt, "medium", "Repairing", 6, "", timeout)
 	if err != nil {
 		agentLog("Lint repair: %v", err)
 	}
@@ -1316,4 +1323,33 @@ func fixSDLInclude(f string) (bool, error) {
 		return false, nil
 	}
 	return true, os.WriteFile(f, []byte(fixed), 0644)
+}
+
+// fixMakefileNoTargets detects a Makefile written as a plain shell script (no `target:` lines)
+// and wraps the commands in a default `all:` target with tab-indented recipes.
+// This happens when the model writes a Makefile like a shell script instead of proper make syntax.
+func fixMakefileNoTargets(f string) (bool, error) {
+	data, err := os.ReadFile(f)
+	if err != nil {
+		return false, err
+	}
+	content := string(data)
+	targetRE := regexp.MustCompile(`(?m)^[a-zA-Z_.][a-zA-Z0-9._-]*\s*:`)
+	if targetRE.MatchString(content) {
+		return false, nil // has at least one target
+	}
+	lines := strings.Split(strings.TrimRight(content, "\n"), "\n")
+	var recipes []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		recipes = append(recipes, "\t"+trimmed)
+	}
+	if len(recipes) == 0 {
+		return false, nil
+	}
+	result := ".DEFAULT_GOAL := all\n\nall:\n" + strings.Join(recipes, "\n") + "\n"
+	return true, os.WriteFile(f, []byte(result), 0644)
 }

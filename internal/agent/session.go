@@ -41,24 +41,7 @@ func (s *Session) Run(model, userPrompt, thinking, label string, maxTurns int, w
 		{Role: "user", Content: prompt},
 	}
 
-	progressDone := make(chan struct{})
-	go func() {
-		ticker := time.NewTicker(2 * time.Second)
-		defer ticker.Stop()
-		start := time.Now()
-		total := int(timeout.Seconds())
-		for {
-			select {
-			case <-progressDone:
-				fmt.Print("\r\033[K")
-				return
-			case <-ticker.C:
-				elapsed := int(time.Since(start).Seconds())
-				fmt.Printf("\r  %s %s", ui.Cyan(label), ui.DrawProgressBar(elapsed, total, 40))
-			}
-		}
-	}()
-	defer close(progressDone)
+	fmt.Printf("  %s...\n", ui.Cyan(label))
 
 	deadline := time.Now().Add(timeout)
 
