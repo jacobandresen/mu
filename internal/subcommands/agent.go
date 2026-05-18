@@ -210,6 +210,13 @@ func runAgent(cfg agentConfig) error {
 		currentPlan = p
 	}
 
+	// Simplify "show that X works" plans that incorrectly use pytest
+	if fixed := fixDemonstrationScript("PLAN.md", p, cfg.Goal); fixed {
+		agentLog("Simplified demonstration-script plan: removed test files, using direct execution.")
+		p, _ = plan.Parse("PLAN.md")
+		currentPlan = p
+	}
+
 	// Drop runtime-generated files (*.db, *.sqlite, *.o, etc.) the model mistakenly lists
 	if dropped := plan.DropRuntimeArtifacts("PLAN.md", p); len(dropped) > 0 {
 		agentLog("Dropped runtime artifact tasks from plan: %s", strings.Join(dropped, ", "))
@@ -1404,4 +1411,67 @@ func fixMissingCargoToml(planFile string, p *plan.Plan) bool {
 	entry := fmt.Sprintf("- [x] Cargo.toml — cargo project manifest (auto-injected)\n")
 	content = content[:insertAt] + entry + content[insertAt:]
 	return os.WriteFile(planFile, []byte(content), 0644) == nil
+}
+
+// fixDemonstrationScript detects when the model adds unnecessary test files to a
+// "show that X works" goal. In demonstration goals the program itself is the test;
+// pytest is never needed. When found, removes test tasks and rewrites the test
+// command to run the main script directly (python3 <file>).
+func fixDemonstrationScript(planFile string, p *plan.Plan, goal string) bool {
+	if p == nil {
+		return false
+	}
+	goalLower := strings.ToLower(goal)
+	isDemo := strings.Contains(goalLower, "show") || strings.Contains(goalLower, "demonstrate")
+	hasAPI := strings.Contains(goalLower, "api") || strings.Contains(goalLower, "server") ||
+		strings.Contains(goalLower, "endpoint") || strings.Contains(goalLower, "rest") ||
+		strings.Contains(goalLower, "http")
+	if !isDemo || hasAPI {
+		return false
+	}
+	if !strings.Contains(strings.ToLower(p.TestCommand), "pytest") {
+		return false
+	}
+
+	var mainFile string
+	var testPaths []string
+	for _, t := range p.Tasks {
+		base := filepath.Base(t.FilePath)
+		dir := filepath.Dir(t.FilePath)
+		isTest := strings.HasPrefix(base, "test_") || base == "conftest.py" ||
+			strings.Contains(dir, "test")
+		if isTest {
+			testPaths = append(testPaths, t.FilePath)
+		} else if strings.HasSuffix(t.FilePath, ".py") && mainFile == "" {
+			mainFile = t.FilePath
+		}
+	}
+	if mainFile == "" || len(testPaths) == 0 {
+		return false
+	}
+
+	data, err := os.ReadFile(planFile)
+	if err != nil {
+		return false
+	}
+	lines := strings.Split(string(data), "\n")
+	var out []string
+	for _, line := range lines {
+		skip := false
+		for _, tp := range testPaths {
+			if strings.Contains(line, tp) || strings.Contains(line, filepath.Base(tp)) {
+				skip = true
+				break
+			}
+		}
+		if skip {
+			continue
+		}
+		// Rewrite test command line
+		if strings.TrimSpace(line) == strings.TrimSpace(p.TestCommand) {
+			line = "python3 " + mainFile
+		}
+		out = append(out, line)
+	}
+	return os.WriteFile(planFile, []byte(strings.Join(out, "\n")), 0644) == nil
 }
