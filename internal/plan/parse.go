@@ -170,6 +170,9 @@ func CheckGoalAlignment(p *Plan, goal string) (bool, []string) {
 		"provide": true, "list": true, "uses": true, "call": true,
 		"print": true, "read": true, "take": true, "back": true,
 		"work": true, "build": true, "adds": true, "does": true,
+		"writes": true, "again": true, "program": true, "table": true,
+		"contains": true, "inserted": true, "entry": true, "given": true,
+		"should": true, "store": true, "data": true, "able": true,
 	}
 
 	var missing []string
