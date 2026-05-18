@@ -251,6 +251,7 @@ func runAgent(cfg agentConfig) error {
 						lintHead := headFile(lintLog, 60)
 						runRepairLint(&cfg, lintCmd, combinedSrc, lintHead, autonomousSystem)
 						if !runLint(lintCmd, lintLog) {
+							recordFailedRepair(fmt.Sprintf("lint repair for combined-mode %s", combinedSrc), headFile(lintLog, 5))
 							exitCode = 3
 							return fmt.Errorf("lint failed for combined-mode %s", combinedSrc)
 						}
@@ -358,6 +359,7 @@ func runAgent(cfg agentConfig) error {
 					runRepairLint(&cfg, lintCmd, task.FilePath, lintHead, autonomousSystem)
 					if !runLint(lintCmd, lintLog) {
 						agentLog("Lint still failing after repair for %s.", task.FilePath)
+						recordFailedRepair(fmt.Sprintf("lint repair for %s", task.FilePath), headFile(lintLog, 5))
 						exitCode = 3
 						return fmt.Errorf("lint failed for %s", task.FilePath)
 					}
@@ -378,6 +380,7 @@ func runAgent(cfg agentConfig) error {
 				runRepair(&cfg, testCmd, testTail, autonomousSystem)
 				if !runTests(testCmd, testLog) {
 					agentLog("Tests still failing after repair for %s.", task.FilePath)
+					recordFailedRepair(fmt.Sprintf("test repair after writing %s", task.FilePath), tailFile(testLog, 5))
 					exitCode = 3
 					return fmt.Errorf("stalled: tests still failing after repair")
 				}
@@ -724,7 +727,8 @@ func runRepair(cfg *agentConfig, testCmd, testTail, autonomousSystem string) {
 - Only modify files that already exist in the project. Do not create new files.
 - One tool call only. Do not modify PLAN.md.`
 
-	prompt := fmt.Sprintf("GOAL: %s\n\nTests are failing. Fix the broken code now.\n\nTest output:\n%s", cfg.Goal, testTail)
+	history := repairHistory()
+	prompt := fmt.Sprintf("GOAL: %s\n\nTests are failing. Fix the broken code now.\n\nTest output:\n%s%s", cfg.Goal, testTail, history)
 	systemPrompt := autonomousSystem + "\n\n" + fixRules
 
 	sess := agent.NewSession(systemPrompt)
@@ -748,7 +752,8 @@ func runRepairLint(cfg *agentConfig, lintCmd, filePath, lintHead, autonomousSyst
 - Only modify %s. Do not create new files or modify other files.
 - One tool call only. Do not modify PLAN.md.`, filePath, filePath)
 
-	prompt := fmt.Sprintf("GOAL: %s\n\nLint failed for %s. Fix it now.\n\nLint errors:\n%s%s", cfg.Goal, filePath, lintHead, fileContent)
+	history := repairHistory()
+	prompt := fmt.Sprintf("GOAL: %s\n\nLint failed for %s. Fix it now.\n\nLint errors:\n%s%s%s", cfg.Goal, filePath, lintHead, fileContent, history)
 	systemPrompt := autonomousSystem + "\n\n" + fixRules
 
 	sess := agent.NewSession(systemPrompt)
@@ -784,14 +789,84 @@ func finalTestGate(cfg *agentConfig, p *plan.Plan, autonomousSystem string) erro
 			return nil
 		}
 		if attempt == maxRetries {
+			recordFailedRepair("final test gate: all retries exhausted", tailFile(testLog, 30))
 			fmt.Printf("\n  %s\n\n", ui.Red("Tests still failing after "+strconv.Itoa(maxRetries)+" retries. Giving up."))
 			return fmt.Errorf("final tests failed")
 		}
 		agentLog("Final tests failed — repair retry %d / %d", attempt+1, maxRetries)
 		testTail := tailFile(testLog, 200)
 		runRepair(cfg, testCmd, testTail, autonomousSystem)
+		// Repair model may revert harness fixes (e.g. restores wrong .csproj TargetFramework).
+		// Re-apply them unconditionally after each repair attempt.
+		reapplyCsprojFix(p)
+		// Record this failed attempt so subsequent repair turns don't repeat the same approach.
+		if !testsSilent(testCmd) {
+			recordFailedRepair(fmt.Sprintf("test repair attempt %d", attempt+1), tailFile(testLog, 30))
+		}
 	}
 	return nil
+}
+
+// reapplyCsprojFix re-runs fixCsprojTargetFramework on every .csproj listed in the plan.
+// The repair model sometimes rewrites .csproj files and reverts the TargetFramework to an
+// older version; calling this after each repair restores the correct value.
+func reapplyCsprojFix(p *plan.Plan) {
+	if p == nil {
+		return
+	}
+	for _, task := range p.Tasks {
+		if strings.HasSuffix(task.FilePath, ".csproj") {
+			if _, err := os.Stat(task.FilePath); err == nil {
+				if fixed, _ := fixCsprojTargetFramework(task.FilePath); fixed {
+					agentLog("Re-applied TargetFramework fix to %s after repair.", task.FilePath)
+				}
+			}
+		}
+	}
+}
+
+// recordFailedRepair appends a note to PLAN.md's ## Repair History section so that
+// subsequent repair turns know what was already tried and avoid repeating it.
+func recordFailedRepair(label, errorSnippet string) {
+	const planFile = "PLAN.md"
+	data, err := os.ReadFile(planFile)
+	if err != nil {
+		return
+	}
+	content := string(data)
+
+	snippet := strings.TrimSpace(errorSnippet)
+	if len(strings.Split(snippet, "\n")) > 5 {
+		lines := strings.Split(snippet, "\n")
+		snippet = strings.Join(lines[:5], "\n")
+	}
+
+	entry := fmt.Sprintf("- %s — still failing. Error:\n  ```\n  %s\n  ```\n",
+		label, strings.ReplaceAll(snippet, "\n", "\n  "))
+
+	const header = "\n## Repair History\n"
+	if idx := strings.Index(content, header); idx >= 0 {
+		content = content[:idx+len(header)] + entry + content[idx+len(header):]
+	} else {
+		content = strings.TrimRight(content, "\n") + "\n" + header + entry
+	}
+	_ = os.WriteFile(planFile, []byte(content), 0644)
+}
+
+// repairHistory reads any ## Repair History section from PLAN.md and returns it formatted
+// for inclusion in a repair prompt, so the model avoids repeating failed approaches.
+func repairHistory() string {
+	data, err := os.ReadFile("PLAN.md")
+	if err != nil {
+		return ""
+	}
+	const header = "## Repair History"
+	idx := strings.Index(string(data), header)
+	if idx < 0 {
+		return ""
+	}
+	section := strings.TrimSpace(string(data)[idx:])
+	return "\n\n" + section + "\n\nDo NOT repeat approaches listed in Repair History above."
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

@@ -155,9 +155,21 @@ func CheckGoalAlignment(p *Plan, goal string) (bool, []string) {
 	planText := strings.ToLower(p.PlanContext)
 	goalLower := strings.ToLower(goal)
 	stopwords := map[string]bool{
+		// articles, prepositions, conjunctions
 		"and": true, "the": true, "via": true, "with": true,
 		"for": true, "from": true, "that": true, "this": true,
-		"are": true, "not": true, "make": true,
+		"are": true, "not": true, "make": true, "into": true,
+		"also": true, "both": true, "each": true, "just": true,
+		"like": true, "more": true, "only": true, "over": true,
+		"some": true, "such": true, "then": true, "when": true,
+		"will": true, "have": true, "must": true, "been": true,
+		"your": true, "them": true, "than": true, "even": true,
+		// task-description verbs that appear in nearly every goal
+		"write": true, "using": true, "create": true, "show": true,
+		"include": true, "returns": true, "support": true, "runs": true,
+		"provide": true, "list": true, "uses": true, "call": true,
+		"print": true, "read": true, "take": true, "back": true,
+		"work": true, "build": true, "adds": true, "does": true,
 	}
 
 	var missing []string
