@@ -57,6 +57,7 @@ a file. If your turn ends without a Write tool call targeting `PLAN.md`, you hav
 - When using pytest with a Makefile, the test recipe **must** use `PYTHONPATH=. pytest` (not bare `pytest`). Without this, `import app` and similar project-root imports fail with `ModuleNotFoundError` because pytest does not add the project root to `sys.path` by default.
 - Test files **must import every module they use**, including stdlib modules. If a test uses `sqlite3`, add `import sqlite3` at the top. Undefined names (`F821`) cause ruff to reject the file.
 - When the main module has module-level code that initializes state (e.g. creates a DB table on import), test files should import the module in a `conftest.py` fixture so the state is initialized before tests run. Do NOT open the database from tests directly without calling the setup code first.
+- **Flask REST API tests**: use only `app.test_client()` — never call `sqlite3.connect()` directly from test files. The app handles its own DB setup. Test by calling POST/GET endpoints on the client.
 
 **Go**: For projects with external packages (gin, gorilla, etc.), the Makefile must run `go mod tidy` (without suppressing errors) before building. Never silence it with `2>/dev/null || true` — a failed `go mod tidy` means the build will fail. The `go.sum` file is auto-generated; do **not** list it as a task.
 
