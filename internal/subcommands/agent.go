@@ -773,7 +773,7 @@ func runRepairLint(cfg *agentConfig, lintCmd, filePath, lintHead, autonomousSyst
 	sess := agent.NewSession(systemPrompt)
 	sess.Tools = agent.RepairToolDefs
 	timeout := time.Duration(cfg.WriterTimeout) * time.Second
-	_, err := sess.Run(cfg.AgentModel, prompt, "medium", "Repairing", 6, "", timeout)
+	_, err := sess.Run(cfg.AgentModel, prompt, "off", "Repairing", 3, "", timeout)
 	if err != nil {
 		agentLog("Lint repair: %v", err)
 	}

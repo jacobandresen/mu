@@ -58,6 +58,8 @@ a file. If your turn ends without a Write tool call targeting `PLAN.md`, you hav
 - Test files **must import every module they use**, including stdlib modules. If a test uses `sqlite3`, add `import sqlite3` at the top. Undefined names (`F821`) cause ruff to reject the file.
 - When the main module has module-level code that initializes state (e.g. creates a DB table on import), test files should import the module in a `conftest.py` fixture so the state is initialized before tests run. Do NOT open the database from tests directly without calling the setup code first.
 
+**Go**: For projects with external packages (gin, gorilla, etc.), the Makefile must run `go mod tidy` (without suppressing errors) before building. Never silence it with `2>/dev/null || true` — a failed `go mod tidy` means the build will fail. The `go.sum` file is auto-generated; do **not** list it as a task.
+
 **C/C++**: Use `make` when a `Makefile` is in the file list; otherwise inline: `gcc main.c -o main && ./main`.
 
 **Makefile format**: Makefiles use tab-indented recipes under a `target:` header. This is NOT valid:
@@ -84,6 +86,7 @@ binary names only:
 | `make` (with no Makefile in the file list) | `gcc main.c -o main && ./main` |
 | `./binary` (graphical/interactive program) | `make` (compile-only smoke test) |
 | `dotnet test` (no .csproj in file list) | `dotnet run --project app.csproj` |
+| `cargo build --bin main` | `cargo run` (binary name defaults to package name, not "main") |
 
 The test command must exit non-zero on failure. For trivial single-file programs, inline
 compilation is required — compile and run in the same command.
