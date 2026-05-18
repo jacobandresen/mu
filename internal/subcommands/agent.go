@@ -203,6 +203,13 @@ func runAgent(cfg agentConfig) error {
 		currentPlan = p
 	}
 
+	// Inject Cargo.toml when plan uses cargo but forgot to list it
+	if fixed := fixMissingCargoToml("PLAN.md", p); fixed {
+		agentLog("Injected Cargo.toml into plan (test command uses cargo but Cargo.toml was missing).")
+		p, _ = plan.Parse("PLAN.md")
+		currentPlan = p
+	}
+
 	// Drop runtime-generated files (*.db, *.sqlite, *.o, etc.) the model mistakenly lists
 	if dropped := plan.DropRuntimeArtifacts("PLAN.md", p); len(dropped) > 0 {
 		agentLog("Dropped runtime artifact tasks from plan: %s", strings.Join(dropped, ", "))
@@ -1352,4 +1359,54 @@ func fixMakefileNoTargets(f string) (bool, error) {
 	}
 	result := ".DEFAULT_GOAL := all\n\nall:\n" + strings.Join(recipes, "\n") + "\n"
 	return true, os.WriteFile(f, []byte(result), 0644)
+}
+
+// fixMissingCargoToml injects a minimal Cargo.toml task into PLAN.md when the test command
+// uses cargo but no Cargo.toml appears in the file list. Without Cargo.toml, every cargo
+// command fails immediately with "could not find Cargo.toml".
+func fixMissingCargoToml(planFile string, p *plan.Plan) bool {
+	if p == nil || !strings.Contains(strings.ToLower(p.TestCommand), "cargo") {
+		return false
+	}
+	for _, t := range p.Tasks {
+		if strings.EqualFold(filepath.Base(t.FilePath), "cargo.toml") {
+			return false // already present
+		}
+	}
+
+	// Derive package name from the first .rs file path, falling back to "app"
+	pkgName := "app"
+	for _, t := range p.Tasks {
+		if strings.HasSuffix(t.FilePath, ".rs") {
+			pkgName = strings.TrimSuffix(filepath.Base(t.FilePath), ".rs")
+			break
+		}
+	}
+
+	// Write a minimal Cargo.toml
+	cargoContent := fmt.Sprintf("[package]\nname = \"%s\"\nversion = \"0.1.0\"\nedition = \"2021\"\n", pkgName)
+	if err := os.WriteFile("Cargo.toml", []byte(cargoContent), 0644); err != nil {
+		return false
+	}
+
+	// Prepend Cargo.toml as the first task in PLAN.md
+	data, err := os.ReadFile(planFile)
+	if err != nil {
+		return false
+	}
+	content := string(data)
+	filesIdx := strings.Index(content, "## Files")
+	if filesIdx < 0 {
+		return false
+	}
+	// Find the first task line after ## Files
+	afterHeader := content[filesIdx:]
+	firstTask := strings.Index(afterHeader, "\n- [")
+	if firstTask < 0 {
+		return false
+	}
+	insertAt := filesIdx + firstTask + 1
+	entry := fmt.Sprintf("- [x] Cargo.toml — cargo project manifest (auto-injected)\n")
+	content = content[:insertAt] + entry + content[insertAt:]
+	return os.WriteFile(planFile, []byte(content), 0644) == nil
 }

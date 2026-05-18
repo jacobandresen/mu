@@ -67,7 +67,13 @@ func (s *Session) Run(model, userPrompt, thinking, label string, maxTurns int, w
 				_, statErr := os.Stat(watchFile)
 				return statErr == nil, nil
 			}
-			return true, nil
+			// Repair mode (no watchFile): model responded with text but called no tool.
+			// Force another turn so the model actually edits the file.
+			if turn < maxTurns-1 {
+				msgs = append(msgs, ollama.Message{Role: "user", Content: "Call Write or Edit now. Do not write text — call the tool immediately."})
+				continue
+			}
+			return false, fmt.Errorf("max turns reached without tool call")
 		}
 
 		for _, tc := range msg.ToolCalls {
