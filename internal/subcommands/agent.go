@@ -517,16 +517,7 @@ func detectComplexity(cfg *agentConfig) {
 	}
 	cfg.WriterTimeout = int(float64(map[string]int{"trivial": 90, "simple": 220, "complex": 300, "hard": 400}[complexity]) * ctxScale)
 
-	if cfg.Combined == -1 {
-		// Combined mode is disabled for single-thread inference: the combined prompt is
-		// significantly larger than the planner-only prompt, causing consistent timeouts
-		// when num_thread=1 makes prefill/generation ~8× slower than with auto threads.
-		if (complexity == "trivial" || complexity == "simple") && ollama.NumThread() != 1 {
-			cfg.Combined = 1
-		} else {
-			cfg.Combined = 0
-		}
-	}
+	cfg.Combined = 0
 }
 
 // ── Model setup ──────────────────────────────────────────────────────────────
