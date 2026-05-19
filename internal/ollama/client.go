@@ -208,6 +208,8 @@ func numKeep() int {
 	return -1 // -1 = not set, omit from options
 }
 
+func NumKeep() int { return numKeep() }
+
 // ChatStats holds token usage returned by the Ollama API for a single chat call.
 type ChatStats struct {
 	PromptTokens    int

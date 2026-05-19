@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/jacobandresen/mu/internal/ollama"
 	"github.com/jacobandresen/mu/internal/system"
 	"github.com/spf13/cobra"
 	"howett.net/plist"
@@ -142,7 +143,40 @@ func runOptimize() error {
 		_ = sudoRun("systemctl", "restart", "ollama")
 	}
 
+	if err := createMuModel(); err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: could not create :mu model: %v\n", err)
+	}
+
 	fmt.Println("\nDone.")
+	return nil
+}
+
+// createMuModel creates (or recreates) {family}:mu from MU_AGENT_BASE_MODEL with
+// num_ctx and num_keep baked in, so Ollama always loads it at the right context
+// size and never reloads due to option mismatches.
+func createMuModel() error {
+	base := orEnv("qwen3:8b", "MU_AGENT_BASE_MODEL")
+	family := strings.SplitN(base, ":", 2)[0]
+	target := family + ":mu"
+
+	numCtx := ollama.NumCtx()
+	numKeep := ollama.NumKeep()
+
+	params := map[string]any{"temperature": 0, "num_ctx": numCtx}
+	if numKeep >= 0 {
+		params["num_keep"] = numKeep
+	}
+
+	fmt.Printf("Creating %s from %s (num_ctx=%d", target, base, numCtx)
+	if numKeep >= 0 {
+		fmt.Printf(" num_keep=%d", numKeep)
+	}
+	fmt.Println(")...")
+
+	if err := ollama.CreateModel(target, base, params); err != nil {
+		return fmt.Errorf("create %s: %w", target, err)
+	}
+	fmt.Printf("Created %s — Ollama will always load it at num_ctx=%d.\n", target, numCtx)
 	return nil
 }
 

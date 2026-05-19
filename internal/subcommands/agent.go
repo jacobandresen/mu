@@ -524,15 +524,18 @@ func detectComplexity(cfg *agentConfig) {
 
 func ensureAgentModel(base string) (string, error) {
 	parts := strings.SplitN(base, ":", 2)
-	target := parts[0] + ":agent"
+	target := parts[0] + ":mu"
 
 	if _, err := ollama.ShowModel(target); err == nil {
 		return target, nil
 	}
 
-	agentLog("Creating %s (temperature=0, thinking disabled) from %s ...", target, base)
+	agentLog("Creating %s (temperature=0, num_ctx=%d) from %s ...", target, ollama.NumCtx(), base)
 
 	params := map[string]any{"temperature": 0, "num_ctx": ollama.NumCtx()}
+	if k := ollama.NumKeep(); k >= 0 {
+		params["num_keep"] = k
+	}
 	if err := ollama.CreateModel(target, base, params); err != nil {
 		agentLog("WARNING: ollama create failed — using %s (temperature uncontrolled)", base)
 		return base, nil

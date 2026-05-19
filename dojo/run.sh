@@ -38,7 +38,7 @@ export MU_NUM_KEEP=${MU_NUM_KEEP:-512}
 # e.g. qwen3:8b → qwen3:agent, qwen2.5-coder:7b → qwen2.5-coder:agent
 BASE_MODEL="${MU_AGENT_BASE_MODEL:-qwen2.5-coder:7b}"
 BASE_FAMILY="${BASE_MODEL%%:*}"
-WARMUP_MODEL="${MU_WARMUP_MODEL:-${BASE_FAMILY}:agent}"
+WARMUP_MODEL="${MU_WARMUP_MODEL:-${BASE_FAMILY}:mu}"
 WARMUP_CTX=$MU_NUM_CTX
 curl -s -m 300 http://localhost:11434/api/generate \
     -d "{\"model\":\"$WARMUP_MODEL\",\"keep_alive\":\"30m\",\"options\":{\"num_ctx\":$WARMUP_CTX},\"stream\":false}" \
