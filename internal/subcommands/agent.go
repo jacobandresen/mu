@@ -506,6 +506,11 @@ func detectComplexity(cfg *agentConfig) {
 	if ollama.NumCtx() >= 8000 {
 		ctxScale = 1.5
 	}
+	// num_thread=1 forces single-CPU inference — 5-10x slower than auto on Apple Silicon.
+	// Double all timeouts so writers and repairs don't expire before the model finishes.
+	if ollama.NumThread() == 1 {
+		ctxScale *= 2.0
+	}
 	if cfg.PlannerTimeout == 0 {
 		base := map[string]int{"trivial": 120, "simple": 200, "complex": 360, "hard": 480}[complexity]
 		cfg.PlannerTimeout = int(float64(base) * ctxScale)
@@ -513,7 +518,10 @@ func detectComplexity(cfg *agentConfig) {
 	cfg.WriterTimeout = int(float64(map[string]int{"trivial": 90, "simple": 220, "complex": 300, "hard": 400}[complexity]) * ctxScale)
 
 	if cfg.Combined == -1 {
-		if complexity == "trivial" || complexity == "simple" {
+		// Combined mode is disabled for single-thread inference: the combined prompt is
+		// significantly larger than the planner-only prompt, causing consistent timeouts
+		// when num_thread=1 makes prefill/generation ~8× slower than with auto threads.
+		if (complexity == "trivial" || complexity == "simple") && ollama.NumThread() != 1 {
 			cfg.Combined = 1
 		} else {
 			cfg.Combined = 0

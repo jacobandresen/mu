@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <ProjectGuid>{3AC056C2-E75B-4C4F-B878-0D67B6D8F182}</ProjectGuid>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>Fibonacci</AssemblyName>
+  </PropertyGroup>
+</Project>

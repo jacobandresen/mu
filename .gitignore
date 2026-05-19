@@ -4,6 +4,9 @@ bin/
 dojo/**/main
 dojo/**/server
 dojo/**/app
+dojo/**/hello
+dojo/**/helloworld
+dojo/**/sdl_line
 dojo/**/*.o
 dojo/**/*.out
 dojo/**/*.exe

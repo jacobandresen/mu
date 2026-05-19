@@ -179,6 +179,8 @@ func numCtx() int {
 
 func NumCtx() int { return numCtx() }
 
+func NumThread() int { return numThread() }
+
 func numThread() int {
 	if s := os.Getenv("MU_NUM_THREAD"); s != "" {
 		if n, err := strconv.Atoi(s); err == nil && n > 0 {
