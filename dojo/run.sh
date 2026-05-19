@@ -34,8 +34,12 @@ done
 # 8096 causes heavy swap on 8 GB hardware and slower inference.
 export MU_NUM_CTX=${MU_NUM_CTX:-6000}
 
-# Warm up: load target model before the agent starts
-WARMUP_MODEL="${MU_WARMUP_MODEL:-qwen2.5-coder:agent}"
+# Warm up: load the agent model before mu starts.
+# Derive the :agent model name from MU_AGENT_BASE_MODEL (strips the version tag, appends :agent).
+# e.g. qwen3:8b → qwen3:agent, qwen2.5-coder:7b → qwen2.5-coder:agent
+BASE_MODEL="${MU_AGENT_BASE_MODEL:-qwen2.5-coder:7b}"
+BASE_FAMILY="${BASE_MODEL%%:*}"
+WARMUP_MODEL="${MU_WARMUP_MODEL:-${BASE_FAMILY}:agent}"
 WARMUP_CTX=$MU_NUM_CTX
 curl -s -m 300 http://localhost:11434/api/generate \
     -d "{\"model\":\"$WARMUP_MODEL\",\"keep_alive\":\"30m\",\"options\":{\"num_ctx\":$WARMUP_CTX},\"stream\":false}" \

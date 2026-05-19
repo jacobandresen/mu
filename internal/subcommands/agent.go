@@ -649,19 +649,45 @@ func runPlanningPhase(cfg *agentConfig) error {
 
 func runPlanner(cfg *agentConfig) {
 	projectDir, _ := os.Getwd()
-	prompt := buildPlannerPrompt(cfg.Goal, projectDir)
-	autonomousSystem := buildAutonomousSystem(projectDir)
 
-	systemPrompt := autonomousSystem
-	if skillContent := skills.LoadAll(plannerSkills(cfg.Goal)); skillContent != "" {
-		systemPrompt += "\n\n" + skillContent
+	// Stage 1: minimal context — core skill only, no language-specific rules.
+	// Small system prompt → fast prefill, model focuses on structure.
+	t0 := time.Now()
+	system1 := buildPlannerSystem(projectDir)
+	if core := skills.LoadAll([]string{"task-planner"}); core != "" {
+		system1 += "\n\n" + core
+	}
+	timeout1 := time.Duration(cfg.PlannerTimeout) * time.Second
+	sess1 := agent.NewSession(system1)
+	_, err := sess1.Run(cfg.AgentModel, buildPlannerPrompt(cfg.Goal, projectDir), cfg.PlannerThinking, "Planning", 20, "PLAN.md", timeout1)
+	agentLog("Planner stage 1: %.1fs", time.Since(t0).Seconds())
+	if err != nil {
+		agentLog("Planner stage 1 error: %v", err)
 	}
 
-	sess := agent.NewSession(systemPrompt)
-	timeout := time.Duration(cfg.PlannerTimeout) * time.Second
-	_, err := sess.Run(cfg.AgentModel, prompt, cfg.PlannerThinking, "Planning", 20, "PLAN.md", timeout)
-	if err != nil {
-		agentLog("Planner: %v", err)
+	// Stage 2: language refinement — only when PLAN.md exists and a language was detected.
+	// Loads only the language-specific skill; uses the draft PLAN.md as input.
+	lang := detectLanguage(cfg.Goal)
+	if lang == "" {
+		return
+	}
+	if _, statErr := os.Stat("PLAN.md"); statErr != nil {
+		return
+	}
+	langSkill := skills.LoadAll([]string{"task-planner-" + lang})
+	if langSkill == "" {
+		return
+	}
+	planContent, _ := os.ReadFile("PLAN.md")
+	t1 := time.Now()
+	budget2 := time.Duration(cfg.PlannerTimeout/2) * time.Second
+	system2 := fmt.Sprintf("Rewrite PLAN.md using the Write tool. Apply these rules:\n\n%s", langSkill)
+	prompt2 := fmt.Sprintf("Rewrite '%s/PLAN.md' applying the rules above. Write the complete file.\n\nCurrent PLAN.md:\n%s\n\nGOAL: %s", projectDir, string(planContent), cfg.Goal)
+	sess2 := agent.NewSession(system2)
+	_, err2 := sess2.Run(cfg.AgentModel, prompt2, cfg.PlannerThinking, "Refining plan", 5, "PLAN.md", budget2)
+	agentLog("Planner stage 2 (%s): %.1fs", lang, time.Since(t1).Seconds())
+	if err2 != nil {
+		agentLog("Planner stage 2 error: %v", err2)
 	}
 }
 
@@ -694,8 +720,7 @@ GOAL: %s`, projectDir, cfg.Goal)
 		prompt = buildPlannerPrompt(cfg.Goal, projectDir) + "\n\nAfter writing PLAN.md, immediately write the FIRST source file listed in ## Files. Do not pause between the two writes. Stop after the first source file is written."
 	}
 
-	autonomousSystem := buildAutonomousSystem(projectDir)
-	systemPrompt := autonomousSystem
+	systemPrompt := buildPlannerSystem(projectDir)
 	if skillContent := skills.LoadAll(plannerSkills(cfg.Goal)); skillContent != "" {
 		systemPrompt += "\n\n" + skillContent
 	}
@@ -1037,6 +1062,12 @@ func plannerSkills(goal string) []string {
 		names = append(names, "task-planner-"+lang)
 	}
 	return names
+}
+
+// buildPlannerSystem returns a minimal system prompt for planning calls.
+// Intentionally short — the task-planner skill carries all the rules.
+func buildPlannerSystem(projectDir string) string {
+	return fmt.Sprintf("Planning agent in: %s\nUse the Write tool only. No chat, no explanations.", projectDir)
 }
 
 func buildAutonomousSystem(projectDir string) string {

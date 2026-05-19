@@ -190,7 +190,13 @@ func numThread() int {
 	return 0
 }
 
-func Chat(model string, messages []Message, tools []ToolDef, timeout time.Duration) (Message, error) {
+// ChatStats holds token usage returned by the Ollama API for a single chat call.
+type ChatStats struct {
+	PromptTokens    int
+	GeneratedTokens int
+}
+
+func Chat(model string, messages []Message, tools []ToolDef, timeout time.Duration) (Message, ChatStats, error) {
 	opts := map[string]any{"num_ctx": numCtx()}
 	if t := numThread(); t > 0 {
 		opts["num_thread"] = t
@@ -206,13 +212,19 @@ func Chat(model string, messages []Message, tools []ToolDef, timeout time.Durati
 	}
 	data, err := post("/api/chat", body, timeout)
 	if err != nil {
-		return Message{}, err
+		return Message{}, ChatStats{}, err
 	}
 	var resp struct {
-		Message Message `json:"message"`
+		Message         Message `json:"message"`
+		PromptEvalCount int     `json:"prompt_eval_count"`
+		EvalCount       int     `json:"eval_count"`
 	}
 	if err := json.Unmarshal(data, &resp); err != nil {
-		return Message{}, err
+		return Message{}, ChatStats{}, err
 	}
-	return resp.Message, nil
+	stats := ChatStats{
+		PromptTokens:    resp.PromptEvalCount,
+		GeneratedTokens: resp.EvalCount,
+	}
+	return resp.Message, stats, nil
 }

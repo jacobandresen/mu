@@ -55,7 +55,11 @@ func (s *Session) Run(model, userPrompt, thinking, label string, maxTurns int, w
 		if tools == nil {
 			tools = ToolDefs
 		}
-		msg, err := ollama.Chat(model, msgs, tools, remaining)
+		callStart := time.Now()
+		msg, stats, err := ollama.Chat(model, msgs, tools, remaining)
+		elapsed := time.Since(callStart)
+		fmt.Printf("==> [mu-agent] chat: prompt=%d gen=%d time=%.1fs\n",
+			stats.PromptTokens, stats.GeneratedTokens, elapsed.Seconds())
 		if err != nil {
 			return false, fmt.Errorf("chat: %w", err)
 		}
