@@ -1,8 +1,11 @@
 package skills
 
-import "embed"
+import (
+	"embed"
+	"strings"
+)
 
-//go:embed task-planner/SKILL.md
+//go:embed */SKILL.md
 var FS embed.FS
 
 func Load(name string) string {
@@ -11,4 +14,15 @@ func Load(name string) string {
 		return ""
 	}
 	return string(data)
+}
+
+// LoadAll loads multiple named skills and joins them with a blank line separator.
+func LoadAll(names []string) string {
+	var parts []string
+	for _, name := range names {
+		if content := Load(name); content != "" {
+			parts = append(parts, content)
+		}
+	}
+	return strings.Join(parts, "\n\n")
 }

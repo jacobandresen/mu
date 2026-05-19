@@ -653,7 +653,7 @@ func runPlanner(cfg *agentConfig) {
 	autonomousSystem := buildAutonomousSystem(projectDir)
 
 	systemPrompt := autonomousSystem
-	if skillContent := skills.Load("task-planner"); skillContent != "" {
+	if skillContent := skills.LoadAll(plannerSkills(cfg.Goal)); skillContent != "" {
 		systemPrompt += "\n\n" + skillContent
 	}
 
@@ -696,7 +696,7 @@ GOAL: %s`, projectDir, cfg.Goal)
 
 	autonomousSystem := buildAutonomousSystem(projectDir)
 	systemPrompt := autonomousSystem
-	if skillContent := skills.Load("task-planner"); skillContent != "" {
+	if skillContent := skills.LoadAll(plannerSkills(cfg.Goal)); skillContent != "" {
 		systemPrompt += "\n\n" + skillContent
 	}
 
@@ -993,6 +993,52 @@ func checkBuildFilePaths(buildFile string, p *plan.Plan) {
 	}
 }
 
+// Package-level regexps for language detection. Word-bounded to prevent
+// false positives on common substrings (gin/begin, rust/trust, pip/pipeline).
+var (
+	reLangRust   = regexp.MustCompile(`(?i)\brust\b|\bcargo\b`)
+	reLangPython = regexp.MustCompile(`(?i)\bpython\b|\bflask\b|\bpytest\b|\bpip\b`)
+	// Go/Gin: \bGo\b is case-sensitive to avoid matching "let's go", "go through", etc.
+	// gin and golang use word boundaries which are safe (no false positives).
+	reLangGo = regexp.MustCompile(`\bGo\b|(?i:\bgin\b|\bgolang\b)`)
+	// C/C++: case-sensitive \bC\b. C# must be detected before this check.
+	reLangC      = regexp.MustCompile(`\bC\b|\bC\+\+`)
+	reLangCTools = regexp.MustCompile(`(?i)\bsdl2?\b|\bclang\b|\bgcc\b`)
+)
+
+// detectLanguage returns a language tag ("python", "go", "csharp", "rust", "c")
+// from the goal string, or "" if no language is detected.
+func detectLanguage(goal string) string {
+	low := strings.ToLower(goal)
+	// Check C# first — it also contains "c" which would trigger the C check below.
+	if strings.Contains(low, "c#") || strings.Contains(low, "dotnet") || strings.Contains(low, "csharp") {
+		return "csharp"
+	}
+	if reLangRust.MatchString(goal) {
+		return "rust"
+	}
+	if reLangPython.MatchString(goal) {
+		return "python"
+	}
+	if reLangGo.MatchString(goal) {
+		return "go"
+	}
+	if reLangC.MatchString(goal) || reLangCTools.MatchString(goal) {
+		return "c"
+	}
+	return ""
+}
+
+// plannerSkills returns the ordered list of skill names to load for a planning call.
+// Always includes the core "task-planner" skill plus a language-specific skill if detected.
+func plannerSkills(goal string) []string {
+	names := []string{"task-planner"}
+	if lang := detectLanguage(goal); lang != "" {
+		names = append(names, "task-planner-"+lang)
+	}
+	return names
+}
+
 func buildAutonomousSystem(projectDir string) string {
 	return fmt.Sprintf(`You are a code-writing agent running autonomously in: %s
 
@@ -1012,65 +1058,7 @@ OFF-LIMITS:
 }
 
 func buildPlannerPrompt(goal, projectDir string) string {
-	return fmt.Sprintf(`Your only output must be one Write tool call that creates '%s/PLAN.md'. No chat text, no fenced code blocks.
-
-REQUIREMENTS:
-
-1. PLAN.md must contain a '## Files' section: a flat ordered list of files to create, one per line,
-   in dependency order (dependencies before dependents).
-   Each line: '- [ ] relative/path/to/file' optionally followed by ' — one-line description'.
-
-   USE THE SIMPLEST STRUCTURE THAT FITS THE GOAL.
-
-   TRIVIAL programs (single-function utilities, tiny scripts — anything that fits
-   naturally in one source file): use exactly ONE file, no Makefile, no modules, no headers.
-   Compile and run inline in the Test Command.
-
-   NON-TRIVIAL programs (multiple genuinely distinct components, reusable libraries, command-line
-   tools with options, programs that use external libraries like SDL2/OpenGL/etc.): use a Makefile.
-   The Makefile MUST appear in the ## Files list as '- [ ] Makefile'. Do NOT put Makefile content
-   in a separate '## Makefile' section — it belongs in the ## Files task list.
-
-   INTERACTIVE / GRAPHICAL programs (SDL2, OpenGL, ncurses, games, anything that opens
-   a window or reads from stdin in a loop) MUST NOT have unit test files.
-   The only test for these programs is a build smoke test: 'make' (compile only, do NOT run the binary).
-   The Test Command MUST be just 'make' — never './binary', never 'make test' that runs the program.
-
-   RUNTIME ARTIFACTS: Do NOT list runtime-generated files (SQLite databases, output logs,
-   generated images, temp files) under ## Files — only list source files that must be written.
-
-   SDL2 on macOS/homebrew: sdl2-config --cflags sets the SDL2 directory on the include path,
-   so source files must use '#include <SDL.h>' (not '#include <SDL2/SDL.h>').
-
-2. LANGUAGE RULE: Use the exact language stated in the GOAL.
-   - 'C' or 'using C' -> .c files compiled with gcc/clang. NEVER use C# (.cs / dotnet).
-   - 'C++' or 'using C++' -> .cpp files compiled with g++/clang++.
-   - 'Python' -> .py files. 'Go' -> .go files. 'Rust' -> .rs files. Etc.
-   - 'C#' or 'dotnet' -> MUST include a .csproj file. List it FIRST in ## Files.
-     Simple programs: one .csproj in root + Program.cs. Test Command: dotnet run --project <name>.csproj
-     NEVER use 'dotnet test' or 'dotnet run' unless the .csproj appears in ## Files.
-   - 'Go' with external libraries -> MUST include go.mod as the FIRST file in ## Files.
-     The Makefile should run 'go mod tidy && go build' or equivalent.
-     The go.mod file sets the module path and Go version; external imports are resolved at build time via the Makefile.
-
-3. MAKEFILE COMPLETENESS: If the Test Command references a make target, the Makefile MUST define
-   that target from the start. Define test targets with a recipe even if the test source file
-   does not exist yet.
-
-4. Module functions should return values rather than printing so they can be unit-tested.
-   Exception: interactive or graphical programs.
-
-5. Include '## Test Command' with a single shell command that exits non-zero on failure.
-   All paths must be project-relative, not absolute.
-   GRAPHICAL PROGRAMS: Test Command must be just 'make' (compile only).
-
-6. Include '## Dependencies' listing the compiler, required tools, AND the lint tool for
-   the language: Python → ruff, C/C++ → gcc or clang-tidy, Go → go vet (built-in),
-   Rust → cargo clippy, TypeScript → tsc, C# → dotnet format (built-in with SDK).
-
-7. Plan only — do not implement. Write PLAN.md and stop.
-
-GOAL: %s`, projectDir, goal)
+	return fmt.Sprintf("Write file '%s/PLAN.md' using the Write tool. No chat text, no code blocks. Plan only — do not implement.\n\nGOAL: %s", projectDir, goal)
 }
 
 func buildWritePrompt(goal string, task *plan.Task, p *plan.Plan, projectDir string) string {

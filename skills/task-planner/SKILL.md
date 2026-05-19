@@ -21,123 +21,55 @@ a file. If your turn ends without a Write tool call targeting `PLAN.md`, you hav
 
 ## Dependencies
 - <compiler/runtime, required libraries, AND the lint tool for the language>
-- Python → ruff | C/C++ → clang-tidy | Go → go vet (built-in) | Rust → cargo clippy | TypeScript → tsc | C# → dotnet format (built-in)
 ```
 
 ## Rules for the file list
 
-- Every task line **must** start with `- [ ] `. Numbered lists, plain bullets, and heading-style
-  tasks are rejected by downstream tooling.
+- Every task line **must** start with `- [ ] `. Numbered lists, plain bullets, and heading-style tasks are rejected by downstream tooling.
 - List files in dependency order: dependencies before dependents.
 - Name files explicitly (`src/foo.c`, `tests/test_foo.c`, `Makefile`).
-- Pair every implementation file with a unit-test file. Tests call named functions from modules,
-  never `main`.
-- **Exception — demonstration scripts**: if the goal is to *show* or *demonstrate* behavior
-  (e.g. "write a program that X", "show that X works", "print X"), the program itself is the
-  test. Do NOT add a separate unit-test file. Use program execution as the test command.
-  > **Example**: goal = "write a program that inserts a todo into SQLite. Show it can be read back."
-  > ✗ WRONG: todos.py + test_todos.py (pytest) — adds unnecessary tests
-  > ✓ CORRECT: todos.py only, test command: `python3 todos.py`
+- Pair every implementation file with a unit-test file. Tests call named functions from modules, never `main`.
+- **Exception — demonstration scripts**: if the goal is to *show* or *demonstrate* behavior (e.g. "write a program that X", "show that X works", "print X"), the program itself is the test. Do NOT add a separate unit-test file. Use program execution as the test command.
 - If a build system is needed (external libraries, multi-file projects), list `Makefile` first.
 - For trivial single-file programs: no Makefile, no modules — one source file only.
-- **Never list auto-generated or binary output files** as write targets. This includes database files (`.db`, `.sqlite`), compiled binaries, build artifacts (`.o`, `.class`), and any file created at runtime by the program itself. Only list source files the agent must write.
+- **Never list auto-generated or binary output files** as write targets. This includes database files (`.db`, `.sqlite`), compiled binaries, build artifacts (`.o`, `.class`), and any file created at runtime. Only list source files the agent must write.
 
-## Language-specific rules
+## Makefile format
 
-**C# / dotnet**: Every dotnet project requires a `.csproj` file. Without it, `dotnet run` and
-`dotnet test` fail immediately with MSB1003. List the `.csproj` **first**, before any `.cs` files.
-- Simple program: `- [ ] fibonacci.csproj` then `- [ ] Program.cs`, test command: `dotnet run --project fibonacci.csproj`
-- With tests: `- [ ] src/app.csproj`, `- [ ] src/Program.cs`, `- [ ] tests/tests.csproj`, `- [ ] tests/Tests.cs`, test command: `dotnet test tests/tests.csproj`
-- NEVER put `dotnet test` or `dotnet run` in Test Command unless the referenced `.csproj` appears in `## Files`.
+Makefiles use tab-indented recipes under a `target:` header. Every Makefile must have at least one `target:` line. Commands without a target are a syntax error.
 
-**Rust / cargo**: Every cargo project requires a `Cargo.toml` file. Without it, `cargo build` and
-`cargo run` fail immediately. List `Cargo.toml` **first** in `## Files`.
-- Simple program: `- [ ] Cargo.toml` then `- [ ] src/main.rs`, test command: `cargo run`
-- Binary name in test command must match the `name` field in `[[bin]]` (or defaults to the package name in `[package]`).
-- Use `cargo run` or `cargo build && ./target/debug/<name>`, not `cargo build --bin main` (the binary name is not `main` unless you set it in `[[bin]]`).
-- **Do not add a `[lib]` section** to Cargo.toml for a binary-only project. A `[lib]` entry requires `src/lib.rs` to exist — if it does not, cargo will fail with "can't find lib". Binary-only projects: just `[package]` + `[[bin]]` (or no `[[bin]]` at all if `src/main.rs` is the default).
-
-**Python**: Use `python3`, never `python`. The shell subprocess has no aliases.
-- Use triple-quoted strings (`"""..."""`) for any SQL or multi-line string passed to `execute()` or similar. Single-quoted strings cannot span multiple lines and will cause a syntax error.
-- Always close the `execute(` call with `)` immediately after the closing `"""`. The closing paren must appear on the same line as `"""` or on the very next line — never omit it. Wrong: `conn.execute("""SQL"""\n` — Right: `conn.execute("""SQL""")`.
-- When using pytest with a Makefile, the test recipe **must** use `PYTHONPATH=. pytest` (not bare `pytest`). Without this, `import app` and similar project-root imports fail with `ModuleNotFoundError` because pytest does not add the project root to `sys.path` by default.
-- Test files **must import every module they use**, including stdlib modules. If a test uses `sqlite3`, add `import sqlite3` at the top. Undefined names (`F821`) cause ruff to reject the file.
-- When the main module has module-level code that initializes state (e.g. creates a DB table on import), test files should import the module in a `conftest.py` fixture so the state is initialized before tests run. Do NOT open the database from tests directly without calling the setup code first.
-- **Flask REST API tests**: use only `app.test_client()` — never call `sqlite3.connect()` directly from test files. The app handles its own DB setup. Test by calling POST/GET endpoints on the client.
-
-**Go**: For projects with external packages (gin, gorilla, etc.), the Makefile must run `go mod tidy` (without suppressing errors) before building. Never silence it with `2>/dev/null || true` — a failed `go mod tidy` means the build will fail. The `go.sum` file is auto-generated; do **not** list it as a task.
-- In `go.mod`, always use the full module path for dependencies: `require github.com/gin-gonic/gin v1.9.1`. Never write bare names like `gin v1.9.1` — Go cannot resolve short names.
-- When using Gin, assign the engine: `r := gin.Default()`, then call `r.GET(...)`, `r.Run()`. Never prefix it with a different name like `ingin`.
-
-**C/C++**: Use `make` when a `Makefile` is in the file list; otherwise inline: `gcc main.c -o main && ./main`.
-
-**Makefile format**: Makefiles use tab-indented recipes under a `target:` header. This is NOT valid:
+**Never put a recipe on the same line as the target.** `build: go build -o server` means "target `build` with prerequisites `go`, `build`, ...". Always put the recipe on the next line, tab-indented:
 ```
-go mod init server
-go build -o app
+build:
+	go build -o server
 ```
-This IS valid:
-```
-all:
-	go mod init server
-	go build -o app
-```
-Every Makefile MUST have at least one `target:` line. Commands without a target are a syntax error.
-- **Never put a recipe on the same line as the target.** `build: go build -o server` is NOT a recipe — it means "target `build` with prerequisites `go`, `build`, `-o`, `server`". Make will then try to compile a file called `go` using implicit rules (e.g. Modula-2's `m2c`), which fails. Always put the recipe on the next line, tab-indented:
-  ```
-  build:
-  	go build -o server
-  ```
+
+If the Test Command references a make target, the Makefile must define that target from the start.
 
 ## Rules for the Test Command
 
-The test command runs in a plain `bash -c` subprocess with **no shell aliases**. Use explicit
-binary names only:
+The test command runs in a plain `bash -c` subprocess with **no shell aliases**. Use explicit binary names only (e.g. `python3`, not `python`). The command must exit non-zero on failure.
 
-| Wrong | Correct |
-|-------|---------|
-| `python script.py` | `python3 script.py` |
-| `make` (with no Makefile in the file list) | `gcc main.c -o main && ./main` |
-| `./binary` (graphical/interactive program) | `make` (compile-only smoke test) |
-| `dotnet test` (no .csproj in file list) | `dotnet run --project app.csproj` |
-| `cargo build --bin main` | `cargo run` (binary name defaults to package name, not "main") |
-
-The test command must exit non-zero on failure. For trivial single-file programs, inline
-compilation is required — compile and run in the same command.
+For trivial single-file programs, inline compilation is required — compile and run in the same command.
 
 ## Internet safety
 
-**Never** push code, publish packages, or send data to external services without explicit user
-approval. This includes:
-- `git push` / `gh pr create`
-- `npm publish` / `pip upload` / `cargo publish`
-- `curl -X POST` or any write request to an external URL
-- Deploying to cloud services (Vercel, AWS, GCP, Fly, etc.)
-
-Always stop and ask before any of these. If in doubt, ask.
+**Never** push code, publish packages, or send data to external services without explicit user approval (`git push`, `npm publish`, `cargo publish`, `curl -X POST` to external URLs, cloud deploys, etc.). Always stop and ask before any of these.
 
 ## No interactive stdin
 
-Programs must **never** read from stdin unless the goal explicitly says "interactive" or "prompt the user".
-Fibonacci, helloworld, sequence printers, and all other demonstration programs must output their
-result without waiting for input. If the goal says "write the fibonacci sequence", produce fixed output
-(e.g. first 10 or 20 numbers, hardcoded N). Do NOT use `Console.ReadLine()`, `input()`, `scanf()`,
-or equivalent unless explicitly required.
+Programs must **never** read from stdin unless the goal explicitly says "interactive". Fibonacci, helloworld, sequence printers, and all other demonstration programs must output their result without waiting for input. Use hardcoded values or command-line arguments.
 
 The test runs as a non-interactive subprocess — any `stdin.ReadLine()` call receives EOF and hangs.
 
 ## Autonomous execution
 
-Never pause for clarification on implementation details. If a requirement is ambiguous, make the
-simplest reasonable assumption and continue. Exception: anything that would publish or push data
-externally — always ask first.
+Never pause for clarification on implementation details. Make the simplest reasonable assumption and continue. Exception: anything that would publish or push data externally — always ask first.
 
 ## When PLAN.md already exists
 
-If `PLAN.md` is present with `[ ]` or `[~]` tasks, skip planning and resume from the first
-incomplete step — do not acknowledge, do not ask, just begin.
+If `PLAN.md` is present with `[ ]` or `[~]` tasks, skip planning and resume from the first incomplete step — do not acknowledge, do not ask, just begin.
 
 ## Keeping tasks the right size
 
-One task = one complete file to create or modify. Never list individual lines of code as tasks.
-If a step would take more than ~10 tool calls, break it into sub-steps.
+One task = one complete file to create or modify. Never list individual lines of code as tasks. If a step would take more than ~10 tool calls, break it into sub-steps.
