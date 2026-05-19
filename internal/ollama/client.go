@@ -190,6 +190,15 @@ func numThread() int {
 	return 0
 }
 
+func numKeep() int {
+	if s := os.Getenv("MU_NUM_KEEP"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n >= 0 {
+			return n
+		}
+	}
+	return -1 // -1 = not set, omit from options
+}
+
 // ChatStats holds token usage returned by the Ollama API for a single chat call.
 type ChatStats struct {
 	PromptTokens    int
@@ -200,6 +209,9 @@ func Chat(model string, messages []Message, tools []ToolDef, timeout time.Durati
 	opts := map[string]any{"num_ctx": numCtx()}
 	if t := numThread(); t > 0 {
 		opts["num_thread"] = t
+	}
+	if k := numKeep(); k >= 0 {
+		opts["num_keep"] = k
 	}
 	body := map[string]any{
 		"model":    model,
