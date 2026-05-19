@@ -39,9 +39,8 @@ export MU_NUM_KEEP=${MU_NUM_KEEP:-512}
 BASE_MODEL="${MU_AGENT_BASE_MODEL:-qwen2.5-coder:7b}"
 BASE_FAMILY="${BASE_MODEL%%:*}"
 WARMUP_MODEL="${MU_WARMUP_MODEL:-${BASE_FAMILY}:mu}"
-WARMUP_CTX=$MU_NUM_CTX
 curl -s -m 300 http://localhost:11434/api/generate \
-    -d "{\"model\":\"$WARMUP_MODEL\",\"keep_alive\":\"30m\",\"options\":{\"num_ctx\":$WARMUP_CTX},\"stream\":false}" \
+    -d "{\"model\":\"$WARMUP_MODEL\",\"keep_alive\":\"30m\",\"stream\":false}" \
     -o /dev/null 2>&1 || true
 
 cd "$DOJO/$DIR"
