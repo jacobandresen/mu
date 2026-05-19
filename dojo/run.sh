@@ -30,8 +30,8 @@ for m in data.get('models', []):
         -d "{\"model\":\"$model\",\"keep_alive\":0}" -o /dev/null 2>&1 || true
 done
 
-export MU_NUM_CTX=${MU_NUM_CTX:-16384}
-export MU_NUM_KEEP=${MU_NUM_KEEP:-1000}
+export MU_NUM_CTX=${MU_NUM_CTX:-6000}
+export MU_NUM_KEEP=${MU_NUM_KEEP:-512}
 
 # Warm up: load the agent model before mu starts.
 # Derive the :agent model name from MU_AGENT_BASE_MODEL (strips the version tag, appends :agent).
