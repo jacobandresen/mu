@@ -1,75 +1,29 @@
 ---
 name: task-planner
-description: Break down a software goal into a tracked PLAN.md with a flat task checklist and test command. Use when a task has 3+ steps, will take a long time, or needs to be resumable if the session is interrupted.
+description: Break down a software goal into a tracked PLAN.md with a flat task checklist and test command.
 ---
 
-# Task Planner
+Write PLAN.md at the absolute path using the Write tool. No chat, no code blocks.
 
-Create `PLAN.md` in the current working directory by **invoking the Write tool** with the full
-absolute path. Do not emit the plan as chat text or a fenced code block — that does not create
-a file. If your turn ends without a Write tool call targeting `PLAN.md`, you have failed.
-
-## PLAN.md format
-
-```markdown
+```
 ## Files
-- [ ] path/to/file — one-line description of what this file does
-- [ ] path/to/test_file — unit tests for the above
+- [ ] path/to/file — description
 
 ## Test Command
-<single portable shell command that exits non-zero on failure>
+<shell command, exits non-zero on failure>
 
 ## Dependencies
-- <compiler/runtime, required libraries, AND the lint tool for the language>
+<compiler, libs, lint tool>
 ```
 
-## Rules for the file list
-
-- Every task line **must** start with `- [ ] `. Numbered lists, plain bullets, and heading-style tasks are rejected by downstream tooling.
-- List files in dependency order: dependencies before dependents.
-- Name files explicitly (`src/foo.c`, `tests/test_foo.c`, `Makefile`).
-- Pair every implementation file with a unit-test file. Tests call named functions from modules, never `main`.
-- **Exception — demonstration scripts**: if the goal is to *show* or *demonstrate* behavior (e.g. "write a program that X", "show that X works", "print X"), the program itself is the test. Do NOT add a separate unit-test file. Use program execution as the test command.
-- If a build system is needed (external libraries, multi-file projects), list `Makefile` first.
-- For trivial single-file programs: no Makefile, no modules — one source file only.
-- **Never list auto-generated or binary output files** as write targets. This includes database files (`.db`, `.sqlite`), compiled binaries, build artifacts (`.o`, `.class`), and any file created at runtime. Only list source files the agent must write.
-
-## Makefile format
-
-Makefiles use tab-indented recipes under a `target:` header. Every Makefile must have at least one `target:` line. Commands without a target are a syntax error.
-
-**Never put a recipe on the same line as the target.** `build: go build -o server` means "target `build` with prerequisites `go`, `build`, ...". Always put the recipe on the next line, tab-indented:
-```
-build:
-	go build -o server
-```
-
-If the Test Command references a make target, the Makefile must define that target from the start.
-
-## Rules for the Test Command
-
-The test command runs in a plain `bash -c` subprocess with **no shell aliases**. Use explicit binary names only (e.g. `python3`, not `python`). The command must exit non-zero on failure.
-
-For trivial single-file programs, inline compilation is required — compile and run in the same command.
-
-## Internet safety
-
-**Never** push code, publish packages, or send data to external services without explicit user approval (`git push`, `npm publish`, `cargo publish`, `curl -X POST` to external URLs, cloud deploys, etc.). Always stop and ask before any of these.
-
-## No interactive stdin
-
-Programs must **never** read from stdin unless the goal explicitly says "interactive". Fibonacci, helloworld, sequence printers, and all other demonstration programs must output their result without waiting for input. Use hardcoded values or command-line arguments.
-
-The test runs as a non-interactive subprocess — any `stdin.ReadLine()` call receives EOF and hangs.
-
-## Autonomous execution
-
-Never pause for clarification on implementation details. Make the simplest reasonable assumption and continue. Exception: anything that would publish or push data externally — always ask first.
-
-## When PLAN.md already exists
-
-If `PLAN.md` is present with `[ ]` or `[~]` tasks, skip planning and resume from the first incomplete step — do not acknowledge, do not ask, just begin.
-
-## Keeping tasks the right size
-
-One task = one complete file to create or modify. Never list individual lines of code as tasks. If a step would take more than ~10 tool calls, break it into sub-steps.
+- Task lines MUST start with `- [ ] ` — other formats are rejected.
+- List in dependency order. Name files explicitly.
+- Trivial single-file: no Makefile, inline `compile && run` in Test Command.
+- Multi-file or external libs: list `Makefile` first.
+- Pair implementation with tests — UNLESS goal is "show/demonstrate/print"; then program execution IS the test, no separate test file.
+- Never list binaries, `.db`, `.sqlite`, or runtime-generated files — source files only.
+- Makefile: recipe goes tab-indented on the line AFTER `target:`. `build: gcc main.c` is WRONG (treated as prerequisites). Use `build:\n\tgcc main.c`.
+- If Test Command references a make target, Makefile must define it.
+- No `git push`, publish commands, or external HTTP writes in Test Command or Makefile.
+- If PLAN.md exists with `[ ]` tasks, resume from the first incomplete — do not replan.
+- One task = one complete file, not lines of code.
