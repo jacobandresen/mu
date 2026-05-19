@@ -75,9 +75,18 @@ func LoadModel(model, keepAlive string) error {
 	if keepAlive == "" {
 		keepAlive = "30m"
 	}
+	// Pass the same options as Chat so Ollama doesn't reload when the first Chat call arrives.
+	opts := map[string]any{"num_ctx": numCtx()}
+	if t := numThread(); t > 0 {
+		opts["num_thread"] = t
+	}
+	if k := numKeep(); k >= 0 {
+		opts["num_keep"] = k
+	}
 	_, err := post("/api/generate", map[string]any{
 		"model":      model,
 		"keep_alive": keepAlive,
+		"options":    opts,
 	}, 5*time.Minute)
 	return err
 }
