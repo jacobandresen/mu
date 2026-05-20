@@ -18,7 +18,7 @@ rm -rf "$DOJO/$DIR"
 mkdir -p "$DOJO/$DIR"
 
 
-export MU_NUM_CTX=${MU_NUM_CTX:-2048}
+export MU_NUM_CTX=${MU_NUM_CTX:-3072}
 export MU_NUM_KEEP=${MU_NUM_KEEP:-512}
 
 # Derive the :mu model name from MU_AGENT_BASE_MODEL.
