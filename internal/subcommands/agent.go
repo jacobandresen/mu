@@ -377,6 +377,9 @@ func runAgent(cfg agentConfig) error {
 			if fixedPy, _ := plan.FixPythonMakefileTest(task.FilePath); fixedPy {
 				agentLog("Fixed Python Makefile: added PYTHONPATH=. before pytest.")
 			}
+			if fixedPath, _ := plan.FixPytestPath(task.FilePath); fixedPath {
+				agentLog("Fixed Python Makefile: replaced non-existent pytest path with discovery.")
+			}
 		}
 
 		// Post-write: fix Cargo.toml with orphan [lib] section pointing to non-existent file

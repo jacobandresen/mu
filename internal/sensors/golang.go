@@ -53,6 +53,12 @@ func FixGoMod(f string) (bool, error) {
 		}
 		if inBlock {
 			fields := strings.Fields(trimmed)
+			// Drop reserved go.mod directives that leaked inside require block
+			// (e.g. bare "go", "go 1.21", "module foo" — no module path, no slash)
+			if len(fields) >= 1 && validDirectives[fields[0]] && !strings.Contains(trimmed, "/") {
+				dropped = true
+				continue
+			}
 			if len(fields) >= 2 && !strings.Contains(fields[0], "/") && strings.Contains(fields[1], "/") {
 				// Space-separated spurious prefix: "h github.com/foo v1.2.3" → strip first token
 				kept = append(kept, "\t"+strings.Join(fields[1:], " "))

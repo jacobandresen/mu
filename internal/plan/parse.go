@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -579,6 +580,43 @@ func FixPythonMakefileTest(makefilePath string) (bool, error) {
 			lines[i] = "\tPYTHONPATH=. " + trimmed
 			changed = true
 		}
+	}
+	if !changed {
+		return false, nil
+	}
+	return true, os.WriteFile(makefilePath, []byte(strings.Join(lines, "\n")), 0644)
+}
+
+// FixPytestPath checks pytest recipe lines for explicit file paths that don't exist and
+// replaces them with plain "PYTHONPATH=. pytest" (discovery mode). Models frequently
+// reference invented paths like "tests/test_app.py" that don't match the actual file names.
+func FixPytestPath(makefilePath string) (bool, error) {
+	data, err := os.ReadFile(makefilePath)
+	if err != nil {
+		return false, err
+	}
+	dir := filepath.Dir(makefilePath)
+	pytestArgRE := regexp.MustCompile(`^((?:PYTHONPATH=\.\s+)?)(python3?\s+-m\s+)?pytest\s+(\S.+)$`)
+	lines := strings.Split(string(data), "\n")
+	changed := false
+	for i, line := range lines {
+		if len(line) == 0 || line[0] != '\t' {
+			continue
+		}
+		trimmed := strings.TrimSpace(line)
+		m := pytestArgRE.FindStringSubmatch(trimmed)
+		if m == nil {
+			continue
+		}
+		arg := strings.Fields(m[3])[0] // first word after "pytest" — the path/flag
+		if strings.HasPrefix(arg, "-") {
+			continue // flag, not a path
+		}
+		if _, err := os.Stat(filepath.Join(dir, arg)); err == nil {
+			continue // path exists, fine
+		}
+		lines[i] = "\tPYTHONPATH=. pytest"
+		changed = true
 	}
 	if !changed {
 		return false, nil
