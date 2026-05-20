@@ -643,46 +643,82 @@ func runPlanningPhase(cfg *agentConfig) error {
 
 func runPlanner(cfg *agentConfig) {
 	projectDir, _ := os.Getwd()
+	facts := extractGoalFacts(cfg.Goal)
 
-	// Stage 1: minimal context — core skill only, no language-specific rules.
-	// Small system prompt → fast prefill, model focuses on structure.
+	// Fast path: generate the plan entirely in Go for known languages.
+	// Eliminates one LLM call and removes the risk of empty/malformed responses.
+	if content := generatePlan(facts, cfg.Goal); content != "" {
+		agentLog("Planner: generated from template (no LLM)")
+		if err := os.WriteFile("PLAN.md", []byte(content), 0644); err != nil {
+			agentLog("Planner: could not write PLAN.md: %v", err)
+		}
+		return
+	}
+
+	// Slow path: LLM call for unknown languages.
 	t0 := time.Now()
-	system1 := buildPlannerSystem(projectDir)
+	system := buildPlannerSystem(projectDir)
 	if core := skills.LoadAll([]string{"task-planner"}); core != "" {
-		system1 += "\n\n" + core
+		system += "\n\n" + core
 	}
-	timeout1 := time.Duration(cfg.PlannerTimeout) * time.Second
-	sess1 := agent.NewSession(system1)
-	_, err := sess1.Run(cfg.AgentModel, buildPlannerPrompt(cfg.Goal, projectDir), cfg.PlannerThinking, "Planning", 20, "PLAN.md", timeout1)
-	agentLog("Planner stage 1: %.1fs", time.Since(t0).Seconds())
+	timeout := time.Duration(cfg.PlannerTimeout) * time.Second
+	msgs := []ollama.Message{
+		{Role: "system", Content: system},
+		{Role: "user", Content: buildPlannerPrompt(cfg.Goal, projectDir)},
+	}
+	fmt.Printf("  %s...\n", "Planning")
+	callStart := time.Now()
+	msg, stats, err := ollama.Chat(cfg.AgentModel, msgs, nil, timeout)
+	elapsed := time.Since(callStart)
+	agentLog("chat: prompt=%d gen=%d time=%.1fs", stats.PromptTokens, stats.GeneratedTokens, elapsed.Seconds())
+	agentLog("Planner: %.1fs", time.Since(t0).Seconds())
 	if err != nil {
-		agentLog("Planner stage 1 error: %v", err)
+		agentLog("Planner error: %v", err)
+		return
 	}
 
-	// Stage 2: language refinement — only when PLAN.md exists and a language was detected.
-	// Loads only the language-specific skill; uses the draft PLAN.md as input.
-	lang := detectLanguage(cfg.Goal)
-	if lang == "" {
+	// Log raw response for debugging (first 400 chars).
+	preview := msg.Content
+	if len(preview) > 400 {
+		preview = preview[:400]
+	}
+	agentLog("Planner raw: %q", preview)
+
+	content := extractPlanContent(msg.Content)
+	if content == "" {
+		agentLog("Planner: empty response")
 		return
 	}
-	if _, statErr := os.Stat("PLAN.md"); statErr != nil {
-		return
+
+	if err := os.WriteFile("PLAN.md", []byte(content), 0644); err != nil {
+		agentLog("Planner: could not write PLAN.md: %v", err)
 	}
-	langSkill := skills.LoadAll([]string{"task-planner-" + lang})
-	if langSkill == "" {
-		return
+}
+
+// extractPlanContent strips preamble/postamble from a model-generated PLAN.md.
+func extractPlanContent(s string) string {
+	s = strings.TrimSpace(s)
+	// Strip thinking block
+	if idx := strings.Index(s, "</think>"); idx >= 0 {
+		s = strings.TrimSpace(s[idx+len("</think>"):])
 	}
-	planContent, _ := os.ReadFile("PLAN.md")
-	t1 := time.Now()
-	budget2 := time.Duration(cfg.PlannerTimeout/2) * time.Second
-	system2 := fmt.Sprintf("Rewrite PLAN.md using the Write tool. Apply these rules:\n\n%s", langSkill)
-	prompt2 := fmt.Sprintf("Rewrite '%s/PLAN.md' applying the rules above. Write the complete file.\n\nCurrent PLAN.md:\n%s\n\nGOAL: %s", projectDir, string(planContent), cfg.Goal)
-	sess2 := agent.NewSession(system2)
-	_, err2 := sess2.Run(cfg.AgentModel, prompt2, cfg.PlannerThinking, "Refining plan", 5, "PLAN.md", budget2)
-	agentLog("Planner stage 2 (%s): %.1fs", lang, time.Since(t1).Seconds())
-	if err2 != nil {
-		agentLog("Planner stage 2 error: %v", err2)
+	// Unwrap markdown code block (```markdown ... ``` or ``` ... ```)
+	if strings.HasPrefix(s, "```") {
+		if nl := strings.Index(s, "\n"); nl >= 0 {
+			inner := s[nl+1:]
+			if end := strings.LastIndex(inner, "```"); end >= 0 {
+				inner = strings.TrimSpace(inner[:end])
+			}
+			s = inner
+		}
 	}
+	if idx := strings.Index(s, "## Files"); idx >= 0 {
+		return s[idx:]
+	}
+	if strings.Contains(s, "- [ ]") {
+		return s
+	}
+	return ""
 }
 
 func runCombinedPlanner(cfg *agentConfig) (string, error) {
@@ -1023,6 +1059,8 @@ var (
 	// C/C++: case-sensitive \bC\b. C# must be detected before this check.
 	reLangC      = regexp.MustCompile(`\bC\b|\bC\+\+`)
 	reLangCTools = regexp.MustCompile(`(?i)\bsdl2?\b|\bclang\b|\bgcc\b`)
+
+	reHasTests = regexp.MustCompile(`(?i)\btest(s|ing)?\b|\bpytest\b|\bjest\b|\bxunit\b|\bnunit\b|\bspec\b`)
 )
 
 // detectLanguage returns a language tag ("python", "go", "csharp", "rust", "c")
@@ -1058,10 +1096,148 @@ func plannerSkills(goal string) []string {
 	return names
 }
 
+// goalFacts holds structured facts extracted from a goal string by native Go code.
+// Used to generate complete PLAN.md content without an LLM call for known languages.
+type goalFacts struct {
+	lang        string // "python", "go", "rust", "csharp", "c", or ""
+	hasTests    bool
+	hasSQLite   bool
+	hasHTTP     bool
+	hasMakefile bool
+	isGraphical bool
+}
+
+func extractGoalFacts(goal string) goalFacts {
+	low := strings.ToLower(goal)
+	return goalFacts{
+		lang:        detectLanguage(goal),
+		hasTests:    reHasTests.MatchString(goal),
+		hasSQLite:   strings.Contains(low, "sqlite") || (strings.Contains(low, "sql") && strings.Contains(low, "database")),
+		hasHTTP:     strings.Contains(low, "flask") || strings.Contains(low, "fastapi") || strings.Contains(low, "gin") || strings.Contains(low, "api") || strings.Contains(low, "server") || strings.Contains(low, "endpoint") || strings.Contains(low, "http") || strings.Contains(low, "rest"),
+		hasMakefile: strings.Contains(low, "makefile"),
+		isGraphical: graphicalRE.MatchString(goal),
+	}
+}
+
+// derivePlanFilename returns a base name for the primary source file inferred from the goal.
+func derivePlanFilename(goal, lang string) string {
+	low := strings.ToLower(goal)
+	for _, word := range []string{"todo", "task", "note", "blog", "chat", "fibonacci", "fib", "hello", "ping", "counter", "calc"} {
+		if strings.Contains(low, word) {
+			return word
+		}
+	}
+	switch lang {
+	case "csharp":
+		return "App"
+	default:
+		return "main"
+	}
+}
+
+// generatePlan returns complete PLAN.md content for known languages without an LLM call.
+// Returns "" if the language is unknown.
+func generatePlan(f goalFacts, goal string) string {
+	if f.lang == "" {
+		return ""
+	}
+	name := derivePlanFilename(goal, f.lang)
+	var sb strings.Builder
+
+	switch f.lang {
+	case "python":
+		sb.WriteString("## Files\n")
+		sb.WriteString(fmt.Sprintf("- [ ] %s.py — implementation\n", name))
+		if f.hasTests {
+			sb.WriteString(fmt.Sprintf("- [ ] test_%s.py — pytest tests\n", name))
+		}
+		if f.hasMakefile {
+			sb.WriteString("- [ ] Makefile — install deps and run tests\n")
+		}
+		sb.WriteString("\n## Test Command\n")
+		if f.hasMakefile && f.hasTests {
+			sb.WriteString("make test\n")
+		} else if f.hasTests {
+			sb.WriteString("PYTHONPATH=. pytest\n")
+		} else {
+			sb.WriteString(fmt.Sprintf("python3 %s.py\n", name))
+		}
+		sb.WriteString("\n## Dependencies\npython3")
+		if f.hasTests {
+			sb.WriteString(", pytest")
+		}
+		if f.hasHTTP {
+			sb.WriteString(", flask")
+		}
+		sb.WriteString("\n")
+
+	case "go":
+		module := name
+		if module == "main" {
+			module = "app"
+		}
+		sb.WriteString("## Files\n")
+		sb.WriteString(fmt.Sprintf("- [ ] go.mod — module %s\n", module))
+		sb.WriteString("- [ ] main.go — implementation\n")
+		if f.hasTests {
+			sb.WriteString("- [ ] main_test.go — Go test cases\n")
+		}
+		if f.hasMakefile {
+			sb.WriteString("- [ ] Makefile — build target that runs go build\n")
+		}
+		sb.WriteString("\n## Test Command\n")
+		if f.hasMakefile {
+			sb.WriteString("make build\n")
+		} else if f.hasTests {
+			sb.WriteString("go test ./...\n")
+		} else {
+			sb.WriteString("go run main.go\n")
+		}
+		sb.WriteString("\n## Dependencies\ngo\n")
+
+	case "rust":
+		sb.WriteString("## Files\n")
+		sb.WriteString(fmt.Sprintf("- [ ] Cargo.toml — package %s\n", name))
+		sb.WriteString("- [ ] src/main.rs — implementation\n")
+		sb.WriteString("\n## Test Command\n")
+		if f.hasTests {
+			sb.WriteString("cargo test\n")
+		} else {
+			sb.WriteString("cargo run\n")
+		}
+		sb.WriteString("\n## Dependencies\nrust, cargo\n")
+
+	case "csharp":
+		proj := name
+		sb.WriteString("## Files\n")
+		sb.WriteString(fmt.Sprintf("- [ ] %s.csproj — .NET project\n", proj))
+		sb.WriteString("- [ ] Program.cs — implementation\n")
+		sb.WriteString("\n## Test Command\n")
+		sb.WriteString(fmt.Sprintf("dotnet run --project %s.csproj\n", proj))
+		sb.WriteString("\n## Dependencies\ndotnet\n")
+
+	case "c":
+		sb.WriteString("## Files\n")
+		sb.WriteString(fmt.Sprintf("- [ ] %s.c — implementation\n", name))
+		if f.isGraphical {
+			sb.WriteString("- [ ] Makefile — build and link\n")
+			sb.WriteString("\n## Test Command\nmake\n")
+			sb.WriteString("\n## Dependencies\ngcc or clang, SDL2\n")
+		} else {
+			sb.WriteString(fmt.Sprintf("\n## Test Command\nclang -o /tmp/%s %s.c && /tmp/%s\n", name, name, name))
+			sb.WriteString("\n## Dependencies\nclang\n")
+		}
+
+	default:
+		return ""
+	}
+	return sb.String()
+}
+
 // buildPlannerSystem returns a minimal system prompt for planning calls.
-// Intentionally short — the task-planner skill carries all the rules.
+// No tools are used — model outputs plain PLAN.md markdown directly.
 func buildPlannerSystem(projectDir string) string {
-	return fmt.Sprintf("Planning agent in: %s\nUse the Write tool only. No chat, no explanations.", projectDir)
+	return fmt.Sprintf("You are a planning agent in: %s\nOutput ONLY the raw PLAN.md markdown. No preamble, no explanation, no code blocks.", projectDir)
 }
 
 func buildAutonomousSystem(projectDir string) string {
@@ -1083,7 +1259,7 @@ OFF-LIMITS:
 }
 
 func buildPlannerPrompt(goal, projectDir string) string {
-	return fmt.Sprintf("Write file '%s/PLAN.md' using the Write tool. No chat text, no code blocks. Plan only — do not implement.\n\nGOAL: %s", projectDir, goal)
+	return fmt.Sprintf("Output PLAN.md markdown for the following goal. No preamble, no code blocks, no explanation — only the raw markdown starting with ## Files.\n\nGOAL: %s\nDIR: %s", goal, projectDir)
 }
 
 func buildWritePrompt(goal string, task *plan.Task, p *plan.Plan, projectDir string) string {

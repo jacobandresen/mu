@@ -23,6 +23,34 @@ type Plan struct {
 
 var taskRE = regexp.MustCompile(`^- \[([ x~])\] (\S+)(.*)$`)
 
+func ParseContent(content string) (*Plan, error) {
+	lines := strings.Split(content, "\n")
+	p := &Plan{}
+	for _, line := range lines {
+		m := taskRE.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		t := Task{FilePath: m[2]}
+		rest := strings.TrimSpace(m[3])
+		if dash := strings.Index(rest, "—"); dash >= 0 {
+			t.Description = strings.TrimSpace(rest[dash+len("—"):])
+		} else if dash := strings.Index(rest, "-"); dash >= 0 {
+			t.Description = strings.TrimSpace(rest[dash+1:])
+		}
+		switch m[1] {
+		case "x":
+			t.Done = true
+		case "~":
+			t.InProgress = true
+		}
+		p.Tasks = append(p.Tasks, t)
+	}
+	p.TestCommand = extractTestCommand(lines)
+	p.PlanContext = extractPlanContext(lines)
+	return p, nil
+}
+
 func Parse(path string) (*Plan, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
