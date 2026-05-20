@@ -28,3 +28,21 @@ func FixSDLInclude(f string) (bool, error) {
 	}
 	return true, os.WriteFile(f, []byte(fixed), 0644)
 }
+
+// FixSDLMissingInclude adds #include <SDL.h> at the top of a C/C++ file that uses
+// SDL_ symbols but has no SDL include. Models sometimes write the function body
+// without the header.
+func FixSDLMissingInclude(f string) (bool, error) {
+	data, err := os.ReadFile(f)
+	if err != nil {
+		return false, err
+	}
+	orig := string(data)
+	if strings.Contains(orig, "#include") && strings.Contains(orig, "SDL") {
+		return false, nil // has some include, let FixSDLInclude handle it
+	}
+	if !strings.Contains(orig, "SDL_") {
+		return false, nil // no SDL symbols, nothing to fix
+	}
+	return true, os.WriteFile(f, []byte("#include <SDL.h>\n"+orig), 0644)
+}

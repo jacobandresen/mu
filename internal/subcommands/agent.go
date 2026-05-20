@@ -348,6 +348,9 @@ func runAgent(cfg agentConfig) error {
 			if fixedSDL, _ := sensors.FixSDLInclude(task.FilePath); fixedSDL {
 				agentLog("Fixed SDL2 include path in %s.", task.FilePath)
 			}
+			if fixedSDL, _ := sensors.FixSDLMissingInclude(task.FilePath); fixedSDL {
+				agentLog("Added missing SDL2 include to %s.", task.FilePath)
+			}
 		}
 
 		// Post-write: fix .csproj TargetFramework and strip duplicate Compile items
