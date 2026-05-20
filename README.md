@@ -50,3 +50,7 @@ make install
 ## Practice
 
 The `dojo/` directory is where mu is stress-tested by running a guest model (e.g. `qwen3:8b`) through a fixed problem set (P1–P7). When a problem fails, the failure pattern drives an improvement to a skill file, a sensor, or a plan rule. [PRACTICE.md](PRACTICE.md) describes the problem set. [RUNS.md](RUNS.md) tracks results across sessions.
+
+## How it works
+
+mu implements *harness engineering* — the discipline of designing the scaffolding around an LLM that turns it into a reliable autonomous agent. This covers the orchestration loop, the `sensors/` subsystem (deterministic code fixers), the planning pipeline, and the lint/test verification gates. See [HARNESS_ENGINEERING.md](HARNESS_ENGINEERING.md) for a detailed explanation.
