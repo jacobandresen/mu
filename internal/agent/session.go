@@ -3,6 +3,8 @@ package agent
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/jacobandresen/mu/internal/ollama"
@@ -67,8 +69,16 @@ func (s *Session) Run(model, userPrompt, thinking, label string, maxTurns int, w
 
 		if len(msg.ToolCalls) == 0 {
 			if watchFile != "" {
-				_, statErr := os.Stat(watchFile)
-				return statErr == nil, nil
+				if _, statErr := os.Stat(watchFile); statErr == nil {
+					return true, nil
+				}
+				// File absent — model wrote code as prose; try to extract and save it
+				if code, ok := extractCodeBlock(msg.Content, watchFile); ok && code != "" {
+					if writeErr := os.WriteFile(watchFile, []byte(code), 0644); writeErr == nil {
+						return true, nil
+					}
+				}
+				return false, nil
 			}
 			// Repair mode (no watchFile): model responded with text but called no tool.
 			// Force another turn so the model actually edits the file.
@@ -99,6 +109,74 @@ func (s *Session) Run(model, userPrompt, thinking, label string, maxTurns int, w
 		return statErr == nil, fmt.Errorf("max turns reached")
 	}
 	return false, fmt.Errorf("max turns reached")
+}
+
+// extractCodeBlock extracts the first fenced code block from content that matches the
+// file extension of filePath. Tries language-specific fences first, then a generic fence.
+func extractCodeBlock(content, filePath string) (string, bool) {
+	base := strings.ToLower(filepath.Base(filePath))
+	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(filePath), "."))
+	if ext == "" {
+		ext = base // e.g., "makefile"
+	}
+	for _, lang := range codeBlockLangs(ext) {
+		if code, ok := extractFence(content, "```"+lang); ok {
+			return code, true
+		}
+	}
+	if code, ok := extractFence(content, "```"); ok {
+		return code, true
+	}
+	return "", false
+}
+
+func extractFence(content, opener string) (string, bool) {
+	idx := strings.Index(content, opener+"\n")
+	if idx < 0 {
+		return "", false
+	}
+	start := idx + len(opener) + 1
+	rest := content[start:]
+	end := strings.Index(rest, "\n```")
+	if end < 0 {
+		return "", false
+	}
+	return rest[:end], true
+}
+
+func codeBlockLangs(ext string) []string {
+	switch ext {
+	case "py":
+		return []string{"python", "py"}
+	case "go":
+		return []string{"go"}
+	case "c":
+		return []string{"c"}
+	case "h":
+		return []string{"c", "h"}
+	case "cpp", "cc", "cxx":
+		return []string{"cpp", "c++"}
+	case "rs":
+		return []string{"rust", "rs"}
+	case "cs":
+		return []string{"csharp", "cs"}
+	case "js":
+		return []string{"javascript", "js"}
+	case "ts":
+		return []string{"typescript", "ts"}
+	case "sh":
+		return []string{"bash", "sh", "shell"}
+	case "toml":
+		return []string{"toml"}
+	case "yaml", "yml":
+		return []string{"yaml", "yml"}
+	case "json":
+		return []string{"json"}
+	case "makefile":
+		return []string{"makefile", "make"}
+	default:
+		return []string{ext}
+	}
 }
 
 // chatOrRetry calls ollama.Chat and retries up to 2 times when the server drops the

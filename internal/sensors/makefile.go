@@ -7,6 +7,52 @@ import (
 	"strings"
 )
 
+// FixMakefileSpaceIndent converts space-indented recipe lines to tab-indented.
+// When a Makefile has target lines but uses spaces instead of tabs for recipe commands,
+// make rejects them with "missing separator". Only fires when the file already has targets.
+func FixMakefileSpaceIndent(f string) (bool, error) {
+	data, err := os.ReadFile(f)
+	if err != nil {
+		return false, err
+	}
+	content := string(data)
+	targetRE := regexp.MustCompile(`(?m)^[a-zA-Z_.][a-zA-Z0-9._-]*\s*:`)
+	if !targetRE.MatchString(content) {
+		return false, nil
+	}
+
+	lines := strings.Split(content, "\n")
+	changed := false
+	inRecipe := false
+	var out []string
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case targetRE.MatchString(line) && len(line) > 0 && line[0] != '\t' && line[0] != ' ':
+			inRecipe = true
+			out = append(out, line)
+		case len(line) > 0 && line[0] == '\t':
+			inRecipe = true
+			out = append(out, line)
+		case trimmed == "":
+			inRecipe = false
+			out = append(out, line)
+		case inRecipe && len(line) > 0 && line[0] == ' ':
+			out = append(out, "\t"+strings.TrimLeft(line, " "))
+			changed = true
+		default:
+			inRecipe = false
+			out = append(out, line)
+		}
+	}
+
+	if !changed {
+		return false, nil
+	}
+	return true, os.WriteFile(f, []byte(strings.Join(out, "\n")), 0644)
+}
+
 // FixNoTargets detects a Makefile written as a plain shell script (no `target:` lines)
 // and wraps the commands in a default `all:` target with tab-indented recipes.
 // This happens when the model writes a Makefile like a shell script instead of proper make syntax.

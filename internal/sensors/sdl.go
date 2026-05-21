@@ -29,6 +29,21 @@ func FixSDLInclude(f string) (bool, error) {
 	return true, os.WriteFile(f, []byte(fixed), 0644)
 }
 
+// FixSDLDestroySurface replaces SDL3's SDL_DestroySurface with SDL2's SDL_FreeSurface.
+// Models trained on mixed SDL2/SDL3 data sometimes emit the SDL3 API which is absent in SDL2.
+func FixSDLDestroySurface(f string) (bool, error) {
+	data, err := os.ReadFile(f)
+	if err != nil {
+		return false, err
+	}
+	orig := string(data)
+	fixed := strings.ReplaceAll(orig, "SDL_DestroySurface(", "SDL_FreeSurface(")
+	if fixed == orig {
+		return false, nil
+	}
+	return true, os.WriteFile(f, []byte(fixed), 0644)
+}
+
 // FixSDLMissingInclude adds #include <SDL.h> at the top of a C/C++ file that uses
 // SDL_ symbols but has no SDL include. Models sometimes write the function body
 // without the header.

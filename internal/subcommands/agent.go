@@ -387,6 +387,9 @@ func runAgent(cfg agentConfig) error {
 			if fixedSDL, _ := sensors.FixSDLMissingInclude(task.FilePath); fixedSDL {
 				agentLog("Added missing SDL2 include to %s.", task.FilePath)
 			}
+			if fixedSDL, _ := sensors.FixSDLDestroySurface(task.FilePath); fixedSDL {
+				agentLog("Fixed SDL2 API in %s: SDL_DestroySurface → SDL_FreeSurface.", task.FilePath)
+			}
 		}
 
 		// Post-write: fix .csproj TargetFramework, OutputType, and strip duplicate Compile items
@@ -407,6 +410,9 @@ func runAgent(cfg agentConfig) error {
 
 		// Post-write: fix Makefile issues
 		if plan.IsBuildFile(task.FilePath) && strings.EqualFold(filepath.Base(task.FilePath), "makefile") {
+			if fixedSpace, _ := sensors.FixMakefileSpaceIndent(task.FilePath); fixedSpace {
+				agentLog("Fixed Makefile: converted space-indented recipes to tab-indented.")
+			}
 			if fixedTargets, _ := sensors.FixNoTargets(task.FilePath); fixedTargets {
 				agentLog("Fixed Makefile: wrapped shell commands in all: target (model wrote plain script).")
 			}
