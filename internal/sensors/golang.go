@@ -77,9 +77,14 @@ func FixGoMod(f string) (bool, error) {
 			}
 			continue
 		}
-		first := strings.Fields(trimmed)[0]
+		topFields := strings.Fields(trimmed)
+		first := topFields[0]
 		if validDirectives[first] {
-			kept = append(kept, line)
+			if first == "go" && len(topFields) == 1 {
+				dropped = true // bare "go" with no version is invalid go.mod syntax
+			} else {
+				kept = append(kept, line)
+			}
 		} else if strings.Contains(first, "/") {
 			// Bare "github.com/foo/bar v1.2.3" line — valid module path, collect as require
 			bareReqs = append(bareReqs, "\t"+trimmed)

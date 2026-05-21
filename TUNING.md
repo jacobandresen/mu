@@ -54,6 +54,8 @@ Set via `MU_NUM_CTX` env var (read by every `/api/chat` call and by `ensureAgent
 
 **Measured impact:** Doubling ctx from 4096 → 8096 made P1 2.6× slower (64 s → 165 s) and P3 6× slower (155 s → 928 s). The extra swap I/O dominates for long sessions.
 
+**Dojo default is 3072:** `dojo/run.sh` sets `MU_NUM_CTX=3072` unless overridden. This is conservative (fast, low swap) but still not immune to timeouts — see Memory pressure warning below.
+
 ---
 
 ### 2. `num_thread` — CPU inference threads
@@ -139,12 +141,14 @@ The quantization level is baked into the GGUF file and set when creating the `qw
 
 ## Model recommendation for M2 8 GB
 
-| Model | Size | Dojo score (mu v0.4) | Notes |
-|-------|------|---------------------|-------|
-| **qwen3:8b Q4_K_M** | 5.2 GB | 6/7 at 4096ctx (v0.3) | Best quality that fits |
+| Model | Size | Dojo score | Notes |
+|-------|------|-----------|-------|
+| **qwen3:8b Q4_K_M** | 5.2 GB | 6/7 (v0.3, 2026-05-17) · 4/7 (v0.5, 2026-05-20)¹ | Best quality that fits |
 | qwen2.5-coder:7b Q4_K_M | 4.7 GB | Comparable for pure coding | Less capable at planning |
 | qwen3:4b Q4_K_M | 2.5 GB | Not tested | Much faster; likely lower score |
 | gemma4 | 9.6 GB | Not viable | OOM with any useful context |
+
+¹ The v0.5.0 4/7 score reflects three deterministic sensor bugs in the agent harness (now fixed in v0.5.1), not a model capability regression. Underlying model output quality is unchanged.
 
 **Use qwen3:8b.** The 0.5 GB size difference over qwen2.5-coder:7b buys significantly better planning capability, which is the dominant failure mode in the dojo.
 
@@ -173,6 +177,8 @@ At `num_ctx=8096` on 8 GB M2, the system runs with only ~44 MB free physical RAM
 - Slower generation (swap I/O latency)
 - Occasional kernel page-compression stalls
 - Repair sessions hitting timeout (writer timeout = 450 s at 8096 ctx with 1.5× scale)
+
+**Timeouts are not exclusive to large contexts.** Session I (2026-05-21) at `num_ctx=3072` saw Ollama drop two connections during P2's repair loop (220 s and 117 s wall-clock before deadline). The repair prompt was ~1000 prompt tokens + ~1000 generated tokens — a heavier generation than the write phase — and that alone was enough to trigger swap pressure on 8 GB. Lower context reduces *baseline* memory use but does not eliminate timeout risk under sustained generation load.
 
 Dropping to `num_ctx=6000` reclaims ~150 MB of KV cache and meaningfully reduces swap pressure.
 

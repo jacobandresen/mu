@@ -909,8 +909,15 @@ func finalTestGate(cfg *agentConfig, p *plan.Plan, autonomousSystem string) erro
 		return nil
 	}
 
-	maxRetries := 1
+	maxRetries := 2
 	for attempt := 0; attempt <= maxRetries; attempt++ {
+		// Re-apply deterministic sensor fixes before each test run — the repair model
+		// can revert them (e.g. removes SDL include, reverts .csproj TargetFramework,
+		// restores wrong pytest path).
+		reapplyCsprojFix(p)
+		reapplySDLFix(p, cfg.Goal)
+		reapplyMakefileFix(p)
+
 		testLog := filepath.Join(logDir, "tests-final.log")
 		if runTests(testCmd, testLog) {
 			return nil
@@ -923,9 +930,6 @@ func finalTestGate(cfg *agentConfig, p *plan.Plan, autonomousSystem string) erro
 		agentLog("Final tests failed — repair retry %d / %d", attempt+1, maxRetries)
 		testTail := tailFile(testLog, 200)
 		runRepair(cfg, testCmd, testTail, autonomousSystem)
-		// Repair model may revert harness fixes (e.g. restores wrong .csproj TargetFramework).
-		// Re-apply them unconditionally after each repair attempt.
-		reapplyCsprojFix(p)
 		// Record this failed attempt so subsequent repair turns don't repeat the same approach.
 		if !testsSilent(testCmd) {
 			recordFailedRepair(fmt.Sprintf("test repair attempt %d", attempt+1), tailFile(testLog, 30))
@@ -947,6 +951,48 @@ func reapplyCsprojFix(p *plan.Plan) {
 				if fixed, _ := sensors.FixCsprojTargetFramework(task.FilePath); fixed {
 					agentLog("Re-applied TargetFramework fix to %s after repair.", task.FilePath)
 				}
+			}
+		}
+	}
+}
+
+// reapplySDLFix re-runs SDL include sensors on every C/C++ source file in the plan.
+// The repair model sometimes rewrites source files and drops the SDL include header.
+func reapplySDLFix(p *plan.Plan, goal string) {
+	if p == nil || !graphicalRE.MatchString(goal) {
+		return
+	}
+	for _, task := range p.Tasks {
+		if _, err := os.Stat(task.FilePath); err != nil {
+			continue
+		}
+		if sensors.IsSDLSource(task.FilePath) {
+			if fixed, _ := sensors.FixSDLInclude(task.FilePath); fixed {
+				agentLog("Re-applied SDL include fix to %s after repair.", task.FilePath)
+			}
+			if fixed, _ := sensors.FixSDLMissingInclude(task.FilePath); fixed {
+				agentLog("Re-applied SDL missing include fix to %s after repair.", task.FilePath)
+			}
+		}
+	}
+}
+
+// reapplyMakefileFix re-runs Makefile sensors on every Makefile listed in the plan.
+// The repair model sometimes reverts test-path fixes or removes go mod setup.
+func reapplyMakefileFix(p *plan.Plan) {
+	if p == nil {
+		return
+	}
+	for _, task := range p.Tasks {
+		if _, err := os.Stat(task.FilePath); err != nil {
+			continue
+		}
+		if plan.IsBuildFile(task.FilePath) && strings.EqualFold(filepath.Base(task.FilePath), "makefile") {
+			if fixed, _ := plan.FixPytestPath(task.FilePath); fixed {
+				agentLog("Re-applied pytest path fix to %s after repair.", task.FilePath)
+			}
+			if fixed, _ := sensors.FixGoMakefile(task.FilePath); fixed {
+				agentLog("Re-applied Go Makefile fix to %s after repair.", task.FilePath)
 			}
 		}
 	}
