@@ -361,6 +361,12 @@ func runAgent(cfg agentConfig) error {
 			if fixedDB, _ := sensors.FixFlaskDbCreate(task.FilePath); fixedDB {
 				agentLog("Fixed Flask app: moved db.create_all() to module scope for testability.")
 			}
+			if fixedInit, _ := sensors.FixSQLiteInitDb(task.FilePath); fixedInit {
+				agentLog("Fixed SQLite module %s: added module-level init call so tests don't get 'no such table'.", task.FilePath)
+			}
+			if fixedImp, _ := sensors.FixTestImportModule(task.FilePath); fixedImp {
+				agentLog("Fixed %s: corrected import module name to match actual .py file on disk.", task.FilePath)
+			}
 		}
 
 		// Post-write: fix go.mod with invalid top-level directives or bad versions
@@ -385,6 +391,9 @@ func runAgent(cfg agentConfig) error {
 
 		// Post-write: fix .csproj TargetFramework, OutputType, and strip duplicate Compile items
 		if strings.HasSuffix(task.FilePath, ".csproj") {
+			if fixedMD, _ := sensors.FixCsprojMarkdownCorruption(task.FilePath); fixedMD {
+				agentLog("Fixed %s: replaced markdown-corrupted XML with clean SDK template.", task.FilePath)
+			}
 			if fixedFw, _ := sensors.FixCsprojTargetFramework(task.FilePath); fixedFw {
 				agentLog("Fixed TargetFramework in %s to match installed dotnet.", task.FilePath)
 			}
@@ -406,6 +415,12 @@ func runAgent(cfg agentConfig) error {
 			}
 			if fixedDup, _ := sensors.FixDuplicateVar(task.FilePath); fixedDup {
 				agentLog("Fixed Makefile: removed duplicate variable assignments (kept first definition).")
+			}
+			if fixedSDL, _ := sensors.FixMakefileSDL2(task.FilePath); fixedSDL {
+				agentLog("Fixed Makefile: wired SDL2 cflags/libs from sdl2-config into CFLAGS/LDFLAGS.")
+			}
+			if fixedPip, _ := sensors.FixMakefilePipInstall(task.FilePath, pipPackagesFromGoal(cfg.Goal)); fixedPip {
+				agentLog("Fixed Makefile: added pip install step before pytest.")
 			}
 			if fixedGo, _ := sensors.FixGoMakefile(task.FilePath); fixedGo {
 				agentLog("Fixed Go Makefile: added go mod init + go get before go build.")
@@ -881,14 +896,15 @@ func runTests(cmd, logFile string) bool {
 }
 
 func runRepair(cfg *agentConfig, testCmd, testTail, autonomousSystem string) {
-	fixRules := `REPAIR PROTOCOL:
-- The test output is already provided below. Do not run any commands.
-- Call Edit to make the smallest targeted change. Only use Write if you must replace the entire file.
-- Only modify files that already exist in the project. Do not create new files.
-- One tool call only. Do not modify PLAN.md.`
+	fixRules := `REPAIR RULES — follow exactly:
+1. Call Edit or Write RIGHT NOW. Do not explain. Do not describe what you will do. Just call the tool.
+2. The test output is already provided. Do not run any commands.
+3. Make the smallest targeted change. Only use Write if you must replace the entire file.
+4. Only modify files that already exist. Do not create new files. Do not touch PLAN.md.
+5. One tool call only. Stop immediately after the tool call.`
 
 	history := repairHistory()
-	prompt := fmt.Sprintf("GOAL: %s\n\nTests are failing. Fix the broken code now.\n\nTest output:\n%s%s", cfg.Goal, testTail, history)
+	prompt := fmt.Sprintf("GOAL: %s\n\nTest output (fix this NOW — call Edit or Write immediately):\n%s%s", cfg.Goal, testTail, history)
 	systemPrompt := autonomousSystem + "\n\n" + fixRules
 
 	sess := agent.NewSession(systemPrompt)
@@ -992,6 +1008,9 @@ func reapplyCsprojFix(p *plan.Plan) {
 	for _, task := range p.Tasks {
 		if strings.HasSuffix(task.FilePath, ".csproj") {
 			if _, err := os.Stat(task.FilePath); err == nil {
+				if fixed, _ := sensors.FixCsprojMarkdownCorruption(task.FilePath); fixed {
+					agentLog("Re-applied markdown-corruption fix to %s after repair.", task.FilePath)
+				}
 				if fixed, _ := sensors.FixCsprojTargetFramework(task.FilePath); fixed {
 					agentLog("Re-applied TargetFramework fix to %s after repair.", task.FilePath)
 				}
@@ -1547,4 +1566,29 @@ func fixDemonstrationScript(planFile string, p *plan.Plan, goal string) bool {
 		out = append(out, line)
 	}
 	return os.WriteFile(planFile, []byte(strings.Join(out, "\n")), 0644) == nil
+}
+
+// pipPackagesFromGoal extracts known pip package names mentioned in the goal string.
+// Used to tell FixMakefilePipInstall what to install when there's no requirements.txt.
+func pipPackagesFromGoal(goal string) []string {
+	known := []string{"flask", "django", "fastapi", "sqlalchemy", "requests",
+		"pytest", "httpx", "uvicorn", "aiohttp", "bottle"}
+	goal = strings.ToLower(goal)
+	var found []string
+	for _, pkg := range known {
+		if strings.Contains(goal, pkg) {
+			found = append(found, pkg)
+		}
+	}
+	// Always include pytest
+	hasPytest := false
+	for _, p := range found {
+		if p == "pytest" {
+			hasPytest = true
+		}
+	}
+	if !hasPytest {
+		found = append(found, "pytest")
+	}
+	return found
 }

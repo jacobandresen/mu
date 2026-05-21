@@ -1,7 +1,7 @@
 {
   "models": [
     {
-      "id": "gemma-4-e2b",
+      "id": "gemma4:e2b",
       "_launch": true,
       "contextWindow": 131072,
       "input": ["text", "image"],

@@ -3,6 +3,7 @@ package sensors
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -215,6 +216,161 @@ func FixFlaskDbCreate(filePath string) (bool, error) {
 	}
 	insert := "with app.app_context():\n    db.create_all()\n\n"
 	fixed := content[:mainIdx] + insert + content[mainIdx:]
+	return true, os.WriteFile(filePath, []byte(fixed), 0644)
+}
+
+// FixTestImportModule fixes test files that import from a module that doesn't exist on disk
+// but a similarly-named module does. Common when the model names the test import differently
+// from the implementation file (e.g. "from todo_manager import ..." but only "todo.py" exists).
+// Scans "from X import ..." lines and replaces X with the actual .py filename when X.py is absent
+// but a .py file in the same directory shares enough name characters with X.
+func FixTestImportModule(filePath string) (bool, error) {
+	if !strings.HasSuffix(filePath, ".py") {
+		return false, nil
+	}
+	base := strings.ToLower(strings.TrimSuffix(filePath, ".py"))
+	if !strings.HasPrefix(base, "test_") && !strings.HasSuffix(base, "_test") {
+		return false, nil // only applies to test files
+	}
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return false, err
+	}
+	content := string(data)
+	dir := filepath.Dir(filePath)
+
+	// Collect non-test .py files in the same directory
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false, nil
+	}
+	var candidates []string
+	for _, e := range entries {
+		n := e.Name()
+		if !strings.HasSuffix(n, ".py") || strings.HasPrefix(n, "test_") || strings.HasSuffix(n, "_test.py") {
+			continue
+		}
+		candidates = append(candidates, strings.TrimSuffix(n, ".py"))
+	}
+
+	changed := false
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "from ") && !strings.HasPrefix(trimmed, "import ") {
+			continue
+		}
+		// Extract module name from "from MODULE import ..." or "import MODULE"
+		var moduleName string
+		if strings.HasPrefix(trimmed, "from ") {
+			parts := strings.Fields(trimmed)
+			if len(parts) >= 2 {
+				moduleName = parts[1]
+			}
+		} else {
+			parts := strings.Fields(trimmed)
+			if len(parts) >= 2 {
+				moduleName = strings.Split(parts[1], ".")[0]
+			}
+		}
+		if moduleName == "" {
+			continue
+		}
+		// Check if module exists
+		if _, err := os.Stat(filepath.Join(dir, moduleName+".py")); err == nil {
+			continue // module exists, no fix needed
+		}
+		// Find best matching candidate
+		best := ""
+		for _, cand := range candidates {
+			// Match if the module name and candidate share a significant prefix/substring
+			ml := strings.ToLower(moduleName)
+			cl := strings.ToLower(cand)
+			if strings.HasPrefix(ml, cl) || strings.HasPrefix(cl, ml) ||
+				strings.Contains(ml, cl) || strings.Contains(cl, ml) {
+				best = cand
+				break
+			}
+		}
+		if best == "" || best == moduleName {
+			continue
+		}
+		lines[i] = strings.ReplaceAll(line, moduleName, best)
+		changed = true
+	}
+	if !changed {
+		return false, nil
+	}
+	return true, os.WriteFile(filePath, []byte(strings.Join(lines, "\n")), 0644)
+}
+
+// FixSQLiteInitDb detects Python sqlite3 modules where a table-init function (create_table,
+// initialize_db, init_db, setup_db, etc.) exists but is only called inside
+// "if __name__ == '__main__'". When tests import the module directly that block never runs,
+// so all DB operations fail with "no such table". Adds a module-level call after the function.
+func FixSQLiteInitDb(filePath string) (bool, error) {
+	if !strings.HasSuffix(filePath, ".py") {
+		return false, nil
+	}
+	// Skip test files — they import from the module; the call belongs in the module, not tests.
+	base := strings.ToLower(strings.TrimSuffix(filePath, ".py"))
+	if strings.HasPrefix(base, "test_") || strings.HasSuffix(base, "_test") {
+		return false, nil
+	}
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return false, err
+	}
+	content := string(data)
+	if !strings.Contains(content, "sqlite3") {
+		return false, nil
+	}
+
+	// Find candidate init function name
+	initNames := []string{"create_table", "initialize_db", "init_db", "setup_db", "create_tables", "init_database"}
+	funcName := ""
+	for _, name := range initNames {
+		if strings.Contains(content, "def "+name+"(") {
+			funcName = name
+			break
+		}
+	}
+	if funcName == "" {
+		return false, nil
+	}
+
+	// Already called at module scope (outside __main__)?
+	// Search for an unindented standalone call like "\nfoo()" rather than
+	// "def foo()" which also contains "foo()" as a substring.
+	mainIdx := strings.Index(content, "if __name__")
+	standaloneCall := "\n" + funcName + "()"
+	callSite := strings.Index(content, standaloneCall)
+	if callSite >= 0 && (mainIdx < 0 || callSite < mainIdx) {
+		return false, nil // already at module scope
+	}
+
+	// Find the end of the function definition to insert after it
+	defLine := "def " + funcName + "("
+	defIdx := strings.Index(content, defLine)
+	if defIdx < 0 {
+		return false, nil
+	}
+	// Walk past the function body by finding the next top-level def/class or __main__
+	rest := content[defIdx+len(defLine):]
+	insertAfter := defIdx + len(defLine)
+	for _, marker := range []string{"\ndef ", "\nclass ", "\nif __name__"} {
+		idx := strings.Index(rest, marker)
+		if idx >= 0 {
+			candidate := defIdx + len(defLine) + idx
+			if candidate > insertAfter {
+				insertAfter = candidate
+			}
+			break
+		}
+	}
+	// Insert a module-level call right before the next top-level construct
+	insert := "\n" + funcName + "()\n"
+	fixed := content[:insertAfter] + insert + content[insertAfter:]
 	return true, os.WriteFile(filePath, []byte(fixed), 0644)
 }
 
