@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -73,7 +74,7 @@ func ListPS() ([]string, error) {
 
 func LoadModel(model, keepAlive string) error {
 	if keepAlive == "" {
-		keepAlive = "30m"
+		keepAlive = "-1s"
 	}
 	_, err := post("/api/generate", map[string]any{
 		"model":      model,
@@ -100,6 +101,32 @@ func ShowModel(model string) (map[string]any, error) {
 		return nil, err
 	}
 	return result, nil
+}
+
+// thinkingCache memoizes per-model "thinking" capability so we don't call /api/show
+// on every chat. Sending a think param to a non-thinking model errors, so callers
+// pass their intent and Chat suppresses it when the model can't think.
+var thinkingCache sync.Map // model name → bool
+
+// SupportsThinking reports whether the model advertises the "thinking" capability.
+// Result is cached. On lookup failure it returns false (safer to omit think).
+func SupportsThinking(model string) bool {
+	if v, ok := thinkingCache.Load(model); ok {
+		return v.(bool)
+	}
+	supported := false
+	if info, err := ShowModel(model); err == nil {
+		if caps, ok := info["capabilities"].([]any); ok {
+			for _, c := range caps {
+				if s, _ := c.(string); s == "thinking" {
+					supported = true
+					break
+				}
+			}
+		}
+	}
+	thinkingCache.Store(model, supported)
+	return supported
 }
 
 func CreateModel(name, from string, params map[string]any) error {
@@ -207,11 +234,23 @@ type ChatStats struct {
 	GeneratedTokens int
 }
 
-func Chat(model string, messages []Message, tools []ToolDef, timeout time.Duration) (Message, ChatStats, error) {
+// Chat sends a /api/chat request. think controls qwen3-style reasoning:
+//   - nil  → omit the field, use the model default
+//   - false → disable thinking (canonical, reliable — far stronger than a /no_think token)
+//   - true  → enable thinking
+// Disabling thinking is the single biggest speed lever for qwen3: it otherwise emits
+// hundreds of hidden reasoning tokens (counted in eval_count) before every answer.
+func Chat(model string, messages []Message, tools []ToolDef, think any, timeout time.Duration) (Message, ChatStats, error) {
 	body := map[string]any{
-		"model":    model,
-		"messages": messages,
-		"stream":   false,
+		"model":      model,
+		"messages":   messages,
+		"stream":     false,
+		"keep_alive": "-1s",
+	}
+	// Only attach think for models that advertise the capability — sending it to a
+	// non-thinking model (e.g. an *-instruct variant) is an error.
+	if think != nil && SupportsThinking(model) {
+		body["think"] = think
 	}
 	if len(tools) > 0 {
 		body["tools"] = tools

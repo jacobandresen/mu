@@ -29,11 +29,14 @@ func NewSession(systemPrompt string) *Session {
 // thinking: "off" → appends /no_think, "medium"/"high" → appends /think, "" → none
 func (s *Session) Run(model, userPrompt, thinking, label string, maxTurns int, watchFile string, timeout time.Duration) (bool, error) {
 	prompt := userPrompt
+	var think any // nil = model default
 	switch thinking {
 	case "off":
 		prompt += "\n/no_think"
+		think = false
 	case "medium", "high":
 		prompt += "\n/think"
+		think = true
 	}
 
 	msgs := []ollama.Message{
@@ -55,11 +58,7 @@ func (s *Session) Run(model, userPrompt, thinking, label string, maxTurns int, w
 		if tools == nil {
 			tools = ToolDefs
 		}
-		callStart := time.Now()
-		msg, stats, err := ollama.Chat(model, msgs, tools, remaining)
-		elapsed := time.Since(callStart)
-		fmt.Printf("==> [mu-agent] chat: prompt=%d gen=%d time=%.1fs\n",
-			stats.PromptTokens, stats.GeneratedTokens, elapsed.Seconds())
+		msg, err := chatOrRetry(model, msgs, tools, think, deadline)
 		if err != nil {
 			return false, fmt.Errorf("chat: %w", err)
 		}
@@ -100,4 +99,50 @@ func (s *Session) Run(model, userPrompt, thinking, label string, maxTurns int, w
 		return statErr == nil, fmt.Errorf("max turns reached")
 	}
 	return false, fmt.Errorf("max turns reached")
+}
+
+// chatOrRetry calls ollama.Chat and retries up to 2 times when the server drops the
+// connection before generating any tokens (prompt=0, gen=0). These drops happen on
+// memory-constrained machines when the Ollama process is paged out mid-request.
+// Between retries it reloads the model (re-pages Ollama's heap) and waits 20 s.
+// Each attempt is logged individually. Retries do not consume session turns.
+func chatOrRetry(model string, msgs []ollama.Message, tools []ollama.ToolDef, think any, deadline time.Time) (ollama.Message, error) {
+	const maxRetries = 2
+	const backoff = 20 * time.Second
+
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			if lastErr != nil {
+				return ollama.Message{}, lastErr
+			}
+			return ollama.Message{}, fmt.Errorf("deadline exceeded")
+		}
+		callStart := time.Now()
+		msg, stats, err := ollama.Chat(model, msgs, tools, think, remaining)
+		elapsed := time.Since(callStart)
+		fmt.Printf("==> [mu-agent] chat: prompt=%d gen=%d time=%.1fs\n",
+			stats.PromptTokens, stats.GeneratedTokens, elapsed.Seconds())
+
+		isServerDrop := err != nil && stats.PromptTokens == 0 && stats.GeneratedTokens == 0
+		if isServerDrop && attempt < maxRetries {
+			fmt.Printf("==> [mu-agent] Server drop — reloading model, waiting %v (retry %d/%d)\n",
+				backoff, attempt+1, maxRetries)
+			_ = ollama.LoadModel(model, "-1s")
+			time.Sleep(backoff)
+			// The failed call may have consumed the remaining deadline. Give each retry
+			// a full 210-second window regardless of how much time was left — server
+			// drops happen before the model processes any tokens, so no work is lost
+			// and the retry needs its own budget.
+			const retryBudget = 210 * time.Second
+			if retryDeadline := time.Now().Add(retryBudget); retryDeadline.After(deadline) {
+				deadline = retryDeadline
+			}
+			lastErr = err
+			continue
+		}
+		return msg, err
+	}
+	return ollama.Message{}, lastErr
 }

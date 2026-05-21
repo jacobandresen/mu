@@ -35,6 +35,26 @@ func FixCsprojTargetFramework(f string) (bool, error) {
 	return true, os.WriteFile(f, []byte(fixed), 0644)
 }
 
+// FixCsprojOutputType adds <OutputType>Exe</OutputType> to a .csproj file when the element
+// is missing. SDK-style projects that omit OutputType are treated as Library and cannot be
+// run with "dotnet run".
+func FixCsprojOutputType(f string) (bool, error) {
+	data, err := os.ReadFile(f)
+	if err != nil {
+		return false, err
+	}
+	content := string(data)
+	if strings.Contains(content, "<OutputType>") {
+		return false, nil
+	}
+	fixed := strings.Replace(content, "</PropertyGroup>",
+		"  <OutputType>Exe</OutputType>\n</PropertyGroup>", 1)
+	if fixed == content {
+		return false, nil
+	}
+	return true, os.WriteFile(f, []byte(fixed), 0644)
+}
+
 // FixCsprojCompileItems removes explicit <Compile Include="..."> items from .csproj files.
 // SDK-style projects auto-include all .cs files; explicit Compile items cause duplicates
 // and build errors.

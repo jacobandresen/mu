@@ -125,7 +125,7 @@ func runAgent(cfg agentConfig) error {
 		}
 	}
 	_ = ollama.UnloadOthers(cfg.AgentModel)
-	if err := ollama.LoadModel(cfg.AgentModel, "30m"); err != nil {
+	if err := ollama.LoadModel(cfg.AgentModel, "-1s"); err != nil {
 		agentLog("WARNING: could not pre-load model: %v", err)
 	}
 
@@ -304,6 +304,12 @@ func runAgent(cfg agentConfig) error {
 				agentLog("Writer did not produce %s — retrying.", task.FilePath)
 				retryPrompt := fmt.Sprintf("Write file NOW: `%s`\nYou ONLY have the Write tool. Use it immediately — do not try to run commands or install packages.\nCall Write exactly once with the complete file contents. Stop immediately after.\n\nGOAL: %s\n%s",
 					task.FilePath, cfg.Goal, p.PlanContext)
+				if refCtx := plan.RelevantFilesContext(p, task.FilePath); refCtx != "" {
+					retryPrompt += "\n\n## Reference files (do not rewrite)\n" + refCtx
+					if isTestFile(task.FilePath) {
+						retryPrompt += "\nCRITICAL: Call EXACT method/function names from the reference files above.\n"
+					}
+				}
 				retryCfg := cfg
 				retryCfg.WriterThinking = "medium"
 				if !runWriterWithSession(&retryCfg, task.FilePath, retryPrompt, autonomousSystem) {
@@ -325,11 +331,35 @@ func runAgent(cfg agentConfig) error {
 				_ = os.Remove(task.FilePath)
 				stubRetryPrompt := fmt.Sprintf("Write file NOW: `%s`\nYou ONLY have the Write tool. Use it immediately — do not try to run commands or install packages.\nCall Write exactly once with the complete file contents. Stop immediately after.\n\nGOAL: %s\n%s",
 					task.FilePath, cfg.Goal, p.PlanContext)
+				if refCtx := plan.RelevantFilesContext(p, task.FilePath); refCtx != "" {
+					stubRetryPrompt += "\n\n## Reference files (do not rewrite)\n" + refCtx
+					if isTestFile(task.FilePath) {
+						stubRetryPrompt += "\nCRITICAL: Call EXACT method/function names from the reference files above.\n"
+					}
+				}
 				retryCfg := cfg
 				retryCfg.WriterThinking = "medium"
 				if !runWriterWithSession(&retryCfg, task.FilePath, stubRetryPrompt, autonomousSystem) {
 					agentLog("Iteration %d: %s still near-empty after retry.", i, task.FilePath)
 				}
+			}
+		}
+
+		// Post-write: fix Go source files with literal \n (backslash-n, not actual newlines)
+		// that the model emits as pseudo-whitespace inside struct/map literals.
+		if strings.HasSuffix(task.FilePath, ".go") {
+			if fixedNL, _ := sensors.FixGoLiteralNewlines(task.FilePath); fixedNL {
+				agentLog("Fixed literal \\n escape sequences in %s (replaced with real newlines).", task.FilePath)
+			}
+		}
+
+		// Post-write: fix Python SQLite bugs and Flask-SQLAlchemy setup issues.
+		if strings.HasSuffix(task.FilePath, ".py") {
+			if fixedCur, _ := sensors.FixSQLiteBareListCursor(task.FilePath); fixedCur {
+				agentLog("Fixed SQLite list bug in %s: replaced bare conn.cursor() with conn.execute(query).", task.FilePath)
+			}
+			if fixedDB, _ := sensors.FixFlaskDbCreate(task.FilePath); fixedDB {
+				agentLog("Fixed Flask app: moved db.create_all() to module scope for testability.")
 			}
 		}
 
@@ -353,10 +383,13 @@ func runAgent(cfg agentConfig) error {
 			}
 		}
 
-		// Post-write: fix .csproj TargetFramework and strip duplicate Compile items
+		// Post-write: fix .csproj TargetFramework, OutputType, and strip duplicate Compile items
 		if strings.HasSuffix(task.FilePath, ".csproj") {
 			if fixedFw, _ := sensors.FixCsprojTargetFramework(task.FilePath); fixedFw {
 				agentLog("Fixed TargetFramework in %s to match installed dotnet.", task.FilePath)
+			}
+			if fixedOT, _ := sensors.FixCsprojOutputType(task.FilePath); fixedOT {
+				agentLog("Fixed OutputType in %s to Exe (was missing).", task.FilePath)
 			}
 			if fixedCI, _ := sensors.FixCsprojCompileItems(task.FilePath); fixedCI {
 				agentLog("Removed explicit <Compile Include> items from %s (SDK auto-includes .cs files).", task.FilePath)
@@ -538,7 +571,14 @@ func ensureAgentModel(base string) (string, error) {
 
 	agentLog("Creating %s (temperature=0, num_ctx=%d) from %s ...", target, ollama.NumCtx(), base)
 
-	params := map[string]any{"temperature": 0, "num_ctx": ollama.NumCtx()}
+	params := map[string]any{
+		"temperature": 0,
+		"num_ctx":     ollama.NumCtx(),
+		// Runaway guard: bound a single response so a degenerate loop can't burn the
+		// whole writer timeout. 4096 tokens comfortably exceeds any real dojo file;
+		// with thinking disabled (think:false) real responses are a few hundred tokens.
+		"num_predict": 4096,
+	}
 	if k := ollama.NumKeep(); k >= 0 {
 		params["num_keep"] = k
 	}
@@ -673,8 +713,12 @@ func runPlanner(cfg *agentConfig) {
 		{Role: "user", Content: buildPlannerPrompt(cfg.Goal, projectDir)},
 	}
 	fmt.Printf("  %s...\n", "Planning")
+	var plannerThink any // nil = model default
+	if cfg.PlannerThinking == "off" {
+		plannerThink = false
+	}
 	callStart := time.Now()
-	msg, stats, err := ollama.Chat(cfg.AgentModel, msgs, nil, timeout)
+	msg, stats, err := ollama.Chat(cfg.AgentModel, msgs, nil, plannerThink, timeout)
 	elapsed := time.Since(callStart)
 	agentLog("chat: prompt=%d gen=%d time=%.1fs", stats.PromptTokens, stats.GeneratedTokens, elapsed.Seconds())
 	agentLog("Planner: %.1fs", time.Since(t0).Seconds())
@@ -950,6 +994,9 @@ func reapplyCsprojFix(p *plan.Plan) {
 			if _, err := os.Stat(task.FilePath); err == nil {
 				if fixed, _ := sensors.FixCsprojTargetFramework(task.FilePath); fixed {
 					agentLog("Re-applied TargetFramework fix to %s after repair.", task.FilePath)
+				}
+				if fixed, _ := sensors.FixCsprojOutputType(task.FilePath); fixed {
+					agentLog("Re-applied OutputType fix to %s after repair.", task.FilePath)
 				}
 			}
 		}
@@ -1321,6 +1368,9 @@ func buildWritePrompt(goal string, task *plan.Task, p *plan.Plan, projectDir str
 	existing := plan.RelevantFilesContext(p, task.FilePath)
 	if existing != "" {
 		sb.WriteString("\n\n## Reference files (do not rewrite)\n" + existing)
+		if isTestFile(task.FilePath) {
+			sb.WriteString("\nCRITICAL: Call EXACT method/function names from the reference files above. Do not rename or alias them.\n")
+		}
 	}
 
 	sb.WriteString(fmt.Sprintf("\n\n## Task\nWrite file: `%s`", task.FilePath))

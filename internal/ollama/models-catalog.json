@@ -1,8 +1,14 @@
 {
   "models": [
     {
-      "id": "qwen3:4b",
+      "id": "gemma-4-e2b",
       "_launch": true,
+      "contextWindow": 131072,
+      "input": ["text", "image"],
+      "description": "Google Gemma 4 2B efficient model. Fast and compact, fits in GPU on 8 GB M2."
+    },
+    {
+      "id": "qwen3:4b",
       "contextWindow": 131072,
       "input": ["text"],
       "reasoning": true,

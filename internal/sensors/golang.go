@@ -17,6 +17,77 @@ func stripModulePrefix(s string) string {
 	return s
 }
 
+// FixGoLiteralNewlines replaces literal \n (backslash + n, two chars) that appear outside
+// string literals in Go source files with actual newline characters. Models sometimes emit
+// these as pseudo-whitespace inside struct/map literals (e.g. gin.H{\n "key": "v"\n}),
+// which is a syntax error since \n is not valid Go outside a string.
+func FixGoLiteralNewlines(filePath string) (bool, error) {
+	if !strings.HasSuffix(filePath, ".go") {
+		return false, nil
+	}
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return false, err
+	}
+	s := string(data)
+	if !strings.Contains(s, `\n`) {
+		return false, nil
+	}
+	fixed := replaceGoLiteralNewlines(s)
+	if fixed == s {
+		return false, nil
+	}
+	return true, os.WriteFile(filePath, []byte(fixed), 0644)
+}
+
+// replaceGoLiteralNewlines walks s char-by-char tracking string/comment context and
+// replaces backslash-n (two chars) that are outside string literals with real newlines.
+func replaceGoLiteralNewlines(s string) string {
+	var result strings.Builder
+	result.Grow(len(s))
+	inDoubleQuote := false
+	inBacktick := false
+	inLineComment := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case inLineComment:
+			result.WriteByte(c)
+			if c == '\n' {
+				inLineComment = false
+			}
+		case inBacktick:
+			result.WriteByte(c)
+			if c == '`' {
+				inBacktick = false
+			}
+		case inDoubleQuote:
+			result.WriteByte(c)
+			if c == '\\' && i+1 < len(s) {
+				i++
+				result.WriteByte(s[i])
+			} else if c == '"' {
+				inDoubleQuote = false
+			}
+		case c == '/' && i+1 < len(s) && s[i+1] == '/':
+			inLineComment = true
+			result.WriteByte(c)
+		case c == '"':
+			inDoubleQuote = true
+			result.WriteByte(c)
+		case c == '`':
+			inBacktick = true
+			result.WriteByte(c)
+		case c == '\\' && i+1 < len(s) && s[i+1] == 'n':
+			result.WriteByte('\n')
+			i++
+		default:
+			result.WriteByte(c)
+		}
+	}
+	return result.String()
+}
+
 // FixGoMod detects go.mod files where the model wrote bare "pkg version" lines instead of
 // wrapping them in a require block. Bare lines with a "/" in the module path are moved into
 // a require block; bare names without "/" (e.g. "gin v1.9.1") are dropped — they are
