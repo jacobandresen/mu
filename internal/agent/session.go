@@ -90,6 +90,11 @@ func (s *Session) Run(model, userPrompt, thinking, label string, maxTurns int, w
 		}
 
 		for _, tc := range msg.ToolCalls {
+			if tc.Function.Name == "Write" || tc.Function.Name == "Edit" {
+				if path, ok := tc.Function.Arguments["path"].(string); ok {
+					fmt.Printf("==> [mu-agent] tool: %s(%q)\n", tc.Function.Name, path)
+				}
+			}
 			result := DispatchTool(tc.Function.Name, tc.Function.Arguments)
 			msgs = append(msgs, ollama.Message{Role: "tool", Content: result})
 

@@ -53,6 +53,53 @@ func FixMakefileSpaceIndent(f string) (bool, error) {
 	return true, os.WriteFile(f, []byte(strings.Join(out, "\n")), 0644)
 }
 
+// FixOrphanTopLevelCommands detects bare command lines at the top level of a Makefile
+// that appear outside any target's recipe block. This happens when the model correctly
+// declares targets (and .PHONY) but also writes recipe commands before the first target
+// definition. The orphan lines are collected and wrapped in a new 'all:' target.
+func FixOrphanTopLevelCommands(f string) (bool, error) {
+	data, err := os.ReadFile(f)
+	if err != nil {
+		return false, err
+	}
+	content := string(data)
+	targetRE := regexp.MustCompile(`(?m)^[a-zA-Z_.][a-zA-Z0-9._-]*\s*:`)
+	if !targetRE.MatchString(content) {
+		return false, nil // no targets at all — let FixNoTargets handle
+	}
+
+	lines := strings.Split(content, "\n")
+	inRecipe := false
+	var orphans []string
+	var clean []string
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case targetRE.MatchString(line) && len(line) > 0 && line[0] != '\t' && line[0] != ' ':
+			inRecipe = true
+			clean = append(clean, line)
+		case len(line) > 0 && line[0] == '\t':
+			inRecipe = true
+			clean = append(clean, line)
+		case trimmed == "" || strings.HasPrefix(trimmed, "#"):
+			inRecipe = false
+			clean = append(clean, line)
+		case !inRecipe && !strings.Contains(trimmed, "=") && !strings.HasPrefix(trimmed, "."):
+			orphans = append(orphans, "\t"+trimmed)
+		default:
+			clean = append(clean, line)
+		}
+	}
+
+	if len(orphans) == 0 {
+		return false, nil
+	}
+
+	result := ".DEFAULT_GOAL := all\n\nall:\n" + strings.Join(orphans, "\n") + "\n\n" + strings.Join(clean, "\n")
+	return true, os.WriteFile(f, []byte(result), 0644)
+}
+
 // FixNoTargets detects a Makefile written as a plain shell script (no `target:` lines)
 // and wraps the commands in a default `all:` target with tab-indented recipes.
 // This happens when the model writes a Makefile like a shell script instead of proper make syntax.

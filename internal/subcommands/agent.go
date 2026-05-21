@@ -413,6 +413,9 @@ func runAgent(cfg agentConfig) error {
 			if fixedSpace, _ := sensors.FixMakefileSpaceIndent(task.FilePath); fixedSpace {
 				agentLog("Fixed Makefile: converted space-indented recipes to tab-indented.")
 			}
+			if fixedOrphan, _ := sensors.FixOrphanTopLevelCommands(task.FilePath); fixedOrphan {
+				agentLog("Fixed Makefile: wrapped orphan top-level commands in all: target.")
+			}
 			if fixedTargets, _ := sensors.FixNoTargets(task.FilePath); fixedTargets {
 				agentLog("Fixed Makefile: wrapped shell commands in all: target (model wrote plain script).")
 			}
