@@ -239,6 +239,24 @@ func FixMakefileSDL2(f string) (bool, error) {
 			}
 		}
 
+		// Fix recipe lines using hard-coded SDL2 paths or bare -lSDL2 (no sdl2-config)
+		if strings.HasPrefix(line, "\t") && !strings.Contains(line, "sdl2-config") {
+			if strings.Contains(line, "-I/") && strings.Contains(strings.ToLower(line), "sdl") {
+				// Replace hard-coded SDL include path with sdl2-config --cflags
+				line = regexp.MustCompile(`-I/[^\s]+`).ReplaceAllStringFunc(line, func(m string) string {
+					if strings.Contains(strings.ToLower(m), "sdl") {
+						return "$(shell sdl2-config --cflags)"
+					}
+					return m
+				})
+				changed = true
+			}
+			if strings.Contains(line, "-lSDL2") {
+				line = strings.ReplaceAll(line, "-lSDL2", "$(shell sdl2-config --libs)")
+				changed = true
+			}
+		}
+
 		_ = i
 		out = append(out, line)
 	}

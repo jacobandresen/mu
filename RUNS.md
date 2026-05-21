@@ -11,3 +11,5 @@ Timing in seconds per problem. **X** = failed. **?** = not run.
 | [2026-05-21](dojo/claude-gemma4-e2b-macos-m2-8gb-v0.5.0-2026-05-21/) (v0.5, gemma4:e2b, run 1) | 3/7 | 35 | X 424 | X 177 | X 78 | 16 | 23 | X 325 |
 | [2026-05-21-B](dojo/claude-gemma4-e2b-macos-m2-8gb-v0.5.0-2026-05-21-B/) (v0.5, gemma4:e2b, run 2, SDL2+csproj sensors) | 5/7 | 20 | X 223 | 49 | 21 | 14 | 17 | X 173 |
 | [2026-05-21-C](dojo/claude-gemma4-e2b-macos-m2-8gb-v0.5.0-2026-05-21-C/) (v0.5, gemma4:e2b, run 3, all sensors) | 4/7 | 16 | X 810 | X 59 | 19 | 14 | 16 | X 324 |
+| [2026-05-21-D](dojo/claude-gemma4-e2b-macos-m2-8gb-v0.5.0-2026-05-21-D/) (v0.5, gemma4:e2b, run 4, +SpaceIndent+SDLDestroy+CodeExtract) | 5/7 | 17 | X 242 | 42 | 18 | 13 | 16 | X 281 |
+| [2026-05-21-E](dojo/claude-gemma4-e2b-macos-m2-8gb-v0.5.0-2026-05-21-E/) (v0.5, gemma4:e2b, run 5, +OrphanFix+WriterRetry) | 4/7 | 16 | X 260 | X 60 | 18 | 13 | 16 | X 255 |

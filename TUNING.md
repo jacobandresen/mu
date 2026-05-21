@@ -206,17 +206,23 @@ gemma4:e2b is Google's Gemma 4 efficient 2B model at 7.2 GB. Tested on M2 8 GB w
 
 gemma4:e2b is dramatically faster per token than qwen3:8b at the same context:
 
-| Problem | gemma4:e2b run 1 | gemma4:e2b run 2 | qwen3:8b (v0.5, 2026-05-20) |
-|---------|-----------------|-----------------|------------------------------|
-| P1 helloworld | 35 s ✓ | 20 s ✓ | 60 s ✓ |
-| P2 sqlite | X 424 s | X 223 s | 323 s ✓ |
-| P3 sdl2 | X 177 s | 49 s ✓ | X 591 s |
-| P4 fibonacci | X 78 s | 21 s ✓ | 189 s ✓ |
-| P5 go/gin | 16 s ✓ | 14 s ✓ | X 401 s |
-| P6 rust | 23 s ✓ | 17 s ✓ | 135 s ✓ |
-| P7 flask | X 325 s | X 173 s | X 780 s |
+| Problem | gemma4:e2b run 1 | gemma4:e2b run 2 | gemma4:e2b run 3 | qwen3:8b (v0.5, 2026-05-20) |
+|---------|-----------------|-----------------|-----------------|------------------------------|
+| P1 helloworld | 35 s ✓ | 20 s ✓ | 16 s ✓ | 60 s ✓ |
+| P2 sqlite | X 424 s | X 223 s | X 810 s | 323 s ✓ |
+| P3 sdl2 | X 177 s | 49 s ✓ | X 59 s | X 591 s |
+| P4 fibonacci | X 78 s | 21 s ✓ | 19 s ✓ | 189 s ✓ |
+| P5 go/gin | 16 s ✓ | 14 s ✓ | 14 s ✓ | X 401 s |
+| P6 rust | 23 s ✓ | 17 s ✓ | 16 s ✓ | 135 s ✓ |
+| P7 flask | X 325 s | X 173 s | X 324 s | X 780 s |
 
-Run 1: **3/7**, Run 2: **5/7** (P3 SDL2 + P4 Fibonacci fixed by new sensors).
+Run 1: **3/7**, Run 2: **5/7** (P3 SDL2 + P4 Fibonacci fixed by new sensors), Run 3: **4/7** (regression: P3 new SDL3 API bug).
+
+**Run 3 regression (P3):** Model wrote `SDL_DestroySurface` (SDL3 API) instead of `SDL_FreeSurface` (SDL2). A new sensor variant appeared in the model's output. Fix: `FixSDLDestroySurface` sensor added.
+
+**Run 3 P7 failure:** Makefile had space-indented recipe lines; `FixNoTargets` was a no-op because a target line existed, and space-indented lines caused `missing separator`. Fix: `FixMakefileSpaceIndent` sensor added (runs first in chain).
+
+**Run 3 P2 failure:** Model wrote ~1200 tokens of prose for `test_todo.py` without calling Write, then 3 server drops consumed 800 s of budget. Fix: code-block extraction in `session.go` — when model generates prose with a fenced code block instead of calling Write, extract and write the file directly.
 
 Write phase typically completes in 3–60 s per file. Simple files (go.mod, Cargo.toml) resolve in 2–6 s.
 
@@ -240,6 +246,10 @@ It consistently fails to call tools in the **repair phase**:
 | SQLite init only in `__main__` | 1/7 per run | `FixSQLiteInitDb` sensor |
 | Makefile defines SDL_CFLAGS but doesn't use it | 1/7 per run | `FixMakefileSDL2` sensor |
 | Makefile missing pip install before pytest | 1/7 per run | `FixMakefilePipInstall` sensor |
+| Makefile recipe uses spaces instead of tabs | 1/7 per run | `FixMakefileSpaceIndent` sensor |
+| Makefile orphan commands outside any target | 1/7 per run | `FixOrphanTopLevelCommands` sensor |
+| SDL3 API (SDL_DestroySurface) in SDL2 code | 1/7 per run | `FixSDLDestroySurface` sensor |
+| Code written as prose (no Write tool call) | 1/7 per run | Code-block extraction in session.Run |
 | Near-empty file (stub < 100 bytes) | ~1–2/7 per run | Existing near-empty retry |
 
 ### Memory (gemma4:e2b at 7.2 GB on M2 8 GB)

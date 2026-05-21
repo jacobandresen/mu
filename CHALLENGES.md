@@ -1,7 +1,7 @@
-# Top 10 Agent Challenges
+# Top 14 Agent Challenges
 
 Observed across dojo sessions (qwen3:8b, qwen3:4b, gemma4:e2b) on macOS M2 8 GB.
-Updated: 2026-05-21, session claude-gemma4-e2b-v0.5.0.
+Updated: 2026-05-21, run 4 (gemma4:e2b, FixMakefileSpaceIndent + FixSDLDestroySurface + code-block extraction).
 
 ---
 
@@ -130,7 +130,10 @@ of context or generates an end-of-sequence token instead of a tool call. Distinc
 
 **Impact:** Extra retry cycle needed; if retries also fail, task is abandoned.
 
-**Status:** Open. The near-empty retry (issue #6) helps recover some cases.
+**Fix landed (2026-05-21, run 4):** Code-block extraction in `session.go`. When the model
+returns prose with no tool calls in writer mode and the target file doesn't exist, the agent
+now extracts the first fenced code block matching the file's extension and writes it directly.
+This recovers the content the model wrote as prose without an extra LLM round-trip.
 
 ---
 
@@ -149,7 +152,63 @@ names the import in the test `from todo_manager import ...`. No module named `to
 
 ---
 
-## 11. SDL2 include path: SDL.h vs SDL2/SDL.h direction varies by OS
+## 11. Model uses SDL3 API (SDL_DestroySurface) in SDL2 code
+
+**Symptom:** `error: call to undeclared function 'SDL_DestroySurface'` at compile time.
+
+**Why it happens:** gemma4:e2b was trained on mixed SDL2 and SDL3 code. `SDL_DestroySurface` is
+the SDL3 API; SDL2 uses `SDL_FreeSurface`. The model produces SDL3-style surface cleanup code
+even when the goal and Makefile explicitly reference SDL2.
+
+**Impact:** P3 (SDL2) regressed from ✓ (run 2) to ✗ (run 3) when this new API variant appeared.
+
+**Fix landed:** `FixSDLDestroySurface` sensor replaces `SDL_DestroySurface(` with `SDL_FreeSurface(`.
+
+---
+
+## 12. Makefile recipe uses spaces instead of tabs
+
+**Symptom:** `Makefile:N: *** missing separator. Stop.`
+
+**Why it happens:** The model writes recipe lines indented with spaces (e.g. 4 spaces) instead of
+a tab character. This happens even when there IS a target line — so `FixNoTargets` (which handles
+the "no targets at all" case) doesn't fire.
+
+**Impact:** P7 (Flask) Makefile was syntactically invalid despite having a correct target structure.
+
+**Fix landed:** `FixMakefileSpaceIndent` sensor detects space-indented recipe lines within target
+blocks and converts them to tab indentation. Runs first in the sensor chain before `FixNoTargets`.
+
+---
+
+## 14. Makefile has orphan commands before the first target
+
+**Symptom:** `Makefile:N: *** missing separator. Stop.` even after `FixMakefileSpaceIndent`.
+
+**Why it happens:** The model declares `.PHONY: all test clean` and individual targets (`test:`,
+`clean:`) but writes the `all:` target's recipe as bare commands at the top level, BEFORE any
+target definition. For example:
+```
+.PHONY: all test clean
+
+pip install -r requirements.txt    ← orphan (no target, no tab)
+pytest test_todo.py               ← orphan (no target, no tab)
+
+test:
+    pytest test_todo.py
+```
+
+`make` sees `pip install -r requirements.txt` as a directive, not a recipe, and fails.
+`FixNoTargets` doesn't fire (file has targets). `FixMakefileSpaceIndent` doesn't fire (no spaces, no indentation at all).
+
+**Impact:** P7 Makefile broken on Run 4 with this exact pattern.
+
+**Fix landed:** `FixOrphanTopLevelCommands` collects bare command lines outside any target block
+and wraps them in a new `all:` target. Wired after `FixMakefileSpaceIndent`, before `FixNoTargets`.
+
+---
+
+## 13. SDL2 include path: SDL.h vs SDL2/SDL.h direction varies by OS
 
 **Symptom:** `fatal error: 'SDL2/SDL.h' file not found` on macOS or `'SDL.h' file not found` on Linux.
 

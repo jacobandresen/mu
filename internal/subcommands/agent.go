@@ -880,6 +880,7 @@ func runWriterWithSession(cfg *agentConfig, targetFile, prompt, autonomousSystem
 	systemPrompt := autonomousSystem + "\n\n" + writeRules
 
 	sess := agent.NewSession(systemPrompt)
+	sess.Tools = agent.WriterToolDefs // Write + Edit only — prevent Bash/Read detours
 	timeout := time.Duration(cfg.WriterTimeout) * time.Second
 	ok, err := sess.Run(cfg.AgentModel, prompt, cfg.WriterThinking, "Writing", 15, targetFile, timeout)
 	if err != nil {

@@ -77,10 +77,19 @@ var ToolDefs = []ollama.ToolDef{
 // prevents the model from re-running test/lint commands instead of just fixing the file.
 var RepairToolDefs []ollama.ToolDef
 
+// WriterToolDefs is Write + Edit only — no Bash, no Read.
+// Writer sessions are given a single task: write one file. They receive all reference
+// context in the prompt, so Read is unnecessary. Excluding Bash prevents the model
+// from running shell commands (e.g., cat, ls) instead of directly calling Write.
+var WriterToolDefs []ollama.ToolDef
+
 func init() {
 	for _, t := range ToolDefs {
 		if t.Function.Name != "Bash" {
 			RepairToolDefs = append(RepairToolDefs, t)
+		}
+		if t.Function.Name == "Write" || t.Function.Name == "Edit" {
+			WriterToolDefs = append(WriterToolDefs, t)
 		}
 	}
 }

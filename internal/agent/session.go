@@ -90,10 +90,20 @@ func (s *Session) Run(model, userPrompt, thinking, label string, maxTurns int, w
 		}
 
 		for _, tc := range msg.ToolCalls {
-			if tc.Function.Name == "Write" || tc.Function.Name == "Edit" {
+			switch tc.Function.Name {
+			case "Write", "Edit":
 				if path, ok := tc.Function.Arguments["path"].(string); ok {
 					fmt.Printf("==> [mu-agent] tool: %s(%q)\n", tc.Function.Name, path)
 				}
+			case "Bash":
+				if cmd, ok := tc.Function.Arguments["command"].(string); ok {
+					if len(cmd) > 80 {
+						cmd = cmd[:77] + "..."
+					}
+					fmt.Printf("==> [mu-agent] tool: Bash(%q)\n", cmd)
+				}
+			default:
+				fmt.Printf("==> [mu-agent] tool: %s\n", tc.Function.Name)
 			}
 			result := DispatchTool(tc.Function.Name, tc.Function.Arguments)
 			msgs = append(msgs, ollama.Message{Role: "tool", Content: result})
