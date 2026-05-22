@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -323,64 +322,6 @@ func HasPendingBuildFile(p *Plan) bool {
 	return false
 }
 
-// FixDotnetTestCommand rewrites the test command when dotnet is used without a .csproj
-// in the file list. When the test command is "dotnet test" or bare "dotnet run" but no
-// test project is listed, rewrites to "dotnet run --project <first-csproj>".
-func FixDotnetTestCommand(planPath string, p *Plan) (bool, error) {
-	cmd := strings.TrimSpace(p.TestCommand)
-	isDotnetTest := cmd == "dotnet test" || strings.HasPrefix(cmd, "dotnet test ")
-	isDotnetRun := cmd == "dotnet run" || strings.HasPrefix(cmd, "dotnet run ")
-	if !isDotnetTest && !isDotnetRun {
-		return false, nil
-	}
-
-	// Find the first .csproj in the file list
-	var csproj string
-	for _, t := range p.Tasks {
-		if strings.HasSuffix(t.FilePath, ".csproj") {
-			csproj = t.FilePath
-			break
-		}
-	}
-	if csproj == "" {
-		return false, nil
-	}
-
-	// If test command already points to this csproj, nothing to do
-	if strings.Contains(cmd, csproj) {
-		return false, nil
-	}
-
-	// Rewrite bare "dotnet test" → "dotnet run --project <csproj>" for simple programs
-	// (when no separate test .csproj exists, just run the program as the test)
-	var newCmd string
-	testCsproj := ""
-	for _, t := range p.Tasks {
-		if strings.HasSuffix(t.FilePath, ".csproj") && t.FilePath != csproj {
-			testCsproj = t.FilePath
-			break
-		}
-	}
-	if testCsproj != "" {
-		// Two csproj files: src + tests — use the test one
-		newCmd = "dotnet test " + testCsproj
-	} else {
-		// Single csproj: run the program
-		newCmd = "dotnet run --project " + csproj
-	}
-
-	data, err := os.ReadFile(planPath)
-	if err != nil {
-		return false, err
-	}
-	content := string(data)
-	updated := strings.ReplaceAll(content, "\n"+cmd+"\n", "\n"+newCmd+"\n")
-	if updated == content {
-		return false, nil
-	}
-	return true, os.WriteFile(planPath, []byte(updated), 0644)
-}
-
 // NormalizeEmbeddedFiles extracts file content from plan sections like
 // "## Makefile\n```makefile\n...\n```" that the model writes instead of
 // listing them under ## Files. It writes the file to disk, adds it to the
@@ -471,57 +412,6 @@ func NormalizeEmbeddedFiles(planPath string) ([]string, error) {
 	return names, os.WriteFile(planPath, []byte(planText), 0644)
 }
 
-// FixGraphicalTestCommand replaces test commands that run graphical binaries
-// (matching the libRE patterns for SDL2, OpenGL, ncurses etc.) with a
-// compile-only equivalent. Returns true if a replacement was made.
-func FixGraphicalTestCommand(planPath string, goalIsGraphical bool) (bool, error) {
-	if !goalIsGraphical {
-		return false, nil
-	}
-	data, err := os.ReadFile(planPath)
-	if err != nil {
-		return false, err
-	}
-	lines := strings.Split(string(data), "\n")
-	inTestCmd := false
-	changed := false
-	for i, line := range lines {
-		if regexp.MustCompile(`^##\s+Test Command\s*$`).MatchString(line) {
-			inTestCmd = true
-			continue
-		}
-		if inTestCmd && strings.HasPrefix(line, "## ") {
-			break
-		}
-		if inTestCmd {
-			trimmed := strings.TrimSpace(line)
-			if trimmed == "" {
-				continue
-			}
-			// If the test command runs the binary (./binary or just binary), replace with make-only
-			if isRunCommand(trimmed) {
-				lines[i] = "make"
-				changed = true
-			}
-			inTestCmd = false
-		}
-	}
-	if !changed {
-		return false, nil
-	}
-	return true, os.WriteFile(planPath, []byte(strings.Join(lines, "\n")), 0644)
-}
-
-func isRunCommand(cmd string) bool {
-	// matches: make test, make run, ./foo, ./foo args, make && ./foo
-	runRE := regexp.MustCompile(`(^|\|\||&&)\s*(\./[^\s]+|make\s+(test|run|exec))`)
-	if runRE.MatchString(cmd) {
-		return true
-	}
-	// pure "make" alone is fine (compile only)
-	return false
-}
-
 // NormalizeTestCommand applies portable fixups to the test command:
 //   - Replaces bare "python " with "python3 " so the command works in non-login
 //     bash subprocesses where the "python" alias is not available.
@@ -539,137 +429,6 @@ func NormalizeTestCommand(planPath string) (bool, error) {
 	updated = strings.ReplaceAll(updated, "&& python ", "&& python3 ")
 	updated = strings.ReplaceAll(updated, "| python ", "| python3 ")
 
-	if updated == content {
-		return false, nil
-	}
-	return true, os.WriteFile(planPath, []byte(updated), 0644)
-}
-
-// FixPythonMakefileTest rewrites pytest invocations in a Makefile to prepend
-// PYTHONPATH=. so tests can import modules from the project root.
-// Models frequently emit bare "pytest" which fails with ModuleNotFoundError when
-// the test file does "import app" and pytest doesn't add cwd to sys.path.
-func FixPythonMakefileTest(makefilePath string) (bool, error) {
-	data, err := os.ReadFile(makefilePath)
-	if err != nil {
-		return false, err
-	}
-	content := string(data)
-	// Only act on Makefiles that call pytest without PYTHONPATH already set
-	if !strings.Contains(content, "pytest") {
-		return false, nil
-	}
-	if strings.Contains(content, "PYTHONPATH") {
-		return false, nil
-	}
-	// Replace tab-indented "pytest" and "python -m pytest" recipe lines
-	lines := strings.Split(content, "\n")
-	changed := false
-	for i, line := range lines {
-		if len(line) == 0 || line[0] != '\t' {
-			continue
-		}
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "pytest" || strings.HasPrefix(trimmed, "pytest ") {
-			lines[i] = "\tPYTHONPATH=. " + trimmed
-			changed = true
-		} else if trimmed == "python3 -m pytest" || strings.HasPrefix(trimmed, "python3 -m pytest ") {
-			lines[i] = "\tPYTHONPATH=. " + trimmed
-			changed = true
-		} else if trimmed == "python -m pytest" || strings.HasPrefix(trimmed, "python -m pytest ") {
-			lines[i] = "\tPYTHONPATH=. " + trimmed
-			changed = true
-		}
-	}
-	if !changed {
-		return false, nil
-	}
-	return true, os.WriteFile(makefilePath, []byte(strings.Join(lines, "\n")), 0644)
-}
-
-// FixPytestPath checks pytest recipe lines for explicit file paths that don't exist and
-// replaces them with plain "PYTHONPATH=. pytest" (discovery mode). Models frequently
-// reference invented paths like "tests/test_app.py" that don't match the actual file names.
-func FixPytestPath(makefilePath string) (bool, error) {
-	data, err := os.ReadFile(makefilePath)
-	if err != nil {
-		return false, err
-	}
-	dir := filepath.Dir(makefilePath)
-	pytestArgRE := regexp.MustCompile(`^((?:PYTHONPATH=\.\s+)?)(python3?\s+-m\s+)?pytest\s+(\S.+)$`)
-	lines := strings.Split(string(data), "\n")
-	changed := false
-	for i, line := range lines {
-		if len(line) == 0 || line[0] != '\t' {
-			continue
-		}
-		trimmed := strings.TrimSpace(line)
-		m := pytestArgRE.FindStringSubmatch(trimmed)
-		if m == nil {
-			continue
-		}
-		arg := strings.Fields(m[3])[0] // first word after "pytest" — the path/flag
-		if strings.HasPrefix(arg, "-") {
-			continue // flag, not a path
-		}
-		if _, err := os.Stat(filepath.Join(dir, arg)); err == nil {
-			continue // path exists, fine
-		}
-		lines[i] = "\tPYTHONPATH=. pytest"
-		changed = true
-	}
-	if !changed {
-		return false, nil
-	}
-	return true, os.WriteFile(makefilePath, []byte(strings.Join(lines, "\n")), 0644)
-}
-
-// FixNoMakefileTestCommand rewrites "make" test commands when no Makefile is listed
-// in the plan's file tasks. Derives an inline compile+run command from the first
-// source file's extension so trivial programs don't stall on a missing Makefile.
-// makeWithoutMakefileRE matches "make" or "make && ./binary" test commands that rely
-// on a Makefile that isn't in the plan's file list.
-var makeWithoutMakefileRE = regexp.MustCompile(`^make(\s*&&.*)?$`)
-
-func FixNoMakefileTestCommand(planPath string, p *Plan) (bool, error) {
-	if !makeWithoutMakefileRE.MatchString(strings.TrimSpace(p.TestCommand)) {
-		return false, nil
-	}
-	for _, t := range p.Tasks {
-		if IsBuildFile(t.FilePath) {
-			return false, nil
-		}
-	}
-	if len(p.Tasks) == 0 {
-		return false, nil
-	}
-	src := p.Tasks[0].FilePath
-	ext := extOf(baseOf(src))
-	stem := stemOf(baseOf(src))
-
-	var newCmd string
-	switch ext {
-	case "c":
-		newCmd = "gcc " + src + " -o " + stem + " && ./" + stem
-	case "cpp", "cc", "cxx":
-		newCmd = "g++ " + src + " -o " + stem + " && ./" + stem
-	case "py":
-		newCmd = "python3 " + src
-	case "go":
-		newCmd = "go run " + src
-	case "rs":
-		newCmd = "rustc " + src + " -o " + stem + " && ./" + stem
-	default:
-		return false, nil
-	}
-
-	data, err := os.ReadFile(planPath)
-	if err != nil {
-		return false, err
-	}
-	// Replace the test command line — it appears as a bare "make" line in the section
-	content := string(data)
-	updated := strings.ReplaceAll(content, "\nmake\n", "\n"+newCmd+"\n")
 	if updated == content {
 		return false, nil
 	}

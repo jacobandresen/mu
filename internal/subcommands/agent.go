@@ -173,12 +173,6 @@ func runAgent(cfg agentConfig) error {
 		_ = err
 	}
 
-	// Fix test commands that would try to run graphical/interactive binaries
-	goalIsGraphical := graphicalRE.MatchString(cfg.Goal)
-	if fixed, _ := plan.FixGraphicalTestCommand("PLAN.md", goalIsGraphical); fixed {
-		agentLog("Rewrote graphical test command to compile-only.")
-	}
-
 	// Normalize test command portability (python → python3, etc.)
 	if fixed, _ := plan.NormalizeTestCommand("PLAN.md"); fixed {
 		agentLog("Normalized test command for portability.")
@@ -190,27 +184,6 @@ func runAgent(cfg agentConfig) error {
 		return fmt.Errorf("parse PLAN.md: %w", err)
 	}
 	currentPlan = p
-
-	// Fix "make" test command when no Makefile is in the task list (trivial programs)
-	if fixed, _ := plan.FixNoMakefileTestCommand("PLAN.md", p); fixed {
-		agentLog("Rewrote trivial test command: no Makefile in plan, using inline compile.")
-		p, _ = plan.Parse("PLAN.md")
-		currentPlan = p
-	}
-
-	// Fix dotnet test/run command when no matching .csproj is referenced
-	if fixed, _ := plan.FixDotnetTestCommand("PLAN.md", p); fixed {
-		agentLog("Rewrote dotnet test command to reference .csproj from file list.")
-		p, _ = plan.Parse("PLAN.md")
-		currentPlan = p
-	}
-
-	// Inject Cargo.toml when plan uses cargo but forgot to list it
-	if fixed := sensors.FixMissingCargoToml("PLAN.md", p); fixed {
-		agentLog("Injected Cargo.toml into plan (test command uses cargo but Cargo.toml was missing).")
-		p, _ = plan.Parse("PLAN.md")
-		currentPlan = p
-	}
 
 	// Simplify "show that X works" plans that incorrectly use pytest
 	if fixed := fixDemonstrationScript("PLAN.md", p, cfg.Goal); fixed {
@@ -345,70 +318,14 @@ func runAgent(cfg agentConfig) error {
 			}
 		}
 
-		// Post-write: fix Go source files with literal \n (backslash-n, not actual newlines)
-		// that the model emits as pseudo-whitespace inside struct/map literals.
-		if strings.HasSuffix(task.FilePath, ".go") {
-			if fixedNL, _ := sensors.FixGoLiteralNewlines(task.FilePath); fixedNL {
-				agentLog("Fixed literal \\n escape sequences in %s (replaced with real newlines).", task.FilePath)
-			}
-		}
-
-		// Post-write: fix Python SQLite bugs and Flask-SQLAlchemy setup issues.
+		// Post-write: correct test-file imports that reference a module name not on disk.
 		if strings.HasSuffix(task.FilePath, ".py") {
-			if fixedCur, _ := sensors.FixSQLiteBareListCursor(task.FilePath); fixedCur {
-				agentLog("Fixed SQLite list bug in %s: replaced bare conn.cursor() with conn.execute(query).", task.FilePath)
-			}
-			if fixedDB, _ := sensors.FixFlaskDbCreate(task.FilePath); fixedDB {
-				agentLog("Fixed Flask app: moved db.create_all() to module scope for testability.")
-			}
-			if fixedInit, _ := sensors.FixSQLiteInitDb(task.FilePath); fixedInit {
-				agentLog("Fixed SQLite module %s: added module-level init call so tests don't get 'no such table'.", task.FilePath)
-			}
 			if fixedImp, _ := sensors.FixTestImportModule(task.FilePath); fixedImp {
 				agentLog("Fixed %s: corrected import module name to match actual .py file on disk.", task.FilePath)
 			}
 		}
 
-		// Post-write: fix go.mod with invalid top-level directives or bad versions
-		if strings.EqualFold(filepath.Base(task.FilePath), "go.mod") {
-			if fixedMod, _ := sensors.FixGoMod(task.FilePath); fixedMod {
-				agentLog("Fixed go.mod: moved bare pkg directives into require block.")
-			}
-			if fixedVer, _ := sensors.FixGoModVersions(task.FilePath); fixedVer {
-				agentLog("Fixed go.mod: replaced hallucinated version(s) with known-stable pins.")
-			}
-		}
-
-		// Post-write: fix SDL2 include path (model writes SDL2/SDL.h; macOS homebrew needs SDL.h)
-		if goalIsGraphical && sensors.IsSDLSource(task.FilePath) {
-			if fixedSDL, _ := sensors.FixSDLInclude(task.FilePath); fixedSDL {
-				agentLog("Fixed SDL2 include path in %s.", task.FilePath)
-			}
-			if fixedSDL, _ := sensors.FixSDLMissingInclude(task.FilePath); fixedSDL {
-				agentLog("Added missing SDL2 include to %s.", task.FilePath)
-			}
-			if fixedSDL, _ := sensors.FixSDLDestroySurface(task.FilePath); fixedSDL {
-				agentLog("Fixed SDL2 API in %s: SDL_DestroySurface → SDL_FreeSurface.", task.FilePath)
-			}
-		}
-
-		// Post-write: fix .csproj TargetFramework, OutputType, and strip duplicate Compile items
-		if strings.HasSuffix(task.FilePath, ".csproj") {
-			if fixedMD, _ := sensors.FixCsprojMarkdownCorruption(task.FilePath); fixedMD {
-				agentLog("Fixed %s: replaced markdown-corrupted XML with clean SDK template.", task.FilePath)
-			}
-			if fixedFw, _ := sensors.FixCsprojTargetFramework(task.FilePath); fixedFw {
-				agentLog("Fixed TargetFramework in %s to match installed dotnet.", task.FilePath)
-			}
-			if fixedOT, _ := sensors.FixCsprojOutputType(task.FilePath); fixedOT {
-				agentLog("Fixed OutputType in %s to Exe (was missing).", task.FilePath)
-			}
-			if fixedCI, _ := sensors.FixCsprojCompileItems(task.FilePath); fixedCI {
-				agentLog("Removed explicit <Compile Include> items from %s (SDK auto-includes .cs files).", task.FilePath)
-			}
-		}
-
-		// Post-write: fix Makefile issues
+		// Post-write: repair general Makefile syntax errors (tabs, targets, recipes).
 		if plan.IsBuildFile(task.FilePath) && strings.EqualFold(filepath.Base(task.FilePath), "makefile") {
 			if fixedSpace, _ := sensors.FixMakefileSpaceIndent(task.FilePath); fixedSpace {
 				agentLog("Fixed Makefile: converted space-indented recipes to tab-indented.")
@@ -425,28 +342,6 @@ func runAgent(cfg agentConfig) error {
 			if fixedDup, _ := sensors.FixDuplicateVar(task.FilePath); fixedDup {
 				agentLog("Fixed Makefile: removed duplicate variable assignments (kept first definition).")
 			}
-			if fixedSDL, _ := sensors.FixMakefileSDL2(task.FilePath); fixedSDL {
-				agentLog("Fixed Makefile: wired SDL2 cflags/libs from sdl2-config into CFLAGS/LDFLAGS.")
-			}
-			if fixedPip, _ := sensors.FixMakefilePipInstall(task.FilePath, pipPackagesFromGoal(cfg.Goal)); fixedPip {
-				agentLog("Fixed Makefile: added pip install step before pytest.")
-			}
-			if fixedGo, _ := sensors.FixGoMakefile(task.FilePath); fixedGo {
-				agentLog("Fixed Go Makefile: added go mod init + go get before go build.")
-			}
-			if fixedPy, _ := plan.FixPythonMakefileTest(task.FilePath); fixedPy {
-				agentLog("Fixed Python Makefile: added PYTHONPATH=. before pytest.")
-			}
-			if fixedPath, _ := plan.FixPytestPath(task.FilePath); fixedPath {
-				agentLog("Fixed Python Makefile: replaced non-existent pytest path with discovery.")
-			}
-		}
-
-		// Post-write: fix Cargo.toml with orphan [lib] section pointing to non-existent file
-		if strings.EqualFold(filepath.Base(task.FilePath), "cargo.toml") {
-			if fixedLib, _ := sensors.FixCargoTomlOrphanLib(task.FilePath); fixedLib {
-				agentLog("Fixed Cargo.toml: removed [lib] section referencing non-existent file.")
-			}
 		}
 
 		// Lint gate: run linter immediately after each source file is written
@@ -461,9 +356,7 @@ func runAgent(cfg agentConfig) error {
 					agentLog("Lint failed for %s — invoking repair.", task.FilePath)
 					lintHead := headFile(lintLog, 60)
 					deterministicFixed := (sensors.FixMultilineSingleQuote(task.FilePath, lintHead) ||
-						sensors.FixMissingCloseParen(task.FilePath, lintHead) ||
-						sensors.FixCargoTomlOrphanLibOnRust(task.FilePath, lintHead) ||
-						sensors.FixRustPrintlnFormat(task.FilePath, lintHead)) &&
+						sensors.FixMissingCloseParen(task.FilePath, lintHead)) &&
 						runLint(lintCmd, lintLog)
 					if deterministicFixed {
 						agentLog("Lint auto-fixed (deterministic): %s", task.FilePath)
@@ -537,9 +430,6 @@ func runAgent(cfg agentConfig) error {
 
 var libRE = regexp.MustCompile(`(?i)SDL2|OpenGL|ncurses|dotnet|C#|csharp|tensorflow|pytorch|django|flask|opencv|wxwidgets|express|gin|cargo`)
 var hardLibRE = regexp.MustCompile(`(?i)pytest|jest|xunit|nunit|rspec|cargo\s+test`)
-
-// graphicalRE matches goals that produce windowed/graphical programs that cannot be run headlessly
-var graphicalRE = regexp.MustCompile(`(?i)SDL2|OpenGL|ncurses|wxwidgets`)
 
 func detectComplexity(cfg *agentConfig) {
 	words := len(strings.Fields(cfg.Goal))
@@ -969,12 +859,9 @@ func finalTestGate(cfg *agentConfig, p *plan.Plan, autonomousSystem string) erro
 
 	maxRetries := 2
 	for attempt := 0; attempt <= maxRetries; attempt++ {
-		// Re-apply deterministic sensor fixes before each test run — the repair model
-		// can revert them (e.g. removes SDL include, reverts .csproj TargetFramework,
-		// restores wrong pytest path).
-		reapplyCsprojFix(p)
-		reapplySDLFix(p, cfg.Goal)
-		reapplyMakefileFix(p, cfg.Goal)
+		// Re-apply general Makefile-syntax fixes before each test run — the repair model
+		// can revert them (e.g. removes tab indentation, drops the all: target).
+		reapplyMakefileFix(p)
 
 		testLog := filepath.Join(logDir, "tests-final.log")
 		if runTests(testCmd, testLog) {
@@ -996,55 +883,10 @@ func finalTestGate(cfg *agentConfig, p *plan.Plan, autonomousSystem string) erro
 	return nil
 }
 
-// reapplyCsprojFix re-runs fixCsprojTargetFramework on every .csproj listed in the plan.
-// The repair model sometimes rewrites .csproj files and reverts the TargetFramework to an
-// older version; calling this after each repair restores the correct value.
-func reapplyCsprojFix(p *plan.Plan) {
-	if p == nil {
-		return
-	}
-	for _, task := range p.Tasks {
-		if strings.HasSuffix(task.FilePath, ".csproj") {
-			if _, err := os.Stat(task.FilePath); err == nil {
-				if fixed, _ := sensors.FixCsprojMarkdownCorruption(task.FilePath); fixed {
-					agentLog("Re-applied markdown-corruption fix to %s after repair.", task.FilePath)
-				}
-				if fixed, _ := sensors.FixCsprojTargetFramework(task.FilePath); fixed {
-					agentLog("Re-applied TargetFramework fix to %s after repair.", task.FilePath)
-				}
-				if fixed, _ := sensors.FixCsprojOutputType(task.FilePath); fixed {
-					agentLog("Re-applied OutputType fix to %s after repair.", task.FilePath)
-				}
-			}
-		}
-	}
-}
-
-// reapplySDLFix re-runs SDL include sensors on every C/C++ source file in the plan.
-// The repair model sometimes rewrites source files and drops the SDL include header.
-func reapplySDLFix(p *plan.Plan, goal string) {
-	if p == nil || !graphicalRE.MatchString(goal) {
-		return
-	}
-	for _, task := range p.Tasks {
-		if _, err := os.Stat(task.FilePath); err != nil {
-			continue
-		}
-		if sensors.IsSDLSource(task.FilePath) {
-			if fixed, _ := sensors.FixSDLInclude(task.FilePath); fixed {
-				agentLog("Re-applied SDL include fix to %s after repair.", task.FilePath)
-			}
-			if fixed, _ := sensors.FixSDLMissingInclude(task.FilePath); fixed {
-				agentLog("Re-applied SDL missing include fix to %s after repair.", task.FilePath)
-			}
-		}
-	}
-}
-
-// reapplyMakefileFix re-runs all write-phase Makefile sensors on every Makefile in the
+// reapplyMakefileFix re-runs the general Makefile-syntax sensors on every Makefile in the
 // plan. The repair model frequently reverts structural fixes (e.g. removes tab indentation,
-// drops SDL2 sdl2-config wiring, re-introduces bare shell commands with no target).
-func reapplyMakefileFix(p *plan.Plan, goal string) {
+// re-introduces bare shell commands with no target).
+func reapplyMakefileFix(p *plan.Plan) {
 	if p == nil {
 		return
 	}
@@ -1069,21 +911,6 @@ func reapplyMakefileFix(p *plan.Plan, goal string) {
 		}
 		if fixed, _ := sensors.FixDuplicateVar(task.FilePath); fixed {
 			agentLog("Re-applied duplicate-var fix to %s after repair.", task.FilePath)
-		}
-		if fixed, _ := sensors.FixMakefileSDL2(task.FilePath); fixed {
-			agentLog("Re-applied SDL2 fix to %s after repair.", task.FilePath)
-		}
-		if fixed, _ := sensors.FixMakefilePipInstall(task.FilePath, pipPackagesFromGoal(goal)); fixed {
-			agentLog("Re-applied pip-install fix to %s after repair.", task.FilePath)
-		}
-		if fixed, _ := sensors.FixGoMakefile(task.FilePath); fixed {
-			agentLog("Re-applied Go Makefile fix to %s after repair.", task.FilePath)
-		}
-		if fixed, _ := plan.FixPythonMakefileTest(task.FilePath); fixed {
-			agentLog("Re-applied Python Makefile test fix to %s after repair.", task.FilePath)
-		}
-		if fixed, _ := plan.FixPytestPath(task.FilePath); fixed {
-			agentLog("Re-applied pytest path fix to %s after repair.", task.FilePath)
 		}
 	}
 }
@@ -1404,29 +1231,4 @@ func fixDemonstrationScript(planFile string, p *plan.Plan, goal string) bool {
 		out = append(out, line)
 	}
 	return os.WriteFile(planFile, []byte(strings.Join(out, "\n")), 0644) == nil
-}
-
-// pipPackagesFromGoal extracts known pip package names mentioned in the goal string.
-// Used to tell FixMakefilePipInstall what to install when there's no requirements.txt.
-func pipPackagesFromGoal(goal string) []string {
-	known := []string{"flask", "django", "fastapi", "sqlalchemy", "requests",
-		"pytest", "httpx", "uvicorn", "aiohttp", "bottle"}
-	goal = strings.ToLower(goal)
-	var found []string
-	for _, pkg := range known {
-		if strings.Contains(goal, pkg) {
-			found = append(found, pkg)
-		}
-	}
-	// Always include pytest
-	hasPytest := false
-	for _, p := range found {
-		if p == "pytest" {
-			hasPytest = true
-		}
-	}
-	if !hasPytest {
-		found = append(found, "pytest")
-	}
-	return found
 }
