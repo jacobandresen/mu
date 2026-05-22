@@ -713,19 +713,7 @@ func runPlanningPhase(cfg *agentConfig) error {
 
 func runPlanner(cfg *agentConfig) {
 	projectDir, _ := os.Getwd()
-	facts := extractGoalFacts(cfg.Goal)
 
-	// Fast path: generate the plan entirely in Go for known languages.
-	// Eliminates one LLM call and removes the risk of empty/malformed responses.
-	if content := generatePlan(facts, cfg.Goal); content != "" {
-		agentLog("Planner: generated from template (no LLM)")
-		if err := os.WriteFile("PLAN.md", []byte(content), 0644); err != nil {
-			agentLog("Planner: could not write PLAN.md: %v", err)
-		}
-		return
-	}
-
-	// Slow path: LLM call for unknown languages.
 	t0 := time.Now()
 	system := buildPlannerSystem(projectDir)
 	if core := skills.LoadAll([]string{"task-planner"}); core != "" {
@@ -825,7 +813,7 @@ GOAL: %s`, projectDir, cfg.Goal)
 	}
 
 	systemPrompt := buildPlannerSystem(projectDir)
-	if skillContent := skills.LoadAll(plannerSkills(cfg.Goal)); skillContent != "" {
+	if skillContent := skills.LoadAll([]string{"task-planner"}); skillContent != "" {
 		systemPrompt += "\n\n" + skillContent
 	}
 
@@ -1200,192 +1188,6 @@ func checkBuildFilePaths(buildFile string, p *plan.Plan) {
 			agentLog("WARNING: %s references '%s' but PLAN.md lists '%s' — path mismatch.", buildFile, base, t.FilePath)
 		}
 	}
-}
-
-// Package-level regexps for language detection. Word-bounded to prevent
-// false positives on common substrings (gin/begin, rust/trust, pip/pipeline).
-var (
-	reLangRust   = regexp.MustCompile(`(?i)\brust\b|\bcargo\b`)
-	reLangPython = regexp.MustCompile(`(?i)\bpython\b|\bflask\b|\bpytest\b|\bpip\b`)
-	// Go/Gin: \bGo\b is case-sensitive to avoid matching "let's go", "go through", etc.
-	// gin and golang use word boundaries which are safe (no false positives).
-	reLangGo = regexp.MustCompile(`\bGo\b|(?i:\bgin\b|\bgolang\b)`)
-	// C/C++: case-sensitive \bC\b. C# must be detected before this check.
-	reLangC      = regexp.MustCompile(`\bC\b|\bC\+\+`)
-	reLangCTools = regexp.MustCompile(`(?i)\bsdl2?\b|\bclang\b|\bgcc\b`)
-
-	reHasTests = regexp.MustCompile(`(?i)\btest(s|ing)?\b|\bpytest\b|\bjest\b|\bxunit\b|\bnunit\b|\bspec\b`)
-)
-
-// detectLanguage returns a language tag ("python", "go", "csharp", "rust", "c")
-// from the goal string, or "" if no language is detected.
-func detectLanguage(goal string) string {
-	low := strings.ToLower(goal)
-	// Check C# first — it also contains "c" which would trigger the C check below.
-	if strings.Contains(low, "c#") || strings.Contains(low, "dotnet") || strings.Contains(low, "csharp") {
-		return "csharp"
-	}
-	if reLangRust.MatchString(goal) {
-		return "rust"
-	}
-	if reLangPython.MatchString(goal) {
-		return "python"
-	}
-	if reLangGo.MatchString(goal) {
-		return "go"
-	}
-	if reLangC.MatchString(goal) || reLangCTools.MatchString(goal) {
-		return "c"
-	}
-	return ""
-}
-
-// plannerSkills returns the ordered list of skill names to load for a planning call.
-// Always includes the core "task-planner" skill plus a language-specific skill if detected.
-func plannerSkills(goal string) []string {
-	names := []string{"task-planner"}
-	if lang := detectLanguage(goal); lang != "" {
-		names = append(names, "task-planner-"+lang)
-	}
-	return names
-}
-
-// goalFacts holds structured facts extracted from a goal string by native Go code.
-// Used to generate complete PLAN.md content without an LLM call for known languages.
-type goalFacts struct {
-	lang        string // "python", "go", "rust", "csharp", "c", or ""
-	hasTests    bool
-	hasSQLite   bool
-	hasHTTP     bool
-	hasMakefile bool
-	isGraphical bool
-}
-
-func extractGoalFacts(goal string) goalFacts {
-	low := strings.ToLower(goal)
-	return goalFacts{
-		lang:        detectLanguage(goal),
-		hasTests:    reHasTests.MatchString(goal),
-		hasSQLite:   strings.Contains(low, "sqlite") || (strings.Contains(low, "sql") && strings.Contains(low, "database")),
-		hasHTTP:     strings.Contains(low, "flask") || strings.Contains(low, "fastapi") || strings.Contains(low, "gin") || strings.Contains(low, "api") || strings.Contains(low, "server") || strings.Contains(low, "endpoint") || strings.Contains(low, "http") || strings.Contains(low, "rest"),
-		hasMakefile: strings.Contains(low, "makefile"),
-		isGraphical: graphicalRE.MatchString(goal),
-	}
-}
-
-// derivePlanFilename returns a base name for the primary source file inferred from the goal.
-func derivePlanFilename(goal, lang string) string {
-	low := strings.ToLower(goal)
-	for _, word := range []string{"todo", "task", "note", "blog", "chat", "fibonacci", "fib", "hello", "ping", "counter", "calc"} {
-		if strings.Contains(low, word) {
-			return word
-		}
-	}
-	switch lang {
-	case "csharp":
-		return "App"
-	default:
-		return "main"
-	}
-}
-
-// generatePlan returns complete PLAN.md content for known languages without an LLM call.
-// Returns "" if the language is unknown.
-func generatePlan(f goalFacts, goal string) string {
-	if f.lang == "" {
-		return ""
-	}
-	name := derivePlanFilename(goal, f.lang)
-	var sb strings.Builder
-
-	switch f.lang {
-	case "python":
-		sb.WriteString("## Files\n")
-		sb.WriteString(fmt.Sprintf("- [ ] %s.py — implementation\n", name))
-		if f.hasTests {
-			sb.WriteString(fmt.Sprintf("- [ ] test_%s.py — pytest tests\n", name))
-		}
-		if f.hasMakefile {
-			sb.WriteString("- [ ] Makefile — install deps and run tests\n")
-		}
-		sb.WriteString("\n## Test Command\n")
-		if f.hasMakefile && f.hasTests {
-			sb.WriteString("make test\n")
-		} else if f.hasTests {
-			sb.WriteString("PYTHONPATH=. pytest\n")
-		} else {
-			sb.WriteString(fmt.Sprintf("python3 %s.py\n", name))
-		}
-		sb.WriteString("\n## Dependencies\npython3")
-		if f.hasTests {
-			sb.WriteString(", pytest")
-		}
-		if f.hasHTTP {
-			sb.WriteString(", flask")
-		}
-		sb.WriteString("\n")
-
-	case "go":
-		module := name
-		if module == "main" {
-			module = "app"
-		}
-		sb.WriteString("## Files\n")
-		sb.WriteString(fmt.Sprintf("- [ ] go.mod — module %s\n", module))
-		sb.WriteString("- [ ] main.go — implementation\n")
-		if f.hasTests {
-			sb.WriteString("- [ ] main_test.go — Go test cases\n")
-		}
-		if f.hasMakefile {
-			sb.WriteString("- [ ] Makefile — build target that runs go build\n")
-		}
-		sb.WriteString("\n## Test Command\n")
-		if f.hasMakefile {
-			sb.WriteString("make build\n")
-		} else if f.hasTests {
-			sb.WriteString("go test ./...\n")
-		} else {
-			sb.WriteString("go run main.go\n")
-		}
-		sb.WriteString("\n## Dependencies\ngo\n")
-
-	case "rust":
-		sb.WriteString("## Files\n")
-		sb.WriteString(fmt.Sprintf("- [ ] Cargo.toml — package %s\n", name))
-		sb.WriteString("- [ ] src/main.rs — implementation\n")
-		sb.WriteString("\n## Test Command\n")
-		if f.hasTests {
-			sb.WriteString("cargo test\n")
-		} else {
-			sb.WriteString("cargo run\n")
-		}
-		sb.WriteString("\n## Dependencies\nrust, cargo\n")
-
-	case "csharp":
-		proj := name
-		sb.WriteString("## Files\n")
-		sb.WriteString(fmt.Sprintf("- [ ] %s.csproj — .NET project\n", proj))
-		sb.WriteString("- [ ] Program.cs — implementation\n")
-		sb.WriteString("\n## Test Command\n")
-		sb.WriteString(fmt.Sprintf("dotnet run --project %s.csproj\n", proj))
-		sb.WriteString("\n## Dependencies\ndotnet\n")
-
-	case "c":
-		sb.WriteString("## Files\n")
-		sb.WriteString(fmt.Sprintf("- [ ] %s.c — implementation\n", name))
-		if f.isGraphical {
-			sb.WriteString("- [ ] Makefile — build and link\n")
-			sb.WriteString("\n## Test Command\nmake\n")
-			sb.WriteString("\n## Dependencies\ngcc or clang, SDL2\n")
-		} else {
-			sb.WriteString(fmt.Sprintf("\n## Test Command\nclang -o /tmp/%s %s.c && /tmp/%s\n", name, name, name))
-			sb.WriteString("\n## Dependencies\nclang\n")
-		}
-
-	default:
-		return ""
-	}
-	return sb.String()
 }
 
 // buildPlannerSystem returns a minimal system prompt for planning calls.
