@@ -382,11 +382,9 @@ func runAgent(cfg agentConfig) error {
 		if testCmd != "" && isTestFile(task.FilePath) && !plan.HasPendingBuildFile(p) {
 			testLog := filepath.Join(logDir, fmt.Sprintf("tests-iter-%02d.log", i))
 			if !runTests(testCmd, testLog) {
-				agentLog("Tests failing after %s — invoking repair agent.", task.FilePath)
-				testTail := tailFile(testLog, 80)
-				runRepair(&cfg, testCmd, testTail, autonomousSystem)
-				if !runTests(testCmd, testLog) {
-					agentLog("Tests still failing after repair for %s.", task.FilePath)
+				agentLog("Tests failing after %s — invoking repair loop.", task.FilePath)
+				if !runTestRepairLoop(&cfg, testCmd, testLog, p, autonomousSystem) {
+					agentLog("Tests still failing after repair loop for %s.", task.FilePath)
 					recordFailedRepair(fmt.Sprintf("test repair after writing %s", task.FilePath), tailFile(testLog, 5))
 					exitCode = 3
 					return fmt.Errorf("stalled: tests still failing after repair")
@@ -783,25 +781,31 @@ func runTests(cmd, logFile string) bool {
 	return err == nil
 }
 
-func runRepair(cfg *agentConfig, testCmd, testTail, autonomousSystem string) {
-	fixRules := `REPAIR RULES — follow exactly:
-1. Call Edit or Write RIGHT NOW. Do not explain. Do not describe what you will do. Just call the tool.
-2. The test output is already provided. Do not run any commands.
-3. Make the smallest targeted change. Only use Write if you must replace the entire file.
-4. Only modify files that already exist. Do not create new files. Do not touch PLAN.md.
-5. One tool call only. Stop immediately after the tool call.`
+// repairMaxIters bounds the iterative repair loop (edit → run test → observe → repeat).
+const repairMaxIters = 6
 
-	history := repairHistory()
-	prompt := fmt.Sprintf("GOAL: %s\n\nTest output (fix this NOW — call Edit or Write immediately):\n%s%s", cfg.Goal, testTail, history)
-	systemPrompt := autonomousSystem + "\n\n" + fixRules
+// repairLoopRules is the system-prompt addendum for the iterative repair loop. Unlike the
+// old one-shot repair, the harness runs the test after each edit and feeds the result back,
+// so the model is told the test runs for it and to make one edit per turn.
+const repairLoopRules = `REPAIR RULES — follow exactly:
+1. You are fixing failing tests. Each turn, make ONE targeted change: call Edit, or Write to replace a whole file.
+2. Do NOT run any commands. The test is run for you after each edit and the new output is shown to you.
+3. Only modify files that already exist. Do not create new files. Do not touch PLAN.md.
+4. Call the tool immediately — no prose, no explanation. Stop after one tool call.`
 
-	sess := agent.NewSession(systemPrompt)
+// runTestRepairLoop spins up an iterative repair session for testCmd and returns whether the
+// test passes by the end. The harness runs the test (deterministic) and feeds output back to
+// the model between edits — see agent.Session.RepairLoop and AGENTS.md §2.5.
+func runTestRepairLoop(cfg *agentConfig, testCmd, testLog string, p *plan.Plan, autonomousSystem string) bool {
+	sess := agent.NewSession(autonomousSystem + "\n\n" + repairLoopRules)
 	sess.Tools = agent.RepairToolDefs
 	timeout := time.Duration(cfg.WriterTimeout) * time.Second
-	_, err := sess.Run(cfg.AgentModel, prompt, cfg.WriterThinking, "Repairing", 4, "", timeout)
-	if err != nil {
-		agentLog("Repair: %v", err)
+	runTest := func() (bool, string) {
+		ok := runTests(testCmd, testLog)
+		return ok, tailFile(testLog, 60)
 	}
+	reapply := func() { reapplyMakefileFix(p) }
+	return sess.RepairLoop(cfg.AgentModel, cfg.Goal, repairMaxIters, timeout, runTest, reapply)
 }
 
 func runRepairLint(cfg *agentConfig, lintCmd, filePath, lintHead, autonomousSystem string) {
@@ -840,13 +844,6 @@ func runRepairLint(cfg *agentConfig, lintCmd, filePath, lintHead, autonomousSyst
 	}
 }
 
-func testsSilent(cmd string) bool {
-	c := exec.Command("bash", "-c", cmd)
-	c.Stdout = nil
-	c.Stderr = nil
-	return c.Run() == nil
-}
-
 func finalTestGate(cfg *agentConfig, p *plan.Plan, autonomousSystem string) error {
 	testCmd := ""
 	if p != nil {
@@ -857,30 +854,13 @@ func finalTestGate(cfg *agentConfig, p *plan.Plan, autonomousSystem string) erro
 		return nil
 	}
 
-	maxRetries := 2
-	for attempt := 0; attempt <= maxRetries; attempt++ {
-		// Re-apply general Makefile-syntax fixes before each test run — the repair model
-		// can revert them (e.g. removes tab indentation, drops the all: target).
-		reapplyMakefileFix(p)
-
-		testLog := filepath.Join(logDir, "tests-final.log")
-		if runTests(testCmd, testLog) {
-			return nil
-		}
-		if attempt == maxRetries {
-			recordFailedRepair("final test gate: all retries exhausted", tailFile(testLog, 30))
-			fmt.Printf("\n  %s\n\n", ui.Red("Tests still failing after "+strconv.Itoa(maxRetries)+" retries. Giving up."))
-			return fmt.Errorf("final tests failed")
-		}
-		agentLog("Final tests failed — repair retry %d / %d", attempt+1, maxRetries)
-		testTail := tailFile(testLog, 200)
-		runRepair(cfg, testCmd, testTail, autonomousSystem)
-		// Record this failed attempt so subsequent repair turns don't repeat the same approach.
-		if !testsSilent(testCmd) {
-			recordFailedRepair(fmt.Sprintf("test repair attempt %d", attempt+1), tailFile(testLog, 30))
-		}
+	testLog := filepath.Join(logDir, "tests-final.log")
+	if runTestRepairLoop(cfg, testCmd, testLog, p, autonomousSystem) {
+		return nil
 	}
-	return nil
+	recordFailedRepair("final test gate: repair loop exhausted", tailFile(testLog, 30))
+	fmt.Printf("\n  %s\n\n", ui.Red("Tests still failing after repair loop. Giving up."))
+	return fmt.Errorf("final tests failed")
 }
 
 // reapplyMakefileFix re-runs the general Makefile-syntax sensors on every Makefile in the

@@ -119,9 +119,14 @@ loop inside.
 iterative repair loop with test feedback (edit → run test → feed result back → repeat
 until green or budget exhausted), not more sensors. The original reason Bash was
 withheld ("the model wastes turns re-running tests instead of fixing") solved the
-wrong problem — running the test *is* how an agent knows what to fix. Prefer a
-harness-driven loop (harness runs the test after each edit and feeds the output back)
-so test execution stays deterministic while the model still gets to iterate.
+wrong problem — running the test *is* how an agent knows what to fix.
+
+**Implemented (2026-05-22):** `agent.Session.RepairLoop` (`internal/agent/session.go`)
+does exactly this — a single repair conversation where the *harness* runs the test
+after each edit (deterministic) and feeds the new output back to the model, looping up
+to `repairMaxIters` until green. It replaced the old one-shot `runRepair`; both the
+in-loop and final test gates route through `runTestRepairLoop`. Verify the gain by
+comparing the next qwen3:8b run against the v0.6.0 baseline.
 
 This is the clearest evidence for AGENTS.md's thesis: **invest in general agent
 capability, not problem-specific patches.**

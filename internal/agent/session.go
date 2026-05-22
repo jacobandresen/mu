@@ -126,6 +126,99 @@ func (s *Session) Run(model, userPrompt, thinking, label string, maxTurns int, w
 	return false, fmt.Errorf("max turns reached")
 }
 
+// RepairLoop drives an iterative edit→test→observe repair conversation in a single
+// session, mirroring the behaviour that made the v0.3 (pi) harness reach 6/7: the
+// model edits, the harness runs the test and feeds the new output back, and the loop
+// repeats until the test passes or the iteration budget is exhausted.
+//
+// Test execution stays in the harness (via the runTest callback) so it is deterministic
+// and the model can't waste turns re-running or hallucinating test output — but unlike a
+// one-shot repair, the model sees whether each edit actually worked and can build on it.
+//
+//	runTest:  runs the project's test command, returns (passed, tailOutput)
+//	reapply:  optional deterministic fixes applied before each test run (may be nil)
+//
+// Returns true if the test passes by the end of the loop.
+func (s *Session) RepairLoop(model, goal string, maxIters int, perTurnTimeout time.Duration,
+	runTest func() (bool, string), reapply func()) bool {
+
+	tools := s.Tools
+	if tools == nil {
+		tools = RepairToolDefs
+	}
+	msgs := []ollama.Message{{Role: "system", Content: s.SystemPrompt}}
+	fmt.Printf("  %s...\n", ui.Cyan("Repairing"))
+
+	for iter := 0; iter < maxIters; iter++ {
+		if reapply != nil {
+			reapply()
+		}
+		passed, testOut := runTest()
+		if passed {
+			if iter > 0 {
+				fmt.Printf("==> [mu-agent] Repair: tests pass after %d edit(s).\n", iter)
+			}
+			return true
+		}
+
+		var content string
+		if iter == 0 {
+			content = fmt.Sprintf("GOAL: %s\n\nThe project's tests are failing. Make ONE targeted change (call Edit, or Write to replace a whole file) to fix the underlying cause. Do not run any commands — the test is run for you and the new output is shown after each edit. Test output:\n\n%s", goal, testOut)
+		} else {
+			content = fmt.Sprintf("Still failing after your last edit. Latest test output:\n\n%s\n\nMake ONE more targeted edit to fix the remaining cause. Do not repeat an edit that did not help.", testOut)
+		}
+		msgs = append(msgs, ollama.Message{Role: "user", Content: content})
+
+		// Drive up to 3 model turns this iteration to obtain a single tool call.
+		deadline := time.Now().Add(perTurnTimeout)
+		edited := false
+		for t := 0; t < 3 && time.Now().Before(deadline); t++ {
+			msg, err := chatOrRetry(model, msgs, tools, false, deadline)
+			if err != nil {
+				fmt.Printf("==> [mu-agent] Repair: %v\n", err)
+				break
+			}
+			msgs = append(msgs, msg)
+			if len(msg.ToolCalls) == 0 {
+				if t < 2 {
+					msgs = append(msgs, ollama.Message{Role: "user", Content: "Call Edit or Write now — do not write prose."})
+					continue
+				}
+				break
+			}
+			for _, tc := range msg.ToolCalls {
+				logToolCall(tc)
+				result := DispatchTool(tc.Function.Name, tc.Function.Arguments)
+				msgs = append(msgs, ollama.Message{Role: "tool", Content: result})
+			}
+			edited = true
+			break
+		}
+		if !edited {
+			fmt.Printf("==> [mu-agent] Repair iter %d: model produced no edit.\n", iter+1)
+		}
+	}
+
+	// Test the final edit (the loop tests at the start of each iteration, so the last
+	// edit hasn't been verified yet).
+	if reapply != nil {
+		reapply()
+	}
+	passed, _ := runTest()
+	return passed
+}
+
+// logToolCall prints a one-line trace of a dispatched tool call.
+func logToolCall(tc ollama.ToolCall) {
+	if tc.Function.Name == "Write" || tc.Function.Name == "Edit" {
+		if path, ok := tc.Function.Arguments["path"].(string); ok {
+			fmt.Printf("==> [mu-agent] tool: %s(%q)\n", tc.Function.Name, path)
+			return
+		}
+	}
+	fmt.Printf("==> [mu-agent] tool: %s\n", tc.Function.Name)
+}
+
 // extractCodeBlock extracts the first fenced code block from content that matches the
 // file extension of filePath. Tries language-specific fences first, then a generic fence.
 func extractCodeBlock(content, filePath string) (string, bool) {
