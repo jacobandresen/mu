@@ -986,7 +986,7 @@ func finalTestGate(cfg *agentConfig, p *plan.Plan, autonomousSystem string) erro
 		// restores wrong pytest path).
 		reapplyCsprojFix(p)
 		reapplySDLFix(p, cfg.Goal)
-		reapplyMakefileFix(p)
+		reapplyMakefileFix(p, cfg.Goal)
 
 		testLog := filepath.Join(logDir, "tests-final.log")
 		if runTests(testCmd, testLog) {
@@ -1053,9 +1053,10 @@ func reapplySDLFix(p *plan.Plan, goal string) {
 	}
 }
 
-// reapplyMakefileFix re-runs Makefile sensors on every Makefile listed in the plan.
-// The repair model sometimes reverts test-path fixes or removes go mod setup.
-func reapplyMakefileFix(p *plan.Plan) {
+// reapplyMakefileFix re-runs all write-phase Makefile sensors on every Makefile in the
+// plan. The repair model frequently reverts structural fixes (e.g. removes tab indentation,
+// drops SDL2 sdl2-config wiring, re-introduces bare shell commands with no target).
+func reapplyMakefileFix(p *plan.Plan, goal string) {
 	if p == nil {
 		return
 	}
@@ -1063,13 +1064,38 @@ func reapplyMakefileFix(p *plan.Plan) {
 		if _, err := os.Stat(task.FilePath); err != nil {
 			continue
 		}
-		if plan.IsBuildFile(task.FilePath) && strings.EqualFold(filepath.Base(task.FilePath), "makefile") {
-			if fixed, _ := plan.FixPytestPath(task.FilePath); fixed {
-				agentLog("Re-applied pytest path fix to %s after repair.", task.FilePath)
-			}
-			if fixed, _ := sensors.FixGoMakefile(task.FilePath); fixed {
-				agentLog("Re-applied Go Makefile fix to %s after repair.", task.FilePath)
-			}
+		if !plan.IsBuildFile(task.FilePath) || !strings.EqualFold(filepath.Base(task.FilePath), "makefile") {
+			continue
+		}
+		if fixed, _ := sensors.FixMakefileSpaceIndent(task.FilePath); fixed {
+			agentLog("Re-applied space-indent fix to %s after repair.", task.FilePath)
+		}
+		if fixed, _ := sensors.FixOrphanTopLevelCommands(task.FilePath); fixed {
+			agentLog("Re-applied orphan-commands fix to %s after repair.", task.FilePath)
+		}
+		if fixed, _ := sensors.FixNoTargets(task.FilePath); fixed {
+			agentLog("Re-applied no-targets fix to %s after repair.", task.FilePath)
+		}
+		if fixed, _ := sensors.FixInlineRecipe(task.FilePath); fixed {
+			agentLog("Re-applied inline-recipe fix to %s after repair.", task.FilePath)
+		}
+		if fixed, _ := sensors.FixDuplicateVar(task.FilePath); fixed {
+			agentLog("Re-applied duplicate-var fix to %s after repair.", task.FilePath)
+		}
+		if fixed, _ := sensors.FixMakefileSDL2(task.FilePath); fixed {
+			agentLog("Re-applied SDL2 fix to %s after repair.", task.FilePath)
+		}
+		if fixed, _ := sensors.FixMakefilePipInstall(task.FilePath, pipPackagesFromGoal(goal)); fixed {
+			agentLog("Re-applied pip-install fix to %s after repair.", task.FilePath)
+		}
+		if fixed, _ := sensors.FixGoMakefile(task.FilePath); fixed {
+			agentLog("Re-applied Go Makefile fix to %s after repair.", task.FilePath)
+		}
+		if fixed, _ := plan.FixPythonMakefileTest(task.FilePath); fixed {
+			agentLog("Re-applied Python Makefile test fix to %s after repair.", task.FilePath)
+		}
+		if fixed, _ := plan.FixPytestPath(task.FilePath); fixed {
+			agentLog("Re-applied pytest path fix to %s after repair.", task.FilePath)
 		}
 	}
 }

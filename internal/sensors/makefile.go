@@ -96,6 +96,24 @@ func FixOrphanTopLevelCommands(f string) (bool, error) {
 		return false, nil
 	}
 
+	// If clean already contains an 'all:' target, prepend orphan commands into that
+	// recipe instead of creating a second 'all:' target (which make treats as an error).
+	allRE := regexp.MustCompile(`^all\s*:`)
+	for _, line := range clean {
+		if allRE.MatchString(line) {
+			var result []string
+			inserted := false
+			for _, l := range clean {
+				result = append(result, l)
+				if !inserted && allRE.MatchString(l) {
+					result = append(result, orphans...)
+					inserted = true
+				}
+			}
+			return true, os.WriteFile(f, []byte(strings.Join(result, "\n")), 0644)
+		}
+	}
+
 	result := ".DEFAULT_GOAL := all\n\nall:\n" + strings.Join(orphans, "\n") + "\n\n" + strings.Join(clean, "\n")
 	return true, os.WriteFile(f, []byte(result), 0644)
 }

@@ -1,7 +1,7 @@
 import sqlite3
 
 
-class Todo:
+class TodoManager:
     def __init__(self, db_path=':memory:'):
         self.conn = sqlite3.connect(db_path)
         self._init_db()

@@ -1,7 +1,7 @@
-# Top 14 Agent Challenges
+# Top 16 Agent Challenges
 
 Observed across dojo sessions (qwen3:8b, qwen3:4b, gemma4:e2b) on macOS M2 8 GB.
-Updated: 2026-05-21, run 4 (gemma4:e2b, FixMakefileSpaceIndent + FixSDLDestroySurface + code-block extraction).
+Updated: 2026-05-22, runs 6+I (FixOrphanTopLevelCommands duplicate-all bug; reapplyMakefileFix coverage gap).
 
 ---
 
@@ -220,3 +220,38 @@ The sensor currently only fixes one direction.
 
 **Status:** Sensor covers the SDL2/SDL.h → SDL.h fix (macOS homebrew convention).
 The reverse is now caught by ensuring sdl2-config --cflags is always applied.
+
+---
+
+## 15. FixOrphanTopLevelCommands creates a duplicate `all:` target
+
+**Symptom:** `Makefile:N: warning: overriding commands for target 'all'` + `No rule to make target 'X', needed by 'all'.`
+
+**Why it happens:** `FixOrphanTopLevelCommands` prepends a new `all:` target for orphan commands, but
+when the model ALSO writes an explicit `all:` target below the orphans, the result has two `all:` targets.
+`make` treats the second as an override, which either silently uses the wrong recipe or errors on GNU make.
+Example trigger: model writes bare gcc lines then `.PHONY: all` + `all: prog` + `prog: ...`.
+
+**Impact:** P3 (SDL2) — initial `make` fails on first `finalTestGate` attempt, triggering unnecessary repair
+cycles that then revert working Makefile content.
+
+**Fix landed:** `FixOrphanTopLevelCommands` now checks if `clean` already contains an `all:` target.
+If yes, it prepends orphan recipe lines INTO the existing `all:` recipe instead of creating a second target.
+
+---
+
+## 16. `reapplyMakefileFix` only re-applied 2 of 8 write-phase sensors
+
+**Symptom:** After repair, `make` fails with `missing separator`, `SDL.h not found`, or duplicate targets —
+even though the same failures were fixed by sensors during the initial write phase.
+
+**Why it happens:** The repair model frequently rewrites the Makefile entirely, reverting every sensor
+fix that was applied during the write phase. `reapplyMakefileFix` (called before each `finalTestGate`
+attempt) only re-applied `FixPytestPath` and `FixGoMakefile`, leaving 6 other sensors unrun.
+
+**Impact:** P3 (SDL2) — after 1–2 repair attempts the Makefile reverts to bare commands with no target
+and no SDL2 wiring. Subsequent test runs all fail with the same structural error.
+
+**Fix landed:** `reapplyMakefileFix` now runs the full write-phase sensor set: SpaceIndent,
+OrphanTopLevelCommands, NoTargets, InlineRecipe, DuplicateVar, SDL2, PipInstall, GoMakefile,
+PythonMakefileTest, and PytestPath.

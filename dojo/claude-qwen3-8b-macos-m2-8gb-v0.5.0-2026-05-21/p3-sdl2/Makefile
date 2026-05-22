@@ -1,6 +1,7 @@
-# Compile with SDL2
-CFLAGS = $(shell sdl2-config --cflags)
-LDFLAGS = $(shell sdl2-config --libs)
+# Makefile for SDL2 line renderer
+CC = gcc
+CFLAGS = -I/opt/homebrew/include/SDL2 -D_THREAD_SAFE
+LDFLAGS = -L/opt/homebrew/lib -lSDL2
 
 line_renderer: main.c
-	gcc $(CFLAGS) $(LDFLAGS) -o line_renderer main.c
+	$(CC) $(CFLAGS) $(LDFLAGS) -o line_renderer main.c

@@ -1,43 +1,51 @@
-import pytest
-from todo import Todo
-import sqlite3
-import os
-
-@pytest.fixture
-def todo_db(tmp_path):
-    db_path = tmp_path / "todo.db"
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    cursor.execute('CREATE TABLE IF NOT EXISTS todos (id INTEGER PRIMARY KEY, task TEXT)')
-    conn.commit()
-    yield Todo(str(db_path))
-    conn.close()
-    os.remove(db_path)
+from todo import TodoManager
 
 
-def test_add_todo(todo_db):
-    todo_db.add("Buy milk")
-    cursor = todo_db.conn.cursor()
-    cursor.execute('SELECT * FROM todos')
-    result = cursor.fetchone()
-    assert result == (1, "Buy milk")
+def test_add_todo():
+    manager = TodoManager(':memory:')
+    manager.add_todo('Buy groceries')
+    todos = manager.list_todos()
+    assert len(todos) == 1
+    assert todos[0]['task'] == 'Buy groceries'
+    assert todos[0]['completed'] == 0
 
 
-def test_list_todos(todo_db):
-    todo_db.add("Buy milk")
-    todo_db.add("Walk dog")
-    todos = todo_db.list()
-    assert todos == ["Buy milk", "Walk dog"]
+def test_list_todos():
+    manager = TodoManager(':memory:')
+    manager.add_todo('Task 1')
+    manager.add_todo('Task 2')
+    manager.conn.execute('UPDATE todos SET completed = 1 WHERE id = 1')
+    
+    # List all
+    todos = manager.list_todos()
+    assert len(todos) == 2
+    assert todos[0]['task'] == 'Task 1'
+    assert todos[0]['completed'] == 1
+    assert todos[1]['task'] == 'Task 2'
+    assert todos[1]['completed'] == 0
+
+    # List completed
+    todos = manager.list_todos(completed=True)
+    assert len(todos) == 1
+    assert todos[0]['task'] == 'Task 1'
+
+    # List not completed
+    todos = manager.list_todos(completed=False)
+    assert len(todos) == 1
+    assert todos[0]['task'] == 'Task 2'
 
 
-def test_delete_todo(todo_db):
-    todo_db.add("Buy milk")
-    todo_db.add("Walk dog")
-    todo_db.delete(1)
-    todos = todo_db.list()
-    assert todos == ["Walk dog"]
+def test_delete_todo():
+    manager = TodoManager(':memory:')
+    manager.add_todo('Task A')
+    manager.add_todo('Task B')
+    
+    manager.delete_todo(1)
+    todos = manager.list_todos()
+    assert len(todos) == 1
+    assert todos[0]['task'] == 'Task B'
 
-
-def test_delete_nonexistent_todo(todo_db):
-    with pytest.raises(IndexError):
-        todo_db.delete(999)
+    # Delete non-existent
+    manager.delete_todo(999)
+    todos = manager.list_todos()
+    assert len(todos) == 1

@@ -4,5 +4,6 @@
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>Fibonacci</RootNamespace>
     <ProjectGuid>{12345678-90AB-CDEF-1234-567890ABCDEF}</ProjectGuid>
-  </PropertyGroup>
+    <OutputType>Exe</OutputType>
+</PropertyGroup>
 </Project>

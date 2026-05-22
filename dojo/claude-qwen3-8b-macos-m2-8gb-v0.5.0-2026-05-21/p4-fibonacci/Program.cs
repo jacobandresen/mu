@@ -6,22 +6,20 @@ namespace Fibonacci
     {
         static void Main(string[] args)
         {
-            Console.WriteLine("Fibonacci sequence up to 15 terms:");
-            int n = 15;
-            int a = 0, b = 1;
-
-            Console.Write(a + " ");
-            Console.Write(b + " ");
-
-            for (int i = 3; i <= n; i++)
+            int n = 10;
+            int prev1 = 0;
+            int prev2 = 1;
+            
+            Console.WriteLine(prev1);
+            Console.WriteLine(prev2);
+            
+            for (int i = 2; i < n; i++)
             {
-                int c = a + b;
-                Console.Write(c + " ");
-                a = b;
-                b = c;
+                int next = prev1 + prev2;
+                Console.WriteLine(next);
+                prev1 = prev2;
+                prev2 = next;
             }
-
-            Console.WriteLine(); // To move to a new line after the sequence
         }
     }
 }

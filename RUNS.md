@@ -13,3 +13,6 @@ Timing in seconds per problem. **X** = failed. **?** = not run.
 | [2026-05-21-C](dojo/claude-gemma4-e2b-macos-m2-8gb-v0.5.0-2026-05-21-C/) (v0.5, gemma4:e2b, run 3, all sensors) | 4/7 | 16 | X 810 | X 59 | 19 | 14 | 16 | X 324 |
 | [2026-05-21-D](dojo/claude-gemma4-e2b-macos-m2-8gb-v0.5.0-2026-05-21-D/) (v0.5, gemma4:e2b, run 4, +SpaceIndent+SDLDestroy+CodeExtract) | 5/7 | 17 | X 242 | 42 | 18 | 13 | 16 | X 281 |
 | [2026-05-21-E](dojo/claude-gemma4-e2b-macos-m2-8gb-v0.5.0-2026-05-21-E/) (v0.5, gemma4:e2b, run 5, +OrphanFix+WriterRetry) | 4/7 | 16 | X 260 | X 60 | 18 | 13 | 16 | X 255 |
+| [2026-05-21-F](dojo/claude-gemma4-e2b-macos-m2-8gb-v0.5.0-2026-05-21-F/) (v0.5, gemma4:e2b, run 6, +WriterToolDefs+SDL2InlineRecipe) | 4/7 | 15 | X 242 | X 60 | 17 | 13 | 16 | X 270 |
+| [2026-05-21](dojo/claude-qwen3-4b-macos-m2-8gb-v0.5.0-2026-05-21/) (v0.5, qwen3:4b-instruct, run 1) | 4/7 | 9 | X 436 | X 74 | 27 | 26 | 18 | X 240 |
+| [2026-05-21](dojo/claude-qwen3-8b-macos-m2-8gb-v0.5.0-2026-05-21/) (v0.5, qwen3:8b, session I, p3✓first, +WriterToolDefs) | 4/7 | 58 | X 906 | 508 | 174 | X 289 | 149 | X drop |
