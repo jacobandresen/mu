@@ -3,6 +3,17 @@
 Observed across dojo sessions (qwen3:8b, qwen3:4b, gemma4:e2b) on macOS M2 8 GB.
 Updated: 2026-05-22, runs 6+I (FixOrphanTopLevelCommands duplicate-all bug; reapplyMakefileFix coverage gap).
 
+> **2026-05-22 — sensors intentionally removed.** Most problem-specific sensors documented
+> below as "Fix landed" were deliberately removed to keep the dojo honest: a sensor that
+> pattern-matches one exact dojo problem (SDL3→SDL2 API swap, pip-install injection, .csproj
+> TargetFramework, Cargo.toml repair, go.mod fixes, SQLite/Flask scaffolding) measures the
+> harness author's knowledge of the test, not the agent's capability. The Go plan-generator
+> (which hardcoded the 5 test languages and the problem filenames) was removed for the same
+> reason. **Only general, language-class fixes remain**: Makefile syntax repair (tabs,
+> targets, recipes) and Python syntax repair (multiline strings, missing parens, test-import
+> names, ruff autofix). The entries below are kept as a historical record of failure patterns
+> that small models exhibit — treat "Fix landed" as "was tried", not "currently active".
+
 ---
 
 ## 1. Repair agent does not call tools (gemma4:e2b)
