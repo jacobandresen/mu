@@ -95,6 +95,39 @@ pip packages. If the model gets these wrong, that's a real capability signal.
 
 ---
 
+## 2.5 The v0.3 lesson: a general iterative loop beats sensors
+
+The highest dojo score ever recorded is **v0.3 (2026-05-17): 6/7** — higher than
+every sensor-laden version since (v0.4–v0.6 peaked at 5/7). v0.3 had only a handful
+of sensors. What it had instead was **`pi` as a general, iterative agent** driving
+the writer and especially the repair phase.
+
+The decisive difference is in the logs:
+
+```
+v0.3 repair:  "Repair: tests pass after 68s — stopping pi."
+```
+
+v0.3's repair was a full agent session that could **run the test command, read the
+failure, edit, re-run, and iterate until green** — mu just polled for a passing test
+and stopped the agent. The current `runRepair` does the opposite: Bash is withheld
+(`agent.RepairToolDefs`), it gets ~4 turns, makes one blind edit, and **cannot
+observe whether its fix worked**. `finalTestGate` retries it twice with no feedback
+loop inside.
+
+**Lesson — and the priority generic improvement:** the path back to 6/7+ is a real
+iterative repair loop with test feedback (edit → run test → feed result back → repeat
+until green or budget exhausted), not more sensors. The original reason Bash was
+withheld ("the model wastes turns re-running tests instead of fixing") solved the
+wrong problem — running the test *is* how an agent knows what to fix. Prefer a
+harness-driven loop (harness runs the test after each edit and feeds the output back)
+so test execution stays deterministic while the model still gets to iterate.
+
+This is the clearest evidence for AGENTS.md's thesis: **invest in general agent
+capability, not problem-specific patches.**
+
+---
+
 ## 3. Architecture (where things live)
 
 `mu agent` is a deterministic control plane composing specialized model sessions:
