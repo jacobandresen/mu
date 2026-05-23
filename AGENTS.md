@@ -2,10 +2,10 @@
 
 Operating guide for AI agents (and humans) working on the **mu** codebase.
 mu is a local AI coding toolkit: `mu agent "<goal>"` drives an autonomous
-plan → write → verify loop on top of a local Ollama model.
+plan → write → verify loop on top of a local LLM via LM Studio.
 
 This file is the source of truth for *how to work on mu*. If it conflicts with
-older docs (e.g. `HARNESS_ENGINEERING.md`, `README.md`), this file wins; those
+older docs (e.g. `docs/HARNESS_ENGINEERING.md`, `README.md`), this file wins; those
 predate the 2026-05-22 "honest harness" refactor and are partly historical.
 
 ---
@@ -160,16 +160,14 @@ Prompts: `buildAutonomousSystem` (writer), `buildPlannerSystem`/`buildPlannerPro
 ## 4. Dojo workflow & run config
 
 - Each run lives in `dojo/<model>-<host>-<version>-<date>[-suffix]/run-all.sh`.
-- Scores are tracked in `RUNS.md` (timing per problem; `X` = fail).
-- **Bias success over speed** (8GB M2): use the most capable local model
-  (currently `qwen3:8b`), accept longer runtimes and RAM swapping. Set
-  `MU_NUM_CTX=8192` — it gives more context *and* auto-scales planner/writer
-  timeouts 1.5× (`detectComplexity`).
-- The agent model is a `:mu` variant built from the base (`qwen3:8b` → `qwen3:mu`)
-  with `num_ctx` baked in at creation. To change context size,
-  `ollama rm qwen3:mu` first so it rebuilds.
-- Server drops (`prompt=0 gen=0`) under memory pressure are expected;
-  `chatOrRetry` reloads and retries.
+- Scores are tracked in `docs/RUNS.md` (timing per problem; `X` = fail).
+- **Bias success over speed** (8GB M2): use the most capable model that fits,
+  accept longer runtimes. Load the model in LM Studio before running.
+  Recommended: `Qwen2.5-Coder-7B-Instruct` (8 GB) or `Devstral-Small-2507` (16 GB).
+- The model is selected via `MU_AGENT_MODEL` env var or auto-detected from the
+  first model loaded in LM Studio (`GET /v1/models`). No derived `:mu` models;
+  `temperature=0` is sent per-request in `lmstudio.Chat`.
+- Connection errors retry up to 2× with a 5-second backoff (`chatOrRetry`).
 - After removing a sensor or plan rule, scores are *expected* to drop — that's the
   honest number, not a regression to paper over.
 
@@ -185,8 +183,7 @@ go vet ./...
 
 - Keep commits focused and atomic (separate refactor from data/runs).
 - Don't add documentation files unless asked.
-- Don't reintroduce a `pi`/node/npm dependency — mu drives Ollama natively now.
-  (The README still lists `pi`; it is stale.)
+- Don't reintroduce a `pi`/node/npm dependency — mu drives LM Studio natively via its OpenAI-compatible API.
 
 ---
 

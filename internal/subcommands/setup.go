@@ -16,8 +16,10 @@ func NewSetupCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "setup",
 		Short: "Install system dependencies for this toolchain",
-		Long: `Installs system packages (brew / pacman / apt) and the pi npm package.
-Detects macOS, Arch, and Debian/Ubuntu automatically.`,
+		Long: `Installs system packages (brew / pacman / apt).
+Detects macOS, Arch, and Debian/Ubuntu automatically.
+
+LM Studio is not installed by this command — download it from https://lmstudio.ai`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSetup(yes)
 		},
@@ -51,7 +53,7 @@ func runSetup(yes bool) error {
 	case "darwin":
 		pkgs := []string{
 			"neovim", "make", "gcc", "llvm", "node", "python", "jq", "git",
-			"fpc", "fzf", "ripgrep", "fd", "ollama", "SDL2", "ruff",
+			"fpc", "fzf", "ripgrep", "fd", "SDL2", "ruff",
 		}
 		if err := runCmd(yes, "brew", append([]string{"install"}, pkgs...)...); err != nil {
 			return err
@@ -76,7 +78,7 @@ func runSetup(yes bool) error {
 			pkgs := []string{
 				"--needed", "neovim", "ttf-terminus-nerd", "base-devel", "make", "gcc",
 				"clang", "nodejs", "npm", "python", "jq", "git", "fpc", "fzf",
-				"wl-clipboard", "ripgrep", "fd", "ollama", "unzip", "ruff",
+				"wl-clipboard", "ripgrep", "fd", "unzip", "ruff",
 			}
 			if err := runCmd(yes, "sudo", append([]string{"pacman", "-S"}, pkgs...)...); err != nil {
 				return err
@@ -111,8 +113,6 @@ func runSetup(yes bool) error {
 					runCmd(yes, "sudo", "ln", "-sf", fdf, "/usr/local/bin/fd")
 				}
 			}
-			fmt.Println("Downloading ollama installer...")
-			runCmd(yes, "sh", "-c", "curl -fL# https://ollama.com/install.sh | sh")
 			fmt.Println("Note: install Terminess Nerd Font manually from https://www.nerdfonts.com/font-downloads")
 		} else {
 			return fmt.Errorf("unsupported Linux distribution")
@@ -121,9 +121,9 @@ func runSetup(yes bool) error {
 		return fmt.Errorf("unsupported OS: %s", runtime.GOOS)
 	}
 
-	fmt.Println("\nInstalling npm globals (pi, typescript)...")
-	if err := runCmd(yes, "npm", "install", "-g", "@earendil-works/pi-coding-agent", "typescript"); err != nil {
-		return err
-	}
+	fmt.Println()
+	fmt.Println("AI backend: download LM Studio from https://lmstudio.ai")
+	fmt.Println("  Load a model (e.g. Qwen2.5-Coder-7B-Instruct) and start the local server.")
+	fmt.Println("  mu connects to http://localhost:1234 by default (override: MU_LMSTUDIO_HOST).")
 	return nil
 }

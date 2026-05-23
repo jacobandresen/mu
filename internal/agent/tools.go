@@ -7,13 +7,13 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/jacobandresen/mu/internal/ollama"
+	"github.com/jacobandresen/mu/internal/lmstudio"
 )
 
-var ToolDefs = []ollama.ToolDef{
+var ToolDefs = []lmstudio.ToolDef{
 	{
 		Type: "function",
-		Function: ollama.ToolFunction{
+		Function: lmstudio.ToolFunction{
 			Name:        "Write",
 			Description: "Write a file with the given content, creating parent directories as needed.",
 			Parameters: map[string]any{
@@ -28,7 +28,7 @@ var ToolDefs = []ollama.ToolDef{
 	},
 	{
 		Type: "function",
-		Function: ollama.ToolFunction{
+		Function: lmstudio.ToolFunction{
 			Name:        "Edit",
 			Description: "Replace the first occurrence of old_string with new_string in the given file.",
 			Parameters: map[string]any{
@@ -44,7 +44,7 @@ var ToolDefs = []ollama.ToolDef{
 	},
 	{
 		Type: "function",
-		Function: ollama.ToolFunction{
+		Function: lmstudio.ToolFunction{
 			Name:        "Bash",
 			Description: "Run a shell command and return combined stdout+stderr.",
 			Parameters: map[string]any{
@@ -58,7 +58,7 @@ var ToolDefs = []ollama.ToolDef{
 	},
 	{
 		Type: "function",
-		Function: ollama.ToolFunction{
+		Function: lmstudio.ToolFunction{
 			Name:        "Read",
 			Description: "Read and return the contents of a file.",
 			Parameters: map[string]any{
@@ -75,13 +75,13 @@ var ToolDefs = []ollama.ToolDef{
 // RepairToolDefs is Write + Edit + Read only — no Bash.
 // Repair sessions already have the error output in the prompt; removing Bash
 // prevents the model from re-running test/lint commands instead of just fixing the file.
-var RepairToolDefs []ollama.ToolDef
+var RepairToolDefs []lmstudio.ToolDef
 
 // WriterToolDefs is Write + Edit only — no Bash, no Read.
 // Writer sessions are given a single task: write one file. They receive all reference
 // context in the prompt, so Read is unnecessary. Excluding Bash prevents the model
 // from running shell commands (e.g., cat, ls) instead of directly calling Write.
-var WriterToolDefs []ollama.ToolDef
+var WriterToolDefs []lmstudio.ToolDef
 
 func init() {
 	for _, t := range ToolDefs {

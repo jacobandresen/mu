@@ -11,7 +11,7 @@ func main() {
 	root := &cobra.Command{
 		Use:           "mu",
 		Short:         "Local AI coding toolkit",
-		Long:          "mu — local AI coding toolkit\n\nRequires: nvim, ollama\n\nUse \"mu <command> --help\" for command-specific flags.\n\nJacob Andresen: jacob.andresen@gmail.com",
+		Long:          "mu — local AI coding toolkit\n\nRequires: LM Studio running at localhost:1234 (override: MU_LMSTUDIO_HOST)\n\nUse \"mu <command> --help\" for command-specific flags.\n\nJacob Andresen: jacob.andresen@gmail.com",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -22,9 +22,7 @@ func main() {
 		subcommands.NewSetupCmd(),
 		subcommands.NewThemeCmd(),
 		subcommands.NewModelCmd(),
-		subcommands.NewOptimizeCmd(),
 		subcommands.NewExtractCmd(),
-		subcommands.NewPrimeCmd(),
 		subcommands.NewAgentCmd(),
 		subcommands.NewVersionCmd(),
 	)

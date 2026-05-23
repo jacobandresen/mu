@@ -7,14 +7,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jacobandresen/mu/internal/ollama"
+	"github.com/jacobandresen/mu/internal/lmstudio"
 	"github.com/jacobandresen/mu/internal/ui"
 )
 
 type Session struct {
 	SystemPrompt string
-	Tools        []ollama.ToolDef // if nil, defaults to ToolDefs
-	WatchFunc    func() bool      // optional: called after each tool dispatch; exit early if true
+	Tools        []lmstudio.ToolDef // if nil, defaults to ToolDefs
+	WatchFunc    func() bool        // optional: called after each tool dispatch; exit early if true
 }
 
 func NewSession(systemPrompt string) *Session {
@@ -28,22 +28,10 @@ func NewSession(systemPrompt string) *Session {
 //   - timeout exceeded
 //
 // label: shown in the progress bar (e.g. "Planning", "Writing")
-// thinking: "off" → appends /no_think, "medium"/"high" → appends /think, "" → none
-func (s *Session) Run(model, userPrompt, thinking, label string, maxTurns int, watchFile string, timeout time.Duration) (bool, error) {
-	prompt := userPrompt
-	var think any // nil = model default
-	switch thinking {
-	case "off":
-		prompt += "\n/no_think"
-		think = false
-	case "medium", "high":
-		prompt += "\n/think"
-		think = true
-	}
-
-	msgs := []ollama.Message{
+func (s *Session) Run(model, userPrompt, label string, maxTurns int, watchFile string, timeout time.Duration) (bool, error) {
+	msgs := []lmstudio.Message{
 		{Role: "system", Content: s.SystemPrompt},
-		{Role: "user", Content: prompt},
+		{Role: "user", Content: userPrompt},
 	}
 
 	fmt.Printf("  %s...\n", ui.Cyan(label))
@@ -60,7 +48,7 @@ func (s *Session) Run(model, userPrompt, thinking, label string, maxTurns int, w
 		if tools == nil {
 			tools = ToolDefs
 		}
-		msg, err := chatOrRetry(model, msgs, tools, think, deadline)
+		msg, err := chatOrRetry(model, msgs, tools, deadline)
 		if err != nil {
 			return false, fmt.Errorf("chat: %w", err)
 		}
@@ -83,7 +71,7 @@ func (s *Session) Run(model, userPrompt, thinking, label string, maxTurns int, w
 			// Repair mode (no watchFile): model responded with text but called no tool.
 			// Force another turn so the model actually edits the file.
 			if turn < maxTurns-1 {
-				msgs = append(msgs, ollama.Message{Role: "user", Content: "Call Write or Edit now. Do not write text — call the tool immediately."})
+				msgs = append(msgs, lmstudio.Message{Role: "user", Content: "Call Write or Edit now. Do not write text — call the tool immediately."})
 				continue
 			}
 			return false, fmt.Errorf("max turns reached without tool call")
@@ -106,7 +94,7 @@ func (s *Session) Run(model, userPrompt, thinking, label string, maxTurns int, w
 				fmt.Printf("==> [mu-agent] tool: %s\n", tc.Function.Name)
 			}
 			result := DispatchTool(tc.Function.Name, tc.Function.Arguments)
-			msgs = append(msgs, ollama.Message{Role: "tool", Content: result})
+			msgs = append(msgs, lmstudio.Message{Role: "tool", Content: result})
 
 			if watchFile != "" {
 				if _, statErr := os.Stat(watchFile); statErr == nil {
@@ -131,10 +119,6 @@ func (s *Session) Run(model, userPrompt, thinking, label string, maxTurns int, w
 // model edits, the harness runs the test and feeds the new output back, and the loop
 // repeats until the test passes or the iteration budget is exhausted.
 //
-// Test execution stays in the harness (via the runTest callback) so it is deterministic
-// and the model can't waste turns re-running or hallucinating test output — but unlike a
-// one-shot repair, the model sees whether each edit actually worked and can build on it.
-//
 //	runTest:  runs the project's test command, returns (passed, tailOutput)
 //	reapply:  optional deterministic fixes applied before each test run (may be nil)
 //
@@ -146,7 +130,7 @@ func (s *Session) RepairLoop(model, goal string, maxIters int, perTurnTimeout ti
 	if tools == nil {
 		tools = RepairToolDefs
 	}
-	msgs := []ollama.Message{{Role: "system", Content: s.SystemPrompt}}
+	msgs := []lmstudio.Message{{Role: "system", Content: s.SystemPrompt}}
 	fmt.Printf("  %s...\n", ui.Cyan("Repairing"))
 
 	for iter := 0; iter < maxIters; iter++ {
@@ -167,13 +151,13 @@ func (s *Session) RepairLoop(model, goal string, maxIters int, perTurnTimeout ti
 		} else {
 			content = fmt.Sprintf("Still failing after your last edit. Latest test output:\n\n%s\n\nMake ONE more targeted edit to fix the remaining cause. Do not repeat an edit that did not help.", testOut)
 		}
-		msgs = append(msgs, ollama.Message{Role: "user", Content: content})
+		msgs = append(msgs, lmstudio.Message{Role: "user", Content: content})
 
 		// Drive up to 3 model turns this iteration to obtain a single tool call.
 		deadline := time.Now().Add(perTurnTimeout)
 		edited := false
 		for t := 0; t < 3 && time.Now().Before(deadline); t++ {
-			msg, err := chatOrRetry(model, msgs, tools, false, deadline)
+			msg, err := chatOrRetry(model, msgs, tools, deadline)
 			if err != nil {
 				fmt.Printf("==> [mu-agent] Repair: %v\n", err)
 				break
@@ -181,7 +165,7 @@ func (s *Session) RepairLoop(model, goal string, maxIters int, perTurnTimeout ti
 			msgs = append(msgs, msg)
 			if len(msg.ToolCalls) == 0 {
 				if t < 2 {
-					msgs = append(msgs, ollama.Message{Role: "user", Content: "Call Edit or Write now — do not write prose."})
+					msgs = append(msgs, lmstudio.Message{Role: "user", Content: "Call Edit or Write now — do not write prose."})
 					continue
 				}
 				break
@@ -189,7 +173,7 @@ func (s *Session) RepairLoop(model, goal string, maxIters int, perTurnTimeout ti
 			for _, tc := range msg.ToolCalls {
 				logToolCall(tc)
 				result := DispatchTool(tc.Function.Name, tc.Function.Arguments)
-				msgs = append(msgs, ollama.Message{Role: "tool", Content: result})
+				msgs = append(msgs, lmstudio.Message{Role: "tool", Content: result})
 			}
 			edited = true
 			break
@@ -209,7 +193,7 @@ func (s *Session) RepairLoop(model, goal string, maxIters int, perTurnTimeout ti
 }
 
 // logToolCall prints a one-line trace of a dispatched tool call.
-func logToolCall(tc ollama.ToolCall) {
+func logToolCall(tc lmstudio.ToolCall) {
 	if tc.Function.Name == "Write" || tc.Function.Name == "Edit" {
 		if path, ok := tc.Function.Arguments["path"].(string); ok {
 			fmt.Printf("==> [mu-agent] tool: %s(%q)\n", tc.Function.Name, path)
@@ -287,48 +271,36 @@ func codeBlockLangs(ext string) []string {
 	}
 }
 
-// chatOrRetry calls ollama.Chat and retries up to 2 times when the server drops the
-// connection before generating any tokens (prompt=0, gen=0). These drops happen on
-// memory-constrained machines when the Ollama process is paged out mid-request.
-// Between retries it reloads the model (re-pages Ollama's heap) and waits 20 s.
-// Each attempt is logged individually. Retries do not consume session turns.
-func chatOrRetry(model string, msgs []ollama.Message, tools []ollama.ToolDef, think any, deadline time.Time) (ollama.Message, error) {
+// chatOrRetry calls lmstudio.Chat and retries up to 2 times on connection errors.
+// Unlike the Ollama path there is no model-reload between retries; LM Studio manages
+// model memory itself. Each attempt is logged individually.
+func chatOrRetry(model string, msgs []lmstudio.Message, tools []lmstudio.ToolDef, deadline time.Time) (lmstudio.Message, error) {
 	const maxRetries = 2
-	const backoff = 20 * time.Second
+	const backoff = 5 * time.Second
 
 	var lastErr error
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
 			if lastErr != nil {
-				return ollama.Message{}, lastErr
+				return lmstudio.Message{}, lastErr
 			}
-			return ollama.Message{}, fmt.Errorf("deadline exceeded")
+			return lmstudio.Message{}, fmt.Errorf("deadline exceeded")
 		}
 		callStart := time.Now()
-		msg, stats, err := ollama.Chat(model, msgs, tools, think, remaining)
+		msg, stats, err := lmstudio.Chat(model, msgs, tools, remaining)
 		elapsed := time.Since(callStart)
 		fmt.Printf("==> [mu-agent] chat: prompt=%d gen=%d time=%.1fs\n",
 			stats.PromptTokens, stats.GeneratedTokens, elapsed.Seconds())
 
-		isServerDrop := err != nil && stats.PromptTokens == 0 && stats.GeneratedTokens == 0
-		if isServerDrop && attempt < maxRetries {
-			fmt.Printf("==> [mu-agent] Server drop — reloading model, waiting %v (retry %d/%d)\n",
-				backoff, attempt+1, maxRetries)
-			_ = ollama.LoadModel(model, "-1s")
+		if err != nil && attempt < maxRetries {
+			fmt.Printf("==> [mu-agent] Chat error — retrying in %v (retry %d/%d): %v\n",
+				backoff, attempt+1, maxRetries, err)
 			time.Sleep(backoff)
-			// The failed call may have consumed the remaining deadline. Give each retry
-			// a full 210-second window regardless of how much time was left — server
-			// drops happen before the model processes any tokens, so no work is lost
-			// and the retry needs its own budget.
-			const retryBudget = 210 * time.Second
-			if retryDeadline := time.Now().Add(retryBudget); retryDeadline.After(deadline) {
-				deadline = retryDeadline
-			}
 			lastErr = err
 			continue
 		}
 		return msg, err
 	}
-	return ollama.Message{}, lastErr
+	return lmstudio.Message{}, lastErr
 }

@@ -1,7 +1,6 @@
 package subcommands
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/jacobandresen/mu/internal/ollama"
+	"github.com/jacobandresen/mu/internal/lmstudio"
 	"github.com/jacobandresen/mu/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -25,37 +24,13 @@ func modelsPath() string   { return filepath.Join(piAgentDir, "models.json") }
 func NewModelCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "model [command]",
-		Short: "Manage the ollama model used by the agent",
-		Long: `Manage the ollama model used by the agent.
+		Short: "Browse and select LM Studio models",
+		Long: `Browse and select LM Studio models.
 With no subcommand, opens an interactive fzf picker.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runModelPicker()
 		},
 	}
-
-	var keepAlive string
-	loadCmd := &cobra.Command{
-		Use:   "load [model]",
-		Short: "Pull if missing, set as default, load into memory",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			model := ""
-			if len(args) > 0 {
-				model = args[0]
-			}
-			return runModelLoad(model, keepAlive)
-		},
-	}
-	loadCmd.Flags().StringVar(&keepAlive, "keep-alive", "30m", "Keep-alive duration")
-
-	var unloadModel string
-	unloadCmd := &cobra.Command{
-		Use:   "unload",
-		Short: "Evict from memory (keeps it installed on disk)",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runModelUnload(unloadModel)
-		},
-	}
-	unloadCmd.Flags().StringVar(&unloadModel, "model", "", "Model to unload (default: from settings.json)")
 
 	var tsv bool
 	modelsCmd := &cobra.Command{
@@ -78,41 +53,33 @@ With no subcommand, opens an interactive fzf picker.`,
 
 	statusCmd := &cobra.Command{
 		Use:   "status",
-		Short: "Show installed models and agent config",
+		Short: "Show loaded models and agent config",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runModelStatus()
 		},
 	}
 
-	moveStorageCmd := &cobra.Command{
-		Use:   "move-storage",
-		Short: "Move /var/lib/ollama → /opt/ollama (Linux only)",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runMoveStorage()
-		},
-	}
-
-	cmd.AddCommand(loadCmd, unloadCmd, modelsCmd, modelInfoCmd, statusCmd, moveStorageCmd)
+	cmd.AddCommand(modelsCmd, modelInfoCmd, statusCmd)
 	return cmd
 }
 
 func runModelPicker() error {
-	cat, err := ollama.KnownModels(ollama.CatalogPath())
+	cat, err := lmstudio.KnownModels(lmstudio.CatalogPath())
 	if err != nil {
 		return err
 	}
-	installed, _ := ollama.GetInstalledModels()
-	instSet := make(map[string]bool)
-	for _, m := range installed {
-		instSet[m] = true
+	loaded, _ := lmstudio.ListModels()
+	loadedSet := make(map[string]bool)
+	for _, m := range loaded {
+		loadedSet[m] = true
 	}
-	def := ollama.ReadDefaultModel(settingsPath())
+	def := lmstudio.ReadDefaultModel(settingsPath())
 
 	var lines []string
 	for id, spec := range cat {
 		marks := []string{}
-		if instSet[id] {
-			marks = append(marks, "installed")
+		if loadedSet[id] {
+			marks = append(marks, "loaded")
 		}
 		if id == def {
 			marks = append(marks, "default")
@@ -122,7 +89,7 @@ func runModelPicker() error {
 		if len(marks) > 0 {
 			suffix = "  [" + strings.Join(marks, ", ") + "]"
 		}
-		lines = append(lines, fmt.Sprintf("%-20s %5s  %s%s\t%s", id, ctx, spec.Description, suffix, id))
+		lines = append(lines, fmt.Sprintf("%-44s %5s  %s%s\t%s", id, ctx, spec.Description, suffix, id))
 	}
 
 	fzf := exec.Command("fzf", "--ansi", "--delimiter=\t", "--with-nth=1", "--preview=mu model model-info {2}")
@@ -137,95 +104,31 @@ func runModelPicker() error {
 	if model == "" {
 		return nil
 	}
-	return runModelLoad(model, "30m")
-}
-
-func runModelLoad(model, keepAlive string) error {
-	if model == "" {
-		model = ollama.ReadDefaultModel(settingsPath())
-		if model == "" {
-			model = "qwen3:4b"
-		}
-	}
-	installed, err := ollama.GetInstalledModels()
-	if err != nil {
-		return fmt.Errorf("list installed models: %w", err)
-	}
-	found := false
-	for _, m := range installed {
-		if m == model {
-			found = true
-			break
-		}
-	}
-	if !found {
-		fmt.Printf("Pulling %s...\n", model)
-		c := exec.Command("ollama", "pull", model)
-		c.Stdout, c.Stderr = os.Stdout, os.Stderr
-		if err := c.Run(); err != nil {
-			return fmt.Errorf("pull %s: %w", model, err)
-		}
-	} else {
-		fmt.Printf("%s: already installed\n", ui.Green(model))
-	}
-
-	if err := ollama.UpdateSettingsDefault(settingsPath(), model); err != nil {
+	// Save selection as default
+	if err := lmstudio.UpdateSettingsDefault(settingsPath(), model); err != nil {
 		fmt.Fprintf(os.Stderr, "WARNING: could not update settings.json: %v\n", err)
 	}
-	if err := upsertModelsJSON(modelsPath(), model); err != nil {
-		fmt.Fprintf(os.Stderr, "WARNING: could not update models.json: %v\n", err)
-	}
-
-	loaded, _ := ollama.ListPS()
-	for _, m := range loaded {
-		if m != model {
-			_ = ollama.UnloadModel(m)
-		}
-	}
-
-	if keepAlive == "" {
-		keepAlive = "30m"
-	}
-	fmt.Printf("Loading %s (keep_alive=%s)...\n", model, keepAlive)
-	if err := ollama.LoadModel(model, keepAlive); err != nil {
-		return fmt.Errorf("load model: %w", err)
-	}
-	fmt.Printf("Done. %s is resident for %s.\n", ui.Green(model), keepAlive)
-	return nil
-}
-
-func runModelUnload(model string) error {
-	if model == "" {
-		model = ollama.ReadDefaultModel(settingsPath())
-		if model == "" {
-			return fmt.Errorf("no model specified and settings.json has no default")
-		}
-	}
-	fmt.Printf("Unloading %s...\n", model)
-	if err := ollama.UnloadModel(model); err != nil {
-		return err
-	}
-	fmt.Printf("Done. %s unloaded from memory (still installed).\n", model)
+	fmt.Printf("Selected: %s\nLoad this model in LM Studio, then run: mu agent \"your goal\"\n", ui.Green(model))
 	return nil
 }
 
 func runModelList(tsv bool) error {
-	cat, err := ollama.KnownModels(ollama.CatalogPath())
+	cat, err := lmstudio.KnownModels(lmstudio.CatalogPath())
 	if err != nil {
 		return err
 	}
-	installed, _ := ollama.GetInstalledModels()
-	instSet := make(map[string]bool)
-	for _, m := range installed {
-		instSet[m] = true
+	loaded, _ := lmstudio.ListModels()
+	loadedSet := make(map[string]bool)
+	for _, m := range loaded {
+		loadedSet[m] = true
 	}
-	def := ollama.ReadDefaultModel(settingsPath())
+	def := lmstudio.ReadDefaultModel(settingsPath())
 
 	if tsv {
 		for id, spec := range cat {
 			marks := []string{}
-			if instSet[id] {
-				marks = append(marks, "installed")
+			if loadedSet[id] {
+				marks = append(marks, "loaded")
 			}
 			if id == def {
 				marks = append(marks, "default")
@@ -235,17 +138,17 @@ func runModelList(tsv bool) error {
 			if len(marks) > 0 {
 				suffix = "  [" + strings.Join(marks, ", ") + "]"
 			}
-			fmt.Printf("%-20s %5s  %s%s\t%s\n", id, ctx, spec.Description, suffix, id)
+			fmt.Printf("%-44s %5s  %s%s\t%s\n", id, ctx, spec.Description, suffix, id)
 		}
 		return nil
 	}
 
-	fmt.Println(ui.Bold("Curated models"))
+	fmt.Println(ui.Bold("Curated models (load in LM Studio before running mu agent)"))
 	var rows [][]string
 	for id, spec := range cat {
 		marks := []string{}
-		if instSet[id] {
-			marks = append(marks, ui.Green("installed"))
+		if loadedSet[id] {
+			marks = append(marks, ui.Green("loaded"))
 		}
 		if id == def {
 			marks = append(marks, ui.Cyan("default"))
@@ -262,7 +165,7 @@ func runModelList(tsv bool) error {
 }
 
 func runModelInfo(model string) error {
-	cat, err := ollama.KnownModels(ollama.CatalogPath())
+	cat, err := lmstudio.KnownModels(lmstudio.CatalogPath())
 	if err != nil {
 		return err
 	}
@@ -271,12 +174,12 @@ func runModelInfo(model string) error {
 		fmt.Printf("unknown curated model: %s\n", model)
 		return nil
 	}
-	installed, _ := ollama.GetInstalledModels()
-	instSet := make(map[string]bool)
-	for _, m := range installed {
-		instSet[m] = true
+	loaded, _ := lmstudio.ListModels()
+	loadedSet := make(map[string]bool)
+	for _, m := range loaded {
+		loadedSet[m] = true
 	}
-	def := ollama.ReadDefaultModel(settingsPath())
+	def := lmstudio.ReadDefaultModel(settingsPath())
 	ctx := fmt.Sprintf("%dk", spec.ContextWindow/1024)
 	caps := strings.Join(spec.Input, ", ")
 	if spec.Reasoning {
@@ -288,21 +191,21 @@ func runModelInfo(model string) error {
 	fmt.Println()
 	fmt.Printf("%-14s %s\n", "Context", ctx)
 	fmt.Printf("%-14s %s\n", "Capabilities", caps)
-	fmt.Printf("%-14s %s\n", "Installed", boolStr(instSet[model]))
+	fmt.Printf("%-14s %s\n", "Loaded", boolStr(loadedSet[model]))
 	fmt.Printf("%-14s %s\n", "Default", boolStr(def == model))
 	return nil
 }
 
 func runModelStatus() error {
-	fmt.Println(ui.Bold("Installed ollama models"))
-	installed, err := ollama.GetInstalledModels()
+	fmt.Println(ui.Bold("LM Studio loaded models"))
+	loaded, err := lmstudio.ListModels()
 	if err != nil {
-		fmt.Println(ui.Dim("  (could not query ollama)"))
-	} else if len(installed) == 0 {
-		fmt.Println(ui.Dim("  (none)"))
+		fmt.Println(ui.Dim("  (could not reach LM Studio at " + lmstudio.Host() + ")"))
+	} else if len(loaded) == 0 {
+		fmt.Println(ui.Dim("  (none — load a model in LM Studio first)"))
 	} else {
-		rows := make([][]string, len(installed))
-		for i, m := range installed {
+		rows := make([][]string, len(loaded))
+		for i, m := range loaded {
 			rows[i] = []string{ui.Green(m)}
 		}
 		ui.PrintTable([]string{"Model"}, rows)
@@ -316,7 +219,7 @@ func runModelStatus() error {
 	} else {
 		var cfg map[string]any
 		_ = json.Unmarshal(data, &cfg)
-		showKeys := []string{"defaultModel", "defaultProvider", "enableSkillCommands", "quietStartup"}
+		showKeys := []string{"model", "defaultProvider", "enableSkillCommands", "quietStartup"}
 		var rows [][]string
 		for _, k := range showKeys {
 			if v, ok := cfg[k]; ok {
@@ -377,41 +280,6 @@ func runModelStatus() error {
 	return nil
 }
 
-func runMoveStorage() error {
-	fmt.Print("sudo password: ")
-	r := bufio.NewReader(os.Stdin)
-	pass, _ := r.ReadString('\n')
-	pass = strings.TrimRight(pass, "\n")
-
-	sudoRun := func(args ...string) error {
-		c := exec.Command("sudo", append([]string{"-S"}, args...)...)
-		c.Stdin = strings.NewReader(pass + "\n")
-		c.Stdout, c.Stderr = os.Stdout, os.Stderr
-		return c.Run()
-	}
-	if err := sudoRun("true"); err != nil {
-		return fmt.Errorf("wrong sudo password")
-	}
-	fmt.Println("Stopping ollama...")
-	_ = sudoRun("systemctl", "stop", "ollama")
-	if _, err := os.Stat("/opt/ollama"); err == nil {
-		_ = sudoRun("systemctl", "start", "ollama")
-		return fmt.Errorf("/opt/ollama already exists — aborting")
-	}
-	fmt.Println("Moving /var/lib/ollama -> /opt/ollama...")
-	if err := sudoRun("mv", "/var/lib/ollama", "/opt/ollama"); err != nil {
-		return err
-	}
-	fmt.Println("Creating symlink...")
-	if err := sudoRun("ln", "-s", "/opt/ollama", "/var/lib/ollama"); err != nil {
-		return err
-	}
-	fmt.Println("Starting ollama...")
-	_ = sudoRun("systemctl", "start", "ollama")
-	fmt.Println("Done. Verify with: ollama list")
-	return nil
-}
-
 func boolStr(b bool) string {
 	if b {
 		return "yes"
@@ -433,12 +301,12 @@ func upsertModelsJSON(path, model string) error {
 		providers = map[string]any{}
 		d["providers"] = providers
 	}
-	ollamaP, _ := providers["ollama"].(map[string]any)
-	if ollamaP == nil {
-		ollamaP = map[string]any{}
-		providers["ollama"] = ollamaP
+	lmsP, _ := providers["lmstudio"].(map[string]any)
+	if lmsP == nil {
+		lmsP = map[string]any{}
+		providers["lmstudio"] = lmsP
 	}
-	models, _ := ollamaP["models"].([]any)
+	models, _ := lmsP["models"].([]any)
 	for _, mv := range models {
 		if m, ok := mv.(map[string]any); ok {
 			if m["id"] == model {
@@ -447,7 +315,7 @@ func upsertModelsJSON(path, model string) error {
 			}
 		}
 	}
-	cat, _ := ollama.KnownModels(ollama.CatalogPath())
+	cat, _ := lmstudio.KnownModels(lmstudio.CatalogPath())
 	entry := map[string]any{"id": model, "input": []string{"text"}}
 	if spec, ok := cat[model]; ok {
 		entry = map[string]any{
@@ -458,11 +326,8 @@ func upsertModelsJSON(path, model string) error {
 		if spec.Reasoning {
 			entry["reasoning"] = true
 		}
-		if spec.Launch {
-			entry["_launch"] = true
-		}
 	}
-	ollamaP["models"] = append(models, entry)
+	lmsP["models"] = append(models, entry)
 	out, err := json.MarshalIndent(d, "", "  ")
 	if err != nil {
 		return err

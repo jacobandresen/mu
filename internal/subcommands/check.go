@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os/exec"
 
+	"github.com/jacobandresen/mu/internal/lmstudio"
 	"github.com/jacobandresen/mu/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -44,9 +45,6 @@ var deps = []struct {
 		{"tsc (TypeScript)", "tsc", "mu setup  [TypeScript linter]"},
 		{"cargo clippy (Rust)", "cargo", "rustup toolchain install stable"},
 	}},
-	{"AI backend", []dep{
-		{"ollama", "ollama", "mu setup  [local model server]"},
-	}},
 }
 
 func NewCheckCmd() *cobra.Command {
@@ -71,6 +69,19 @@ with install hints. Exits non-zero if anything is missing.`,
 				}
 				fmt.Println()
 			}
+
+			// LM Studio reachability check (HTTP, not a binary on PATH)
+			fmt.Println(ui.Bold("AI backend"))
+			if lmstudio.IsRunning() {
+				fmt.Printf("  %s  LM Studio (%s)\n", ui.Green("[OK]"), lmstudio.Host())
+				pass++
+			} else {
+				fmt.Printf("  %s  %-24s %s\n", ui.Red("[!!]"), "LM Studio",
+					ui.Dim("start LM Studio and load a model  ["+lmstudio.Host()+"]"))
+				fail++
+			}
+			fmt.Println()
+
 			if fail == 0 {
 				fmt.Printf("%s\n", ui.Green(fmt.Sprintf("All %d dependencies present.", pass)))
 				return nil

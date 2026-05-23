@@ -15,7 +15,7 @@ import (
 
 	"github.com/jacobandresen/mu/internal/agent"
 	"github.com/jacobandresen/mu/internal/archive"
-	"github.com/jacobandresen/mu/internal/ollama"
+	"github.com/jacobandresen/mu/internal/lmstudio"
 	"github.com/jacobandresen/mu/internal/plan"
 	"github.com/jacobandresen/mu/internal/sensors"
 	"github.com/jacobandresen/mu/internal/ui"
@@ -26,20 +26,16 @@ import (
 const logDir = ".mu"
 
 type agentConfig struct {
-	Goal            string
-	TargetDir       string
-	MaxIter         int
-	Force           bool
-	PlannerTimeout  int
-	WriterTimeout   int
-	AgentModel      string
-	BaseModel       string
-	Thinking        string
-	PlannerThinking string
-	WriterThinking  string
-	Combined        int // -1=auto, 0=off, 1=on
-	ArchiveDir      string
-	Complexity      string
+	Goal           string
+	TargetDir      string
+	MaxIter        int
+	Force          bool
+	PlannerTimeout int
+	WriterTimeout  int
+	Model          string
+	Combined       int // -1=auto, 0=off, 1=on
+	ArchiveDir     string
+	Complexity     string
 }
 
 func NewAgentCmd() *cobra.Command {
@@ -59,39 +55,37 @@ func NewAgentCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&cfg.TargetDir, "dir", "d", "", "Create/enter PATH before running")
 	cmd.Flags().IntVarP(&cfg.MaxIter, "max-iter", "n", 10, "Maximum iterations")
 	cmd.Flags().BoolVar(&cfg.Force, "force", false, "Skip the existing-project guard")
+	cmd.Flags().StringVar(&cfg.Model, "model", "", "LM Studio model ID (overrides MU_AGENT_MODEL)")
 	return cmd
 }
 
 func runAgent(cfg agentConfig) error {
-	// Read env vars
-	cfg.AgentModel = orEnv(cfg.AgentModel, "MU_AGENT_MODEL")
-	cfg.BaseModel = orEnv("qwen2.5-coder:7b", "MU_AGENT_BASE_MODEL")
-	cfg.Thinking = os.Getenv("MU_AGENT_THINKING")
-	cfg.PlannerThinking = os.Getenv("MU_AGENT_PLANNER_THINKING")
-	cfg.WriterThinking = os.Getenv("MU_AGENT_WRITE_THINKING")
-	if cfg.PlannerThinking == "" {
-		cfg.PlannerThinking = cfg.Thinking
+	// Model selection: flag → env → first loaded model in LM Studio
+	if cfg.Model == "" {
+		cfg.Model = os.Getenv("MU_AGENT_MODEL")
 	}
-	if cfg.WriterThinking == "" {
-		cfg.WriterThinking = cfg.Thinking
+	if cfg.Model == "" {
+		loaded, err := lmstudio.ListModels()
+		if err != nil || len(loaded) == 0 {
+			return fmt.Errorf("no model loaded in LM Studio — load a model first (mu model models)")
+		}
+		cfg.Model = loaded[0]
+		agentLog("Using LM Studio model: %s", cfg.Model)
 	}
-	if v := os.Getenv("MU_AGENT_PLANNER_TIMEOUT"); v != "" {
-		cfg.PlannerTimeout, _ = strconv.Atoi(v)
-	}
+
 	home, _ := os.UserHomeDir()
 	cfg.ArchiveDir = os.Getenv("MU_AGENT_ARCHIVE_DIR")
 	if cfg.ArchiveDir == "" {
 		cfg.ArchiveDir = filepath.Join(home, ".mu", "sessions")
 	}
 
-	// Combined mode from env
 	cfg.Combined = -1
 	if v := os.Getenv("MU_AGENT_COMBINED"); v != "" {
 		n, _ := strconv.Atoi(v)
 		cfg.Combined = n
 	}
 
-	// Auto-tune by complexity
+	// Auto-tune timeouts by goal complexity
 	detectComplexity(&cfg)
 
 	// Directory setup
@@ -112,21 +106,6 @@ func runAgent(cfg agentConfig) error {
 	// Setup
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		return fmt.Errorf("create log dir: %w", err)
-	}
-
-	// Model setup
-	if cfg.AgentModel == "" {
-		model, err := ensureAgentModel(cfg.BaseModel)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "WARNING: could not create agent model: %v — using %s\n", err, cfg.BaseModel)
-			cfg.AgentModel = cfg.BaseModel
-		} else {
-			cfg.AgentModel = model
-		}
-	}
-	_ = ollama.UnloadOthers(cfg.AgentModel)
-	if err := ollama.LoadModel(cfg.AgentModel, "-1s"); err != nil {
-		agentLog("WARNING: could not pre-load model: %v", err)
 	}
 
 	// Session
@@ -283,9 +262,7 @@ func runAgent(cfg agentConfig) error {
 						retryPrompt += "\nCRITICAL: Call EXACT method/function names from the reference files above.\n"
 					}
 				}
-				retryCfg := cfg
-				retryCfg.WriterThinking = "medium"
-				if !runWriterWithSession(&retryCfg, task.FilePath, retryPrompt, autonomousSystem) {
+				if !runWriter(&cfg, task.FilePath, retryPrompt, autonomousSystem) {
 					agentLog("Iteration %d: %s not written after retry.", i, task.FilePath)
 					exitCode = 3
 					return fmt.Errorf("stalled: model did not write %s", task.FilePath)
@@ -293,14 +270,13 @@ func runAgent(cfg agentConfig) error {
 			}
 		}
 
-		// Detect near-empty written file (e.g. writer produced only "import app" for a test file).
-		// Any real source file is > 100 bytes; stubs from stalled models are much smaller.
+		// Detect near-empty written file
 		if fi, statErr := os.Stat(task.FilePath); statErr == nil && fi.Size() < 100 {
 			ext := strings.ToLower(filepath.Ext(task.FilePath))
 			isConfigLike := ext == ".txt" || ext == ".toml" || ext == ".mod" || ext == ".sum" ||
 				ext == ".json" || ext == ".yaml" || ext == ".yml" || ext == ".lock"
 			if !plan.IsBuildFile(task.FilePath) && !isConfigLike {
-				agentLog("Writer produced near-empty %s (%d bytes) — retrying with thinking.", task.FilePath, fi.Size())
+				agentLog("Writer produced near-empty %s (%d bytes) — retrying.", task.FilePath, fi.Size())
 				_ = os.Remove(task.FilePath)
 				stubRetryPrompt := fmt.Sprintf("Write file NOW: `%s`\nYou ONLY have the Write tool. Use it immediately — do not try to run commands or install packages.\nCall Write exactly once with the complete file contents. Stop immediately after.\n\nGOAL: %s\n%s",
 					task.FilePath, cfg.Goal, p.PlanContext)
@@ -310,9 +286,7 @@ func runAgent(cfg agentConfig) error {
 						stubRetryPrompt += "\nCRITICAL: Call EXACT method/function names from the reference files above.\n"
 					}
 				}
-				retryCfg := cfg
-				retryCfg.WriterThinking = "medium"
-				if !runWriterWithSession(&retryCfg, task.FilePath, stubRetryPrompt, autonomousSystem) {
+				if !runWriter(&cfg, task.FilePath, stubRetryPrompt, autonomousSystem) {
 					agentLog("Iteration %d: %s still near-empty after retry.", i, task.FilePath)
 				}
 			}
@@ -348,8 +322,6 @@ func runAgent(cfg agentConfig) error {
 		if lintCmd := lintCommand(task.FilePath, p); lintCmd != "" {
 			lintLog := filepath.Join(logDir, fmt.Sprintf("lint-iter-%02d.log", i))
 			if !runLint(lintCmd, lintLog) {
-				// Try ruff --fix before invoking the model — ruff can auto-fix many F401s
-				// and similar issues without LLM involvement, and does so correctly.
 				if sensors.RuffAutoFix(task.FilePath) && runLint(lintCmd, lintLog) {
 					agentLog("Lint auto-fixed (ruff --fix): %s", task.FilePath)
 				} else {
@@ -377,7 +349,6 @@ func runAgent(cfg agentConfig) error {
 		}
 
 		// Test gate after test files — but only if no future build-file tasks remain.
-		// Running "make test" before the Makefile is written always fails.
 		testCmd := p.TestCommand
 		if testCmd != "" && isTestFile(task.FilePath) && !plan.HasPendingBuildFile(p) {
 			testLog := filepath.Join(logDir, fmt.Sprintf("tests-iter-%02d.log", i))
@@ -446,64 +417,13 @@ func detectComplexity(cfg *agentConfig) {
 	}
 	cfg.Complexity = complexity
 
-	if cfg.PlannerThinking == "" {
-		cfg.PlannerThinking = "off"
-	}
-	if cfg.WriterThinking == "" {
-		cfg.WriterThinking = "off"
-	}
-
-	ctxScale := 1.0
-	if ollama.NumCtx() >= 8000 {
-		ctxScale = 1.5
-	}
-	// num_thread=1 forces single-CPU inference — 5-10x slower than auto on Apple Silicon.
-	// Double all timeouts so writers and repairs don't expire before the model finishes.
-	if ollama.NumThread() == 1 {
-		ctxScale *= 2.0
-	}
 	if cfg.PlannerTimeout == 0 {
-		base := map[string]int{"trivial": 120, "simple": 200, "complex": 360, "hard": 480}[complexity]
-		cfg.PlannerTimeout = int(float64(base) * ctxScale)
+		cfg.PlannerTimeout = map[string]int{"trivial": 120, "simple": 200, "complex": 360, "hard": 480}[complexity]
 	}
-	cfg.WriterTimeout = int(float64(map[string]int{"trivial": 90, "simple": 220, "complex": 300, "hard": 400}[complexity]) * ctxScale)
+	cfg.WriterTimeout = map[string]int{"trivial": 90, "simple": 220, "complex": 300, "hard": 400}[complexity]
 
 	cfg.Combined = 0
 }
-
-// ── Model setup ──────────────────────────────────────────────────────────────
-
-func ensureAgentModel(base string) (string, error) {
-	parts := strings.SplitN(base, ":", 2)
-	target := parts[0] + ":mu"
-
-	if _, err := ollama.ShowModel(target); err == nil {
-		return target, nil
-	}
-
-	agentLog("Creating %s (temperature=0, num_ctx=%d) from %s ...", target, ollama.NumCtx(), base)
-
-	params := map[string]any{
-		"temperature": 0,
-		"num_ctx":     ollama.NumCtx(),
-		// Runaway guard: bound a single response so a degenerate loop can't burn the
-		// whole writer timeout. 4096 tokens comfortably exceeds any real dojo file;
-		// with thinking disabled (think:false) real responses are a few hundred tokens.
-		"num_predict": 4096,
-	}
-	if k := ollama.NumKeep(); k >= 0 {
-		params["num_keep"] = k
-	}
-	if err := ollama.CreateModel(target, base, params); err != nil {
-		agentLog("WARNING: ollama create failed — using %s (temperature uncontrolled)", base)
-		return base, nil
-	}
-
-	// Update models.json
-	_ = upsertModelsJSON(modelsPath(), target)
-	return target, nil
-}
-
 
 // ── Standalone guard ──────────────────────────────────────────────────────────
 
@@ -521,8 +441,6 @@ func checkStandalone(force bool) error {
 			fileCount++
 		}
 	}
-	// Only count commits when a .git directory exists directly here (not an ancestor repo).
-	// Without this check, target dirs nested inside a git repo (like dojo/) inherit its history.
 	gitCommits := 0
 	if _, err := os.Stat(".git"); err == nil {
 		if out, err2 := exec.Command("git", "rev-list", "--count", "HEAD").Output(); err2 == nil {
@@ -565,8 +483,8 @@ func runPlanningPhase(cfg *agentConfig) error {
 		if attempt > 1 {
 			agentLog("Planner attempt %d / %d (previous attempt produced no PLAN.md)", attempt, maxAttempts)
 		} else {
-			agentLog("Planning: %s (planner=%s writer=%s timeout=%ds complexity=%s)",
-				cfg.Goal, cfg.PlannerThinking, cfg.WriterThinking, cfg.PlannerTimeout, cfg.Complexity)
+			agentLog("Planning: %s (timeout=%ds complexity=%s)",
+				cfg.Goal, cfg.PlannerTimeout, cfg.Complexity)
 		}
 
 		if cfg.Combined == 1 && attempt == 1 {
@@ -608,17 +526,13 @@ func runPlanner(cfg *agentConfig) {
 		system += "\n\n" + core
 	}
 	timeout := time.Duration(cfg.PlannerTimeout) * time.Second
-	msgs := []ollama.Message{
+	msgs := []lmstudio.Message{
 		{Role: "system", Content: system},
 		{Role: "user", Content: buildPlannerPrompt(cfg.Goal, projectDir)},
 	}
 	fmt.Printf("  %s...\n", "Planning")
-	var plannerThink any // nil = model default
-	if cfg.PlannerThinking == "off" {
-		plannerThink = false
-	}
 	callStart := time.Now()
-	msg, stats, err := ollama.Chat(cfg.AgentModel, msgs, nil, plannerThink, timeout)
+	msg, stats, err := lmstudio.Chat(cfg.Model, msgs, nil, timeout)
 	elapsed := time.Since(callStart)
 	agentLog("chat: prompt=%d gen=%d time=%.1fs", stats.PromptTokens, stats.GeneratedTokens, elapsed.Seconds())
 	agentLog("Planner: %.1fs", time.Since(t0).Seconds())
@@ -627,7 +541,6 @@ func runPlanner(cfg *agentConfig) {
 		return
 	}
 
-	// Log raw response for debugging (first 400 chars).
 	preview := msg.Content
 	if len(preview) > 400 {
 		preview = preview[:400]
@@ -707,8 +620,6 @@ GOAL: %s`, projectDir, cfg.Goal)
 
 	combinedTimeout := time.Duration(cfg.PlannerTimeout+cfg.WriterTimeout) * time.Second
 	sess := agent.NewSession(systemPrompt)
-	// Exit as soon as PLAN.md and its first source file both exist — don't wait for
-	// the model's "I'm done" response, which can time out after the files are written.
 	sess.WatchFunc = func() bool {
 		if _, e := os.Stat("PLAN.md"); e != nil {
 			return false
@@ -720,9 +631,8 @@ GOAL: %s`, projectDir, cfg.Goal)
 		_, e = os.Stat(p.Tasks[0].FilePath)
 		return e == nil
 	}
-	_, err := sess.Run(cfg.AgentModel, prompt, cfg.PlannerThinking, "Planning", 30, "", combinedTimeout)
+	_, err := sess.Run(cfg.Model, prompt, "Planning", 30, "", combinedTimeout)
 	if err != nil {
-		// Suppress timeout noise when files were already written before the deadline fired
 		if _, e := os.Stat("PLAN.md"); e != nil {
 			agentLog("Combined planner: %v", err)
 		}
@@ -744,10 +654,6 @@ GOAL: %s`, projectDir, cfg.Goal)
 // ── Writer ────────────────────────────────────────────────────────────────────
 
 func runWriter(cfg *agentConfig, targetFile, prompt, autonomousSystem string) bool {
-	return runWriterWithSession(cfg, targetFile, prompt, autonomousSystem)
-}
-
-func runWriterWithSession(cfg *agentConfig, targetFile, prompt, autonomousSystem string) bool {
 	if dir := filepath.Dir(targetFile); dir != "." {
 		os.MkdirAll(dir, 0755)
 	}
@@ -756,9 +662,9 @@ func runWriterWithSession(cfg *agentConfig, targetFile, prompt, autonomousSystem
 	systemPrompt := autonomousSystem + "\n\n" + writeRules
 
 	sess := agent.NewSession(systemPrompt)
-	sess.Tools = agent.WriterToolDefs // Write + Edit only — prevent Bash/Read detours
+	sess.Tools = agent.WriterToolDefs
 	timeout := time.Duration(cfg.WriterTimeout) * time.Second
-	ok, err := sess.Run(cfg.AgentModel, prompt, cfg.WriterThinking, "Writing", 15, targetFile, timeout)
+	ok, err := sess.Run(cfg.Model, prompt, "Writing", 15, targetFile, timeout)
 	if err != nil {
 		agentLog("Writer: %v", err)
 	}
@@ -767,8 +673,6 @@ func runWriterWithSession(cfg *agentConfig, targetFile, prompt, autonomousSystem
 
 // ── Test gate ─────────────────────────────────────────────────────────────────
 
-// runTests runs cmd, writing output to logFile.  A hard 120-second wall-clock
-// timeout prevents interactive programs (reading stdin) from hanging forever.
 func runTests(cmd, logFile string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
@@ -781,21 +685,14 @@ func runTests(cmd, logFile string) bool {
 	return err == nil
 }
 
-// repairMaxIters bounds the iterative repair loop (edit → run test → observe → repeat).
 const repairMaxIters = 6
 
-// repairLoopRules is the system-prompt addendum for the iterative repair loop. Unlike the
-// old one-shot repair, the harness runs the test after each edit and feeds the result back,
-// so the model is told the test runs for it and to make one edit per turn.
 const repairLoopRules = `REPAIR RULES — follow exactly:
 1. You are fixing failing tests. Each turn, make ONE targeted change: call Edit, or Write to replace a whole file.
 2. Do NOT run any commands. The test is run for you after each edit and the new output is shown to you.
 3. Only modify files that already exist. Do not create new files. Do not touch PLAN.md.
 4. Call the tool immediately — no prose, no explanation. Stop after one tool call.`
 
-// runTestRepairLoop spins up an iterative repair session for testCmd and returns whether the
-// test passes by the end. The harness runs the test (deterministic) and feeds output back to
-// the model between edits — see agent.Session.RepairLoop and AGENTS.md §2.5.
 func runTestRepairLoop(cfg *agentConfig, testCmd, testLog string, p *plan.Plan, autonomousSystem string) bool {
 	sess := agent.NewSession(autonomousSystem + "\n\n" + repairLoopRules)
 	sess.Tools = agent.RepairToolDefs
@@ -805,17 +702,15 @@ func runTestRepairLoop(cfg *agentConfig, testCmd, testLog string, p *plan.Plan, 
 		return ok, tailFile(testLog, 60)
 	}
 	reapply := func() { reapplyMakefileFix(p) }
-	return sess.RepairLoop(cfg.AgentModel, cfg.Goal, repairMaxIters, timeout, runTest, reapply)
+	return sess.RepairLoop(cfg.Model, cfg.Goal, repairMaxIters, timeout, runTest, reapply)
 }
 
 func runRepairLint(cfg *agentConfig, lintCmd, filePath, lintHead, autonomousSystem string) {
-	// Include file content only for small files to keep prompt size manageable.
 	fileContent := ""
 	if data, err := os.ReadFile(filePath); err == nil && len(data) < 3000 {
 		fileContent = fmt.Sprintf("\n\nCurrent file:\n```\n%s\n```", string(data))
 	}
 
-	// Add targeted hint for common, hard-to-repair errors.
 	hint := ""
 	isSingleQuoteIssue := strings.Contains(lintHead, "missing closing quote in string literal") ||
 		(strings.Contains(lintHead, "invalid-syntax") && strings.Contains(lintHead, "execute('"))
@@ -838,7 +733,7 @@ func runRepairLint(cfg *agentConfig, lintCmd, filePath, lintHead, autonomousSyst
 	sess := agent.NewSession(systemPrompt)
 	sess.Tools = agent.RepairToolDefs
 	timeout := time.Duration(cfg.WriterTimeout) * time.Second
-	_, err := sess.Run(cfg.AgentModel, prompt, "off", "Repairing", 4, "", timeout)
+	_, err := sess.Run(cfg.Model, prompt, "Repairing", 4, "", timeout)
 	if err != nil {
 		agentLog("Lint repair: %v", err)
 	}
@@ -863,9 +758,6 @@ func finalTestGate(cfg *agentConfig, p *plan.Plan, autonomousSystem string) erro
 	return fmt.Errorf("final tests failed")
 }
 
-// reapplyMakefileFix re-runs the general Makefile-syntax sensors on every Makefile in the
-// plan. The repair model frequently reverts structural fixes (e.g. removes tab indentation,
-// re-introduces bare shell commands with no target).
 func reapplyMakefileFix(p *plan.Plan) {
 	if p == nil {
 		return
@@ -895,8 +787,6 @@ func reapplyMakefileFix(p *plan.Plan) {
 	}
 }
 
-// recordFailedRepair appends a note to PLAN.md's ## Repair History section so that
-// subsequent repair turns know what was already tried and avoid repeating it.
 func recordFailedRepair(label, errorSnippet string) {
 	const planFile = "PLAN.md"
 	data, err := os.ReadFile(planFile)
@@ -923,8 +813,6 @@ func recordFailedRepair(label, errorSnippet string) {
 	_ = os.WriteFile(planFile, []byte(content), 0644)
 }
 
-// repairHistory reads any ## Repair History section from PLAN.md and returns it formatted
-// for inclusion in a repair prompt, so the model avoids repeating failed approaches.
 func repairHistory() string {
 	data, err := os.ReadFile("PLAN.md")
 	if err != nil {
@@ -997,8 +885,6 @@ func checkBuildFilePaths(buildFile string, p *plan.Plan) {
 	}
 }
 
-// buildPlannerSystem returns a minimal system prompt for planning calls.
-// No tools are used — model outputs plain PLAN.md markdown directly.
 func buildPlannerSystem(projectDir string) string {
 	return fmt.Sprintf("You are a planning agent in: %s\nOutput ONLY the raw PLAN.md markdown. No preamble, no explanation, no code blocks.", projectDir)
 }
@@ -1062,8 +948,6 @@ func buildWritePrompt(goal string, task *plan.Task, p *plan.Plan, projectDir str
 
 // ── Lint ─────────────────────────────────────────────────────────────────────
 
-// lintCommand returns the lint command for filePath, or "" to skip.
-// Skips C/C++ files in Makefile projects (the compiler handles them via make).
 func lintCommand(filePath string, p *plan.Plan) string {
 	if plan.IsBuildFile(filePath) {
 		return ""
@@ -1096,14 +980,11 @@ func lintCommand(filePath string, p *plan.Plan) string {
 
 	switch ext {
 	case ".py":
-		// ruff preferred; fall back to py_compile syntax-only check
 		if _, err := exec.LookPath("ruff"); err == nil {
 			return "ruff check --select=E9,F " + filePath
 		}
 		return "python3 -m py_compile " + filePath
 	case ".go":
-		// Skip go vet when Makefile handles the build — go vet requires deps to be
-		// downloaded first, which the Makefile does via go mod tidy / go get.
 		if hasMakefile {
 			return ""
 		}
@@ -1150,10 +1031,6 @@ func runLint(lintCmd, logFile string) bool {
 	return c.Run() == nil
 }
 
-// fixDemonstrationScript detects when the model adds unnecessary test files to a
-// "show that X works" goal. In demonstration goals the program itself is the test;
-// pytest is never needed. When found, removes test tasks and rewrites the test
-// command to run the main script directly (python3 <file>).
 func fixDemonstrationScript(planFile string, p *plan.Plan, goal string) bool {
 	if p == nil {
 		return false
@@ -1204,7 +1081,6 @@ func fixDemonstrationScript(planFile string, p *plan.Plan, goal string) bool {
 		if skip {
 			continue
 		}
-		// Rewrite test command line
 		if strings.TrimSpace(line) == strings.TrimSpace(p.TestCommand) {
 			line = "python3 " + mainFile
 		}
