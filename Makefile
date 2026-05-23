@@ -1,7 +1,7 @@
-.PHONY: build install
+.PHONY: install deps
 
-build:
-	go build -o bin/mu ./cmd/mu
-
-install: build
+install:
 	ln -sf $(PWD)/bin/mu $(HOME)/.local/bin/mu
+
+deps:
+	pip3 install --break-system-packages -e .

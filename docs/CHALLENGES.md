@@ -141,7 +141,7 @@ of context or generates an end-of-sequence token instead of a tool call. Distinc
 
 **Impact:** Extra retry cycle needed; if retries also fail, task is abandoned.
 
-**Fix landed (2026-05-21, run 4):** Code-block extraction in `session.go`. When the model
+**Fix landed (2026-05-21, run 4):** Code-block extraction in `session.py`. When the model
 returns prose with no tool calls in writer mode and the target file doesn't exist, the agent
 now extracts the first fenced code block matching the file's extension and writes it directly.
 This recovers the content the model wrote as prose without an extra LLM round-trip.

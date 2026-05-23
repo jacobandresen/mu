@@ -1,0 +1,167 @@
+"""Tool definitions and dispatch for the agent loop."""
+
+import subprocess
+from pathlib import Path
+from typing import Any
+
+WRITE: dict[str, Any] = {
+    'type': 'function',
+    'function': {
+        'name': 'Write',
+        'description': 'Write a file with the given content, creating parent directories as needed.',
+        'parameters': {
+            'type': 'object',
+            'properties': {
+                'path': {'type': 'string', 'description': 'Absolute or relative file path'},
+                'content': {'type': 'string', 'description': 'Complete file content'},
+            },
+            'required': ['path', 'content'],
+        },
+    },
+}
+
+EDIT: dict[str, Any] = {
+    'type': 'function',
+    'function': {
+        'name': 'Edit',
+        'description': 'Replace the first occurrence of old_string with new_string in the file.',
+        'parameters': {
+            'type': 'object',
+            'properties': {
+                'path': {'type': 'string', 'description': 'File path'},
+                'old_string': {'type': 'string', 'description': 'Exact string to replace'},
+                'new_string': {'type': 'string', 'description': 'Replacement string'},
+            },
+            'required': ['path', 'old_string', 'new_string'],
+        },
+    },
+}
+
+BASH: dict[str, Any] = {
+    'type': 'function',
+    'function': {
+        'name': 'Bash',
+        'description': 'Run a shell command and return combined stdout+stderr.',
+        'parameters': {
+            'type': 'object',
+            'properties': {
+                'command': {'type': 'string', 'description': 'Shell command to execute'},
+            },
+            'required': ['command'],
+        },
+    },
+}
+
+READ: dict[str, Any] = {
+    'type': 'function',
+    'function': {
+        'name': 'Read',
+        'description': 'Read and return the contents of a file.',
+        'parameters': {
+            'type': 'object',
+            'properties': {
+                'path': {'type': 'string', 'description': 'File path to read'},
+            },
+            'required': ['path'],
+        },
+    },
+}
+
+ALL = [WRITE, EDIT, BASH, READ]
+WRITER = [WRITE, EDIT]
+REPAIR = [WRITE, EDIT, READ]
+
+
+def dispatch(name: str, args: dict) -> str:
+    if name == 'Write':
+        return _write(args.get('path', ''), args.get('content', ''))
+    if name == 'Edit':
+        return _edit(args.get('path', ''), args.get('old_string', ''),
+                     args.get('new_string', ''))
+    if name == 'Bash':
+        return _bash(args.get('command', ''))
+    if name == 'Read':
+        return _read(args.get('path', ''))
+    return f"unknown tool: {name}"
+
+
+def log_call(tc: dict) -> None:
+    fn, args = tc['function'], tc['function']['arguments']
+    name = fn['name']
+    if name in ('Write', 'Edit'):
+        print(f"==> [mu-agent] tool: {name}({args.get('path', '')!r})")
+    elif name == 'Bash':
+        cmd = args.get('command', '')
+        print(f"==> [mu-agent] tool: Bash({(cmd[:77] + '...') if len(cmd) > 80 else cmd!r})")
+    else:
+        print(f"==> [mu-agent] tool: {name}")
+
+
+def _write(path: str, content: str) -> str:
+    try:
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content)
+        return f"wrote {path} ({len(content)} bytes)"
+    except Exception as e:
+        return f"error writing file: {e}"
+
+
+def _edit(path: str, old_str: str, new_str: str) -> str:
+    try:
+        data = Path(path).read_text()
+    except Exception as e:
+        return f"error reading file: {e}"
+    if old_str not in data:
+        return f"old_string not found in {path}"
+    try:
+        Path(path).write_text(data.replace(old_str, new_str, 1))
+        return f"edited {path}"
+    except Exception as e:
+        return f"error writing file: {e}"
+
+
+def _bash(command: str) -> str:
+    try:
+        result = subprocess.run(['bash', '-c', command], capture_output=True,
+                                text=True, timeout=60)
+        out = result.stdout + result.stderr
+        return out if out else f"exit code {result.returncode}"
+    except subprocess.TimeoutExpired:
+        return "command timed out"
+    except Exception as e:
+        return f"error: {e}"
+
+
+def _read(path: str) -> str:
+    try:
+        return Path(path).read_text()
+    except Exception as e:
+        return f"error reading file: {e}"
+
+
+def extract_code_block(content: str, file_path: str) -> tuple[str, bool]:
+    ext = Path(file_path).suffix.lstrip('.').lower() or Path(file_path).name.lower()
+    langs_map = {
+        'py': ['python', 'py'], 'go': ['go'], 'c': ['c'], 'h': ['c', 'h'],
+        'cpp': ['cpp', 'c++'], 'rs': ['rust', 'rs'], 'cs': ['csharp', 'cs'],
+        'js': ['javascript', 'js'], 'ts': ['typescript', 'ts'],
+        'sh': ['bash', 'sh', 'shell'], 'toml': ['toml'],
+        'yaml': ['yaml', 'yml'], 'yml': ['yaml', 'yml'],
+        'json': ['json'], 'makefile': ['makefile', 'make'],
+    }
+    for lang in langs_map.get(ext, [ext]):
+        code, ok = _extract_fence(content, f'```{lang}')
+        if ok:
+            return code, True
+    return _extract_fence(content, '```')
+
+
+def _extract_fence(content: str, opener: str) -> tuple[str, bool]:
+    needle = opener + '\n'
+    idx = content.find(needle)
+    if idx < 0:
+        return '', False
+    rest = content[idx + len(needle):]
+    end = rest.find('\n```')
+    return (rest[:end], True) if end >= 0 else ('', False)

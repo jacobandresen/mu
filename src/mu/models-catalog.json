@@ -1,0 +1,40 @@
+{
+  "models": [
+    {
+      "id": "qwen/qwen2.5-coder-7b-instruct",
+      "contextWindow": 32768,
+      "input": ["text"],
+      "description": "Best 8 GB option. Code specialist, 88.4% HumanEval, native tool calling, 92+ languages."
+    },
+    {
+      "id": "mistralai/devstral-small-2507",
+      "contextWindow": 131072,
+      "input": ["text"],
+      "description": "Best 16 GB option. 53.6% SWE-bench Verified (#1 open-source). Trained for agentic coding."
+    },
+    {
+      "id": "bartowski/deepseek-coder-v2-lite-instruct",
+      "contextWindow": 131072,
+      "input": ["text"],
+      "description": "16 GB alt. MoE 16B/2.4B active. Fast inference, 338 languages."
+    },
+    {
+      "id": "unsloth/qwen3-coder-30b-a3b-instruct",
+      "contextWindow": 262144,
+      "input": ["text"],
+      "description": "32 GB tier. MoE 30B/3B active. Agentic tool use, 256K context."
+    },
+    {
+      "id": "google/gemma-4-e2b",
+      "contextWindow": 131072,
+      "input": ["text", "image"],
+      "description": "Fast 2B model. Fits in GPU on 8 GB M2. Tool calling unreliable on complex tasks."
+    },
+    {
+      "id": "mistralai/mistral-7b-instruct-v0.3",
+      "contextWindow": 32768,
+      "input": ["text"],
+      "description": "General 7B model. Pre-2025, no code specialization. Prefer qwen2.5-coder for dojo."
+    }
+  ]
+}

@@ -1,2 +1,0 @@
-cargo build
- cargo run

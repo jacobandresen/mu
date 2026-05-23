@@ -5,8 +5,7 @@ mu is a local AI coding toolkit: `mu agent "<goal>"` drives an autonomous
 plan → write → verify loop on top of a local LLM via LM Studio.
 
 This file is the source of truth for *how to work on mu*. If it conflicts with
-older docs (e.g. `docs/HARNESS_ENGINEERING.md`, `README.md`), this file wins; those
-predate the 2026-05-22 "honest harness" refactor and are partly historical.
+older docs (e.g. `docs/HARNESS_ENGINEERING.md`, `README.md`), this file wins.
 
 ---
 
@@ -18,177 +17,116 @@ harness's real capability** at driving a small local model — not to score poin
 
 **Do not optimize the harness against the specific dojo problems.** Concretely:
 
-- **No hardcoded languages.** Don't add a `switch lang { case "python": ... }`
-  that bakes in the test languages, and never key behavior off the dojo goals.
-  The LLM planner produces `PLAN.md`; the model decides file names and structure.
-  (The old Go plan-generator and its problem-name filename list were removed for
-  exactly this reason — v0.6.0.)
+- **No hardcoded languages.** Don't add `if lang == "python":` that bakes in the
+  test languages. The LLM planner produces `PLAN.md`; the model decides file names.
 - **No problem-specific sensors.** A deterministic fixer is only allowed if it
-  corrects a *general class* of model error in a language or build system. If the
-  bug only shows up because one dojo problem happens to exercise it, it's overfit.
+  corrects a *general class* of model error in a language or build system.
 - **When a dojo problem fails, the honest fix is a general one:** a better model
   choice, a better *generic* prompt rule, or a general mechanism — never a
   band-aid that pattern-matches that one problem's output.
-
-Why this matters: a sensor that swaps `SDL_DestroySurface`→`SDL_FreeSurface` or
-injects a `pip install` step measures *the harness author's knowledge of the
-test*, not the agent. That inflates scores and hides the real capability gap.
 
 ---
 
 ## 1. The sensor test
 
-`internal/sensors/` holds deterministic, model-free fixers applied after a file
+`mu/sensors.py` holds deterministic, model-free fixers applied after a file
 is written. Before adding or keeping one, apply this test:
 
 > **Would I write this exact fix for any program in this language/build system,
 > independent of the dojo? If the answer is "no, only because problem X needs
 > it," the sensor is overfit — don't add it.**
 
-**Allowed (general language-class fixes) — these currently exist:**
+**Allowed (general language-class fixes):**
 
 | Area | Sensor | Why it's general |
 |------|--------|------------------|
-| Makefile | `FixMakefileSpaceIndent` | Make *requires* tab-indented recipes — true for every Makefile |
-| Makefile | `FixOrphanTopLevelCommands`, `FixNoTargets`, `FixInlineRecipe`, `FixDuplicateVar` | General Makefile syntax repair |
-| Python | `FixMultilineSingleQuote`, `FixMissingCloseParen` | General Python syntax errors |
-| Python | `FixTestImportModule` | Test imports a module name that isn't on disk — general |
-| Python | `RuffAutoFix` | Runs `ruff --fix`; a general linter |
+| Makefile | `fix_makefile_space_indent` | Make *requires* tab-indented recipes |
+| Makefile | `fix_orphan_top_level_commands`, `fix_no_targets`, `fix_inline_recipe`, `fix_duplicate_var` | General Makefile syntax repair |
+| Python | `fix_multiline_single_quote`, `fix_missing_close_paren` | General Python syntax errors |
+| Python | `fix_test_import_module` | Test imports a module name not on disk — general |
+| Python | `ruff_autofix` | Runs `ruff --fix`; a general linter |
 
-**Removed (problem-specific) — do NOT reintroduce in any form:**
-SDL2 include/API fixers, `FixMakefileSDL2`, `FixMakefilePipInstall`, all
-`FixCsproj*`, all Cargo/`go.mod`/`FixGoMakefile`/`FixGoLiteralNewlines` fixers,
-`FixDotnetTestCommand`, `FixGraphicalTestCommand`, `FixNoMakefileTestCommand`,
-`FixPythonMakefileTest`, `FixPytestPath`. These each encoded one dojo problem.
-`CHALLENGES.md` keeps them as a *historical* record ("Fix landed" = "was tried").
+**Removed (problem-specific) — do NOT reintroduce:**
+SDL2 include/API fixers, C# `.csproj` fixers, Go `go.mod` fixers, pytest path
+fixers, pipeline-specific `pip install` injectors. These encoded one dojo problem.
 
 ---
 
 ## 2. Prefer generic instructions over sensors
 
 When the model makes a mistake that *is* general to a language, the right fix is
-usually a **prompt rule in `buildAutonomousSystem` (the writer system prompt)**,
+usually a **prompt rule in `_build_autonomous_system`** (in `mu/agent.py`),
 not a post-hoc sensor. A prompt rule teaches the model to get it right the first
-time and generalizes to programs the dojo never tests.
+time.
 
-**Rule for prompt additions: same honesty test as sensors.** An instruction is
-acceptable only if it's true for *all* programs in that language/build system.
-Never write "if the goal mentions SDL2…" into a prompt.
-
-**Candidate generic instructions** (proposed; apply *after* the v0.6.0 baseline
-so we measure the raw model first — see §4):
-
-- *Makefiles:* "Indent every recipe line with a TAB, never spaces. Every Makefile
-  must define a default target. Put each recipe command on its own tab-indented
-  line, not on the target line."
-- *Python testability:* "Write modules that are safe to `import`: initialize any
-  required state (DB schema, etc.) at module load, not only under
-  `if __name__ == '__main__'`, so tests can import and use the module directly."
-- *Test files:* "Import from the real module/file you created and call its exact
-  public names." (A weaker form already exists in `buildWritePrompt`.)
-- *Python strings:* "Multi-line string literals must use triple quotes."
-
-**Do NOT** turn these into prompt rules — they are environment/problem-specific
-and belong nowhere: SDL3-vs-SDL2 API choice, `.csproj` TargetFramework matching
-the installed SDK, pinning hallucinated dependency versions, injecting specific
-pip packages. If the model gets these wrong, that's a real capability signal.
+**Rule for prompt additions: same honesty test as sensors.**
 
 ---
 
 ## 2.5 The v0.3 lesson: a general iterative loop beats sensors
 
 The highest dojo score ever recorded is **v0.3 (2026-05-17): 6/7** — higher than
-every sensor-laden version since (v0.4–v0.6 peaked at 5/7). v0.3 had only a handful
-of sensors. What it had instead was **`pi` as a general, iterative agent** driving
-the writer and especially the repair phase.
+every sensor-laden version since. What it had was **an iterative repair loop** that
+could run the test command, read the failure, edit, re-run, and iterate until green.
 
-The decisive difference is in the logs:
-
-```
-v0.3 repair:  "Repair: tests pass after 68s — stopping pi."
-```
-
-v0.3's repair was a full agent session that could **run the test command, read the
-failure, edit, re-run, and iterate until green** — mu just polled for a passing test
-and stopped the agent. The current `runRepair` does the opposite: Bash is withheld
-(`agent.RepairToolDefs`), it gets ~4 turns, makes one blind edit, and **cannot
-observe whether its fix worked**. `finalTestGate` retries it twice with no feedback
-loop inside.
-
-**Lesson — and the priority generic improvement:** the path back to 6/7+ is a real
-iterative repair loop with test feedback (edit → run test → feed result back → repeat
-until green or budget exhausted), not more sensors. The original reason Bash was
-withheld ("the model wastes turns re-running tests instead of fixing") solved the
-wrong problem — running the test *is* how an agent knows what to fix.
-
-**Implemented (2026-05-22):** `agent.Session.RepairLoop` (`internal/agent/session.go`)
-does exactly this — a single repair conversation where the *harness* runs the test
-after each edit (deterministic) and feeds the new output back to the model, looping up
-to `repairMaxIters` until green. It replaced the old one-shot `runRepair`; both the
-in-loop and final test gates route through `runTestRepairLoop`. Verify the gain by
-comparing the next qwen3:8b run against the v0.6.0 baseline.
-
-This is the clearest evidence for AGENTS.md's thesis: **invest in general agent
-capability, not problem-specific patches.**
+**Implemented in v0.7.0:** `Session.repair_loop` in `mu/session.py` does exactly
+this — a single repair conversation where the *harness* runs the test after each
+edit (deterministic) and feeds the new output back to the model, looping up to
+`_REPAIR_MAX_ITERS` until green.
 
 ---
 
 ## 3. Architecture (where things live)
 
-`mu agent` is a deterministic control plane composing specialized model sessions:
+```
+src/mu/agent.py       orchestration: plan → write → lint → test → repair
+src/mu/session.py     Session.run (writer loop), Session.repair_loop
+src/mu/plan.py        PLAN.md parsing and manipulation
+src/mu/sensors.py     deterministic code fixers (post-write)
+src/mu/tools.py       Write/Edit/Bash/Read tool definitions and dispatch
+src/mu/client.py      LM Studio HTTP client (OpenAI-compatible API)
+src/mu/archive.py     session tombstones in ~/.mu/sessions/
+src/mu/__main__.py    CLI (argparse) and all commands
+skills/               skill prompts loaded by the planner
+```
 
-- **Planner** (`runPlanner` / `runCombinedPlanner`) → LLM produces `PLAN.md`
-  (`## Files`, `## Test Command`, `## Dependencies`). Always an LLM call now.
-- **Writer** (`runWriterWithSession`) → one file per task; tools restricted to
-  Write/Edit (`agent.WriterToolDefs`).
-- **Sensors** (`internal/sensors/`) → general deterministic fixes post-write.
-- **Lint gate → Repair → Test gate → Final test gate** → `runRepair` uses
-  Write/Edit/Read only (no Bash) so the model fixes code instead of re-running tests.
-- **Plan hygiene** (`internal/plan/`) → general normalizers only
-  (`NormalizeEmbeddedFiles`, `NormalizeTestCommand`, `DropRuntimeArtifacts`,
-  `CheckGoalAlignment`). Language/problem-specific plan rewrites were removed.
-- **Skills** (`skills/`) → embedded via `//go:embed`; only the language-agnostic
-  `task-planner` skill remains.
-- `PLAN.md` is externalized task state — it survives context resets; the model
-  writes it, the harness reads/normalizes it.
+`mu agent` is a deterministic control plane composing model sessions:
 
-Prompts: `buildAutonomousSystem` (writer), `buildPlannerSystem`/`buildPlannerPrompt`,
-`buildWritePrompt`, and the repair `fixRules` — all in `internal/subcommands/agent.go`.
+- **Planner** (`_run_planner`) → LLM produces `PLAN.md` (Files, Test Command, Dependencies)
+- **Writer** (`_run_writer`) → one file per task; tools restricted to Write/Edit
+- **Sensors** (`mu/sensors.py`) → general deterministic fixes post-write
+- **Lint gate → Repair → Test gate → Final test gate** → `Session.repair_loop` injects test output between edits
+- **Plan hygiene** (`mu/plan.py`) → general normalizers only
 
 ---
 
 ## 4. Dojo workflow & run config
 
-- Each run lives in `dojo/<model>-<host>-<version>-<date>[-suffix]/run-all.sh`.
-- Scores are tracked in `docs/RUNS.md` (timing per problem; `X` = fail).
-- **Bias success over speed** (8GB M2): use the most capable model that fits,
-  accept longer runtimes. Load the model in LM Studio before running.
-  Recommended: `Qwen2.5-Coder-7B-Instruct` (8 GB) or `Devstral-Small-2507` (16 GB).
-- The model is selected via `MU_AGENT_MODEL` env var or auto-detected from the
-  first model loaded in LM Studio (`GET /v1/models`). No derived `:mu` models;
-  `temperature=0` is sent per-request in `lmstudio.Chat`.
-- Connection errors retry up to 2× with a 5-second backoff (`chatOrRetry`).
-- After removing a sensor or plan rule, scores are *expected* to drop — that's the
-  honest number, not a regression to paper over.
+- Each run lives in `dojo/<model>-<host>-<version>-<date>[-suffix>/run-all.sh`.
+- Scores are tracked in `docs/RUNS.md`.
+- **Bias success over speed:** use the most capable model that fits.
+  Recommended: `qwen/qwen2.5-coder-7b-instruct` (8 GB) or `mistralai/devstral-small-2507` (16 GB).
+- Model is selected via `MU_AGENT_MODEL` or auto-detected from the first model loaded in LM Studio.
+- Connection errors retry up to 2× with 5-second backoff (`chat_or_retry` in `mu/client.py`).
 
 ---
 
-## 5. Build / test / commit
+## 5. Build / test
 
-```
-make build            # go build -o bin/mu ./cmd/mu
-go test ./...         # unit tests
-go vet ./...
+```sh
+make deps          # pip install -e . (installs lmstudio and httpx)
+make install       # symlink bin/mu to ~/.local/bin/mu
+python3 -m mu check
 ```
 
-- Keep commits focused and atomic (separate refactor from data/runs).
+- Keep commits focused and atomic.
 - Don't add documentation files unless asked.
-- Don't reintroduce a `pi`/node/npm dependency — mu drives LM Studio natively via its OpenAI-compatible API.
+- mu drives LM Studio via its OpenAI-compatible API (`mu/client.py`).
 
 ---
 
-## 6. Known open issues (general, not yet fixed)
+## 6. Known open issues
 
 - **Repair-prompt file confusion:** the repair agent sometimes writes one file's
-  content into another (e.g. Makefile text into `main.c`). This is a *general*
-  prompt-clarity problem worth fixing generically — not per-problem.
+  content into another. This is a general prompt-clarity problem worth fixing
+  generically — not per-problem.

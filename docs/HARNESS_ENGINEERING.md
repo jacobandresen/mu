@@ -34,48 +34,43 @@ The *H0–H3 harness ladder* they introduce provides a controlled-ablation vocab
 
 ## 2. The mu Architecture as a Harness
 
-mu's `mu agent "<goal>"` command instantiates a multi-phase orchestration loop described in `internal/subcommands/agent.go`. The loop is not a single long-running model session; it is a *structured compound AI system* [5] in which discrete specialised agents (planner, writer, repair agent) are composed around a deterministic control plane. This separation reflects the architectural principle that "each decision — model selection, context management, safety, tool dispatch — should be independently configurable without affecting others" [5].
+mu's `mu agent "<goal>"` command instantiates a multi-phase orchestration loop described in `src/mu/agent.py`. The loop is not a single long-running model session; it is a *structured compound AI system* [5] in which discrete specialised agents (planner, writer, repair agent) are composed around a deterministic control plane. This separation reflects the architectural principle that "each decision — model selection, context management, safety, tool dispatch — should be independently configurable without affecting others" [5].
 
 The following components collectively constitute mu's harness:
 
 | Harness Component | mu Implementation |
 |-------------------|-------------------|
-| Task interface | CLI argument → `agentConfig.Goal` |
-| Context manager | `buildAutonomousSystem()`, skill files |
-| Tool registry | `internal/agent/tools.go` (Write, Edit, Bash, Read) |
+| Task interface | CLI argument → `goal` in `run()` |
+| Context manager | `_build_autonomous_system()`, skill files |
+| Tool registry | `src/mu/tools.py` (Write, Edit, Bash, Read) |
 | Project memory | `PLAN.md` (file-system-persistent task state) |
-| Task state | `plan.NextTask()`, `plan.MarkTaskDone()` |
+| Task state | `next_task()`, `mark_task_done()` |
 | Observability | `~/.mu/sessions/<id>/` archive, `meta.json` |
-| Failure attribution | `recordFailedRepair()`, lint/test logs |
+| Failure attribution | `record_failed_repair()`, lint/test logs |
 | Verification protocol | Lint gate, test gate, sensor fixers |
 | Permission boundary | Repair sessions receive Write/Edit/Read only (no Bash) |
-| Entropy auditor | `plan.CheckGoalAlignment()`, stub detection |
-| Intervention logger | `agentLog()`, `sess.Finalize()` |
+| Entropy auditor | `check_goal_alignment()`, stub detection |
+| Intervention logger | `log()`, `sess.finalize()` |
 
 ---
 
 ## 3. The Planning Phase
 
-Planning in mu is a two-mode pipeline that produces `PLAN.md`: a file-system-persisted, machine-parseable task checklist that serves as the agent's shared external memory across the entire session.
+Planning in mu produces `PLAN.md`: a file-system-persisted, machine-parseable task checklist that serves as the agent's shared external memory across the entire session.
 
-### 3.1 Fast Path (Deterministic Template Generation)
+### 3.1 LLM-Based Planning
 
-For recognisable language targets (Python, Go, C#, Rust, C), mu generates a plan directly in Go code — no model invocation required. This reflects the harness-engineering principle of *deferring model invocation to where it is irreplaceable* [2][3].
+The planner agent is always invoked with the `task-planner` skill injected into the system prompt. Skill files (read from `skills/` at runtime via `_load_skill()`) are the mechanism by which the harness shapes model behaviour toward correct output formats — a form of *prompt-level guardrail* [5]. This design reflects the harness-engineering principle of *deferring model invocation to where it is irreplaceable* [2][3]: the harness manages orchestration deterministically, the model handles open-ended content generation.
 
-### 3.2 Slow Path (LLM-Based Planning)
-
-For unfamiliar targets, the planner agent is invoked with the `task-planner` skill injected into the system prompt. Skill files (embedded Go `//go:embed` resources under `skills/`) are the mechanism by which the harness shapes model behaviour toward correct output formats — a form of *prompt-level guardrail* [5].
-
-### 3.3 Plan Normalisation (Pre-Execution Sensor Pass)
+### 3.2 Plan Normalisation (Pre-Execution Sensor Pass)
 
 Before the write loop begins, mu applies a series of deterministic transformations to the plan. This normalisation pass is an early instantiation of the sensor subsystem: it identifies and corrects model-generated planning errors without a model call:
 
-- **Embedded file extraction** — code blocks inside `PLAN.md` are materialised to disk (`plan.NormalizeEmbeddedFiles`)
-- **Graphical binary detection** — test commands that would invoke interactive binaries are rewritten to compile-only (`plan.FixGraphicalTestCommand`)
-- **Portability normalisation** — `python` → `python3` for shell portability (`plan.NormalizeTestCommand`)
-- **Cargo.toml injection** — if the test command invokes `cargo` but no `Cargo.toml` is listed, a task is injected (`sensors.FixMissingCargoToml`)
-- **Runtime artifact removal** — `.db`, `.sqlite`, `.o` entries are dropped from the task list (`plan.DropRuntimeArtifacts`)
-- **Goal alignment check** — plan keywords are cross-referenced against the original goal (`plan.CheckGoalAlignment`)
+- **Embedded file extraction** — code blocks inside `PLAN.md` are materialised to disk (`normalize_embedded_files`)
+- **Portability normalisation** — `python` → `python3` for shell portability (`normalize_test_command`)
+- **Runtime artifact removal** — `.db`, `.sqlite`, `.o` entries are dropped from the task list (`drop_runtime_artifacts`)
+- **Goal alignment check** — plan keywords are cross-referenced against the original goal (`check_goal_alignment`)
+- **Thinking artifact removal** — `</think>` tags and similar reasoning traces are stripped from the plan (`strip_thinking_artifacts`)
 
 The plan normalisation pass exemplifies *requirement-level verification before execution begins* — one of the five design principles Zhong and Zhu identify as central to H3-class harnesses [1].
 
@@ -83,7 +78,7 @@ The plan normalisation pass exemplifies *requirement-level verification before e
 
 ## 4. The Sensors Subsystem
 
-The `internal/sensors/` package is mu's *verification protocol* layer. It contains language-specific, deterministic fixers that execute in response to observable model failure modes — without invoking the model. This design reflects a principle articulated in the harness engineering literature: "rigid, unchanging software tests — linters, type checkers — physically block an agent from completing a task until its output is verified" [4].
+The `src/mu/sensors.py` module is mu's *verification protocol* layer. It contains language-specific, deterministic fixers that execute in response to observable model failure modes — without invoking the model. This design reflects a principle articulated in the harness engineering literature: "rigid, unchanging software tests — linters, type checkers — physically block an agent from completing a task until its output is verified" [4].
 
 Sensors occupy a specific position in the harness's repair hierarchy:
 
@@ -116,26 +111,20 @@ Sensors divide into two operational classes:
 
 | File type | Sensor | Model failure pattern corrected |
 |-----------|--------|---------------------------------|
-| `go.mod` | `FixGoMod` | Bare `pkg version` directives outside `require()` block |
-| `go.mod` | `FixGoModVersions` | Hallucinated dependency versions |
-| `*.c`/`*.cpp` | `FixSDLInclude` | `#include <SDL2/SDL.h>` path (macOS Homebrew layout) |
-| `*.csproj` | `FixCsprojTargetFramework` | Hardcoded `<TargetFramework>` mismatching installed SDK |
-| `*.csproj` | `FixCsprojCompileItems` | Explicit `<Compile Include>` in SDK-style projects |
-| `Makefile` | `FixNoTargets` | Plain script without `target:` declaration |
-| `Makefile` | `FixInlineRecipe` | `build: go build` (recipe must be tab-indented on next line) |
-| `Makefile` | `FixDuplicateVar` | Same variable assigned twice |
-| `Makefile` | `FixGoMakefile` | `go build` before `go mod init` / `go get` |
-| `Cargo.toml` | `FixCargoTomlOrphanLib` | `[lib]` section referencing a non-existent source file |
+| `Makefile` | `fix_makefile_space_indent` | Recipe lines indented with spaces instead of tabs |
+| `Makefile` | `fix_orphan_top_level_commands` | Bare commands before any target declaration |
+| `Makefile` | `fix_no_targets` | Plain script with no `target:` declaration |
+| `Makefile` | `fix_inline_recipe` | `build: gcc main.c` (recipe must be tab-indented on next line) |
+| `Makefile` | `fix_duplicate_var` | Same variable assigned twice |
 
 **Class B — Error-conditional sensors.** These inspect the lint error message before acting. Their narrow precondition prevents false-positive rewrites:
 
 | File type | Sensor | Trigger condition |
 |-----------|--------|-------------------|
-| `*.py` | `FixMultilineSingleQuote` | `invalid-syntax` + single-quoted `.execute(` spanning lines |
-| `*.py` | `FixMissingCloseParen` | `invalid-syntax` + unclosed `.execute("""` |
-| `*.py` | `RuffAutoFix` | Any lint failure (runs `ruff check --fix`) |
-| `*.rs` | `FixRustPrintlnFormat` | `println!({...})` — missing quotes in format string |
-| `*.rs` | `FixCargoTomlOrphanLibOnRust` | `cargo` error indicating missing lib target |
+| `*.py` | `fix_multiline_single_quote` | `invalid-syntax` + single-quoted `.execute(` spanning lines |
+| `*.py` | `fix_missing_close_paren` | `invalid-syntax` + unclosed `.execute("""` |
+| `*.py` | `fix_test_import_module` | Test imports a module name not present on disk |
+| `*.py` | `ruff_autofix` | Any lint failure (runs `ruff check --fix`) |
 
 ### 4.2 Design Properties
 
@@ -152,7 +141,7 @@ These properties make sensors *safe to apply unconditionally* for Class A, and *
 
 ## 5. The Write Loop and Integrated Verification
 
-The write loop (`runAgent` → iteration block in `agent.go:292–448`) integrates planning state, writer sessions, sensors, and the lint/test gates into a single orchestrated cycle:
+The write loop (`run` → iteration block in `agent.py`) integrates planning state, writer sessions, sensors, and the lint/test gates into a single orchestrated cycle:
 
 ```
 for each pending task in PLAN.md:
@@ -296,7 +285,7 @@ The **fly-by-wire analogy** is introduced to address the autonomy question: pilo
 
 Nayak's **middleware stack** concept — four interceptor layers (observability, call budget enforcement, loop detection, claims verification) wrapping every model invocation — provides a concrete architectural pattern for implementing the observability and entropy auditing components of the Zhong-Zhu framework.
 
-**Significance for mu:** The operating system analogy is a useful framing for mu's architecture: the harness (`internal/subcommands/agent.go`, `internal/sensors/`, `internal/plan/`) is the OS; the Ollama-hosted model is the application. The Principle of Least Authority directly explains mu's repair agent tool restriction. The 50% → 100% accuracy improvement from adding deterministic rails mirrors mu's sensor philosophy.
+**Significance for mu:** The operating system analogy is a useful framing for mu's architecture: the harness (`src/mu/agent.py`, `src/mu/sensors.py`, `src/mu/plan.py`) is the OS; the LM Studio-hosted model is the application. The Principle of Least Authority directly explains mu's repair agent tool restriction. The 50% → 100% accuracy improvement from adding deterministic rails mirrors mu's sensor philosophy.
 
 ---
 

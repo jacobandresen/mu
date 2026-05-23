@@ -9,21 +9,20 @@
    ```
 
    - `<agent-model>`: the model running this practice session (e.g. `claude`)
-   - `<local-model>`: the local model under test via Ollama (e.g. `llama3`)
+   - `<local-model>`: the local model under test via LM Studio (e.g. `qwen25coder-7b`)
    - `<os>`: operating system (e.g. `macos`, `linux`, `windows`)
    - `<cpu>`: CPU identifier (e.g. `m3`, `i9-13900k`)
-   - `<ram>`: total RAM (e.g. `32gb`)
-   - `<gpu>`: GPU used by Ollama, omit if not applicable (e.g. `rtx4090`)
-   - `<version>`: mu version from `mu version` (e.g. `v0.3.0`)
+   - `<ram>`: total RAM (e.g. `36gb`)
+   - `<version>`: mu version from `mu version` (e.g. `v0.7.0`)
    - `<date>`: date in `YYYY-MM-DD` format
 
    For multiple runs on the same day, append `-A`, `-B`, `-C`, …
 
    Examples:
    ```
-   ./dojo/claude-qwen3-8b-macos-m3-36gb-v0.3.0-2026-05-17
-   ./dojo/claude-llama3-linux-i9-32gb-rtx4090-v0.3.0-2026-05-17
-   ./dojo/claude-llama3-linux-i9-32gb-rtx4090-v0.3.0-2026-05-17-A
+   ./dojo/claude-qwen25coder-7b-lmstudio-v0.7.0-2026-05-23
+   ./dojo/claude-devstral-macos-m3-36gb-v0.7.0-2026-05-24
+   ./dojo/claude-devstral-macos-m3-36gb-v0.7.0-2026-05-24-A
    ```
 2. Write all output and findings there
 
@@ -39,19 +38,17 @@ For each problem below:
 
 ### What you can improve
 
-**Agent code** (`internal/` — Go source): orchestration logic, timeouts, plan validation,
+**Agent code** (`src/mu/` — Python source): orchestration logic, timeouts, plan validation,
 prompt construction, complexity detection, test normalization.
 
-**Skills** (`skills/` — embedded Markdown): the skill files that shape how the underlying LLM
+**Skills** (`skills/` — Markdown): the skill files that shape how the underlying LLM
 behaves during planning and writing. When you find the model consistently making the same
-mistake, a skill-level fix is often more durable than a prompt patch in Go.
+mistake, a skill-level fix is often more durable than a code change.
 
 To improve a skill:
 1. Edit it directly in `skills/<name>/SKILL.md` in this repo
-2. Rebuild mu: `make build`
+2. No rebuild needed — skills are read from disk at runtime
 3. Describe the change and its rationale in `findings.md`
-
-Skills are embedded into the mu binary at build time via `//go:embed`. No separate install step needed.
 
 ## Standards
 

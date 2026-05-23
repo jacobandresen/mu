@@ -17,29 +17,18 @@ GOAL=$4
 DOJO="$REPO/dojo/$SESSION"
 
 echo "=== $PROBLEM Start: $(date +%s) ===" | tee "$DOJO/$PROBLEM.log"
-rm -rf "$DOJO/$DIR"
-mkdir -p "$DOJO/$DIR"
 
-HOST="${MU_LMSTUDIO_HOST:-http://localhost:1234}"
-
-# Verify LM Studio is reachable and report the loaded model.
-MODELS=$(curl -s "$HOST/v1/models" | python3 -c "
-import sys, json
-try:
-    d = json.load(sys.stdin)
-    ids = [m['id'] for m in d.get('data', []) if 'embed' not in m['id']]
-    print('\n'.join(ids))
-except: pass
-" 2>/dev/null)
-
-if [ -z "$MODELS" ]; then
-    echo "==> [run.sh] ERROR: LM Studio not reachable at $HOST" | tee -a "$DOJO/$PROBLEM.log"
+# Precondition: exactly one non-embedding model must be loaded.
+ENSURE_OUT=$(mu model ensure-single 2>&1)
+ENSURE_STATUS=$?
+echo "==> [run.sh] $ENSURE_OUT" | tee -a "$DOJO/$PROBLEM.log"
+if [ $ENSURE_STATUS -ne 0 ]; then
     echo "=== $PROBLEM End: $(date +%s) (exit=1) ===" | tee -a "$DOJO/$PROBLEM.log"
     exit 1
 fi
 
-echo "==> [run.sh] LM Studio loaded models:" | tee -a "$DOJO/$PROBLEM.log"
-echo "$MODELS" | while read -r m; do echo "==>   $m"; done | tee -a "$DOJO/$PROBLEM.log"
+rm -rf "$DOJO/$DIR"
+mkdir -p "$DOJO/$DIR"
 
 cd "$DOJO/$DIR"
 mu agent "$GOAL" 2>&1 | tee -a "$DOJO/$PROBLEM.log"

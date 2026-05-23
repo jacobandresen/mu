@@ -1,0 +1,316 @@
+"""PLAN.md parsing and manipulation."""
+
+import os
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Optional
+
+_TASK_RE = re.compile(r'^- \[([ x~])\] (\S+)(.*)$')
+_THINKING_RE = re.compile(r'\s?/think\s?|\s?</?think(ing)?>\s?')
+_RUNTIME_EXTS = {'db', 'sqlite', 'sqlite3', 'o', 'obj', 'pyc', 'class', 'bin'}
+_BUILD_NAMES = {
+    'Makefile', 'CMakeLists.txt', 'setup.py', 'Cargo.toml',
+    'build.sh', 'package.json', 'pyproject.toml', 'meson.build', 'go.mod',
+}
+
+
+@dataclass
+class Task:
+    file_path: str
+    description: str = ''
+    done: bool = False
+    in_progress: bool = False
+
+
+@dataclass
+class Plan:
+    tasks: list[Task] = field(default_factory=list)
+    test_command: str = ''
+    plan_context: str = ''
+
+
+def parse(path: str) -> Plan:
+    try:
+        return parse_content(Path(path).read_text())
+    except OSError:
+        return Plan()
+
+
+def parse_content(content: str) -> Plan:
+    lines = content.splitlines()
+    p = Plan()
+    for line in lines:
+        m = _TASK_RE.match(line)
+        if not m:
+            continue
+        status, fp, rest = m.group(1), m.group(2), m.group(3).strip()
+        desc = ''
+        if '—' in rest:
+            desc = rest[rest.index('—') + 1:].strip()
+        elif '-' in rest:
+            desc = rest[rest.index('-') + 1:].strip()
+        p.tasks.append(Task(fp, desc, done=(status == 'x'), in_progress=(status == '~')))
+    p.test_command = _extract_test_command(lines)
+    p.plan_context = _extract_plan_context(lines)
+    return p
+
+
+def _extract_test_command(lines: list[str]) -> str:
+    in_section = False
+    for line in lines:
+        if re.match(r'^##\s+Test Command\s*$', line):
+            in_section = True
+            continue
+        if in_section and line.startswith('## '):
+            break
+        if in_section:
+            t = line.strip().strip('`').strip()
+            if t:
+                return t
+    return ''
+
+
+def _extract_plan_context(lines: list[str]) -> str:
+    want = {'Files', 'Test Command', 'Dependencies', 'Notes'}
+    buf = []
+    in_section = False
+    for line in lines:
+        m = re.match(r'^## ([A-Za-z ]+)\s*$', line)
+        if m:
+            in_section = m.group(1).strip() in want
+        if in_section:
+            buf.append(line)
+    return '\n'.join(buf)
+
+
+def next_task(p: Plan) -> Optional[Task]:
+    return next((t for t in p.tasks if not t.done and not t.in_progress), None)
+
+
+def tasks_remaining(p: Plan) -> bool:
+    return next_task(p) is not None
+
+
+def count_tasks(p: Plan) -> tuple[int, int]:
+    return len(p.tasks), sum(1 for t in p.tasks if t.done)
+
+
+def mark_task_done(path: str, file_path: str) -> None:
+    try:
+        lines = Path(path).read_text().splitlines(keepends=True)
+    except OSError:
+        return
+    for i, line in enumerate(lines):
+        m = _TASK_RE.match(line.rstrip('\n'))
+        if m and m.group(1) == ' ' and m.group(2) == file_path:
+            lines[i] = '- [x] ' + m.group(2) + m.group(3) + '\n'
+            break
+    Path(path).write_text(''.join(lines))
+
+
+def is_build_file(name: str) -> bool:
+    return Path(name).name in _BUILD_NAMES or name.endswith('.csproj')
+
+
+def is_test_file(f: str) -> bool:
+    base = Path(f).name
+    return (f.startswith('tests/') or f.startswith('test/') or
+            base.startswith('test_') or '_test.' in base)
+
+
+def has_pending_build_file(p: Plan) -> bool:
+    return any(not t.done and is_build_file(t.file_path) for t in p.tasks)
+
+
+def strip_thinking_artifacts(path: str) -> bool:
+    try:
+        data = Path(path).read_text()
+    except OSError:
+        return False
+    cleaned = _THINKING_RE.sub('', data)
+    if cleaned == data:
+        return False
+    Path(path).write_text(cleaned)
+    return True
+
+
+def normalize_test_command(path: str) -> bool:
+    try:
+        data = Path(path).read_text()
+    except OSError:
+        return False
+    updated = data
+    for old, new in [('\npython ', '\npython3 '), ('&& python ', '&& python3 '),
+                     ('| python ', '| python3 ')]:
+        updated = updated.replace(old, new)
+    if updated == data:
+        return False
+    Path(path).write_text(updated)
+    return True
+
+
+def normalize_embedded_files(plan_path: str) -> list[str]:
+    try:
+        data = Path(plan_path).read_text()
+    except OSError:
+        return []
+    known = {
+        'makefile': 'Makefile', 'cmakelists.txt': 'CMakeLists.txt',
+        'cargo.toml': 'Cargo.toml', 'build.sh': 'build.sh',
+        'package.json': 'package.json', 'pyproject.toml': 'pyproject.toml',
+    }
+    h2_re = re.compile(r'^## ([A-Za-z0-9._\-]+)\s*$')
+    fence_re = re.compile(r'^```[a-zA-Z]*\s*$')
+    lines, extracted = data.splitlines(), []
+    current_section, in_fence, fence_buf = '', False, []
+    for line in lines:
+        m = h2_re.match(line)
+        if m:
+            current_section = known.get(m.group(1).lower(), '')
+            in_fence, fence_buf = False, []
+            continue
+        if not current_section:
+            continue
+        if not in_fence and fence_re.match(line):
+            in_fence = True
+            continue
+        if in_fence and line.strip() == '```':
+            extracted.append((current_section, '\n'.join(fence_buf)))
+            current_section, in_fence, fence_buf = '', False, []
+            continue
+        if in_fence:
+            fence_buf.append(line)
+    if not extracted:
+        return []
+    names, plan_text = [], data
+    for name, content in extracted:
+        try:
+            Path(name).write_text(content)
+            names.append(name)
+        except OSError:
+            continue
+        if f'- [ ] {name}' not in plan_text and f'- [x] {name}' not in plan_text:
+            plan_text = plan_text.replace(
+                '## Files\n', f'## Files\n- [x] {name} — auto-extracted from plan\n', 1)
+        else:
+            plan_text = plan_text.replace(f'- [ ] {name}', f'- [x] {name}')
+    Path(plan_path).write_text(plan_text)
+    return names
+
+
+def drop_runtime_artifacts(plan_path: str, p: Plan) -> list[str]:
+    dropped = [t.file_path for t in p.tasks
+               if Path(t.file_path).suffix.lstrip('.').lower() in _RUNTIME_EXTS]
+    if not dropped:
+        return []
+    try:
+        lines = Path(plan_path).read_text().splitlines(keepends=True)
+    except OSError:
+        return []
+    out = [ln for ln in lines
+           if not (_TASK_RE.match(ln.rstrip('\n')) and
+                   Path(_TASK_RE.match(ln.rstrip('\n')).group(2)).suffix.lstrip('.').lower()
+                   in _RUNTIME_EXTS)]
+    Path(plan_path).write_text(''.join(out))
+    return dropped
+
+
+def check_goal_alignment(p: Plan, goal: str) -> tuple[bool, list[str]]:
+    stopwords = {
+        'and', 'the', 'via', 'with', 'for', 'from', 'that', 'this', 'are', 'not',
+        'make', 'into', 'also', 'both', 'each', 'just', 'like', 'more', 'only',
+        'over', 'some', 'such', 'then', 'when', 'will', 'have', 'must', 'been',
+        'your', 'them', 'than', 'even', 'write', 'using', 'create', 'show',
+        'include', 'returns', 'support', 'runs', 'provide', 'list', 'uses', 'call',
+        'print', 'read', 'take', 'back', 'work', 'build', 'adds', 'does', 'writes',
+        'again', 'program', 'table', 'contains', 'inserted', 'entry', 'given',
+        'should', 'store', 'data', 'able',
+    }
+    plan_text = p.plan_context.lower()
+    missing, found = [], False
+    for w in re.findall(r'[a-z0-9]+', goal.lower()):
+        if len(w) < 4 or w in stopwords:
+            continue
+        if w in plan_text:
+            found = True
+        else:
+            missing.append(w)
+    return found, missing
+
+
+def relevant_files_context(p: Plan, target: str) -> str:
+    target_dir = str(Path(target).parent)
+    module_stem = Path(target).stem.removeprefix('test_')
+    buf, count = [], 0
+    for t in p.tasks:
+        if count >= 6 or not t.done:
+            continue
+        fp = Path(t.file_path)
+        if not fp.exists():
+            continue
+        if not (fp.suffix.lstrip('.') in ('h', 'hpp') or
+                str(fp.parent) == target_dir or fp.stem == module_stem):
+            continue
+        try:
+            buf.append(f'### {t.file_path}\n```\n{fp.read_text()}\n```\n')
+            count += 1
+        except OSError:
+            pass
+    return '\n'.join(buf)
+
+
+def pending_source_files(p: Plan, current: str) -> str:
+    lines, found = [], False
+    for t in p.tasks:
+        if t.done or t.in_progress:
+            continue
+        if t.file_path == current:
+            found = True
+            continue
+        if found:
+            lines.append('  ' + t.file_path)
+    return '\n'.join(lines)
+
+
+def extract_plan_content(s: str) -> str:
+    s = s.strip()
+    if '</think>' in s:
+        s = s[s.index('</think>') + len('</think>'):].strip()
+    if s.startswith('```'):
+        nl = s.find('\n')
+        if nl >= 0:
+            inner = s[nl + 1:]
+            end = inner.rfind('```')
+            s = inner[:end].strip() if end >= 0 else inner
+    if '## Files' in s:
+        return s[s.index('## Files'):]
+    return s if '- [ ]' in s else ''
+
+
+def record_failed_repair(label: str, error_snippet: str) -> None:
+    plan_file = 'PLAN.md'
+    try:
+        content = Path(plan_file).read_text()
+    except OSError:
+        return
+    snippet = '\n'.join(error_snippet.strip().splitlines()[:5]).replace('\n', '\n  ')
+    entry = f'- {label} — still failing. Error:\n  ```\n  {snippet}\n  ```\n'
+    header = '\n## Repair History\n'
+    if header in content:
+        idx = content.index(header)
+        content = content[:idx + len(header)] + entry + content[idx + len(header):]
+    else:
+        content = content.rstrip('\n') + '\n' + header + entry
+    Path(plan_file).write_text(content)
+
+
+def repair_history() -> str:
+    try:
+        data = Path('PLAN.md').read_text()
+    except OSError:
+        return ''
+    header = '## Repair History'
+    if header not in data:
+        return ''
+    return f'\n\n{data[data.index(header):].strip()}\n\nDo NOT repeat approaches listed in Repair History above.'

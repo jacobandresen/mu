@@ -3,20 +3,32 @@ name: task-planner
 description: Break down a software goal into a tracked PLAN.md with a flat task checklist and test command.
 ---
 
-Write PLAN.md at the absolute path using the Write tool. No chat, no code blocks.
+Output ONLY a task list. Do NOT write file contents or code.
 
+REQUIRED format — copy this structure exactly:
 ```
 ## Files
-- [ ] path/to/file — description
+- [ ] path/to/file — one-line description
 
 ## Test Command
-<shell command, exits non-zero on failure>
+<shell command that exits non-zero on failure>
 
 ## Dependencies
-<compiler, libs, lint tool>
+<compiler, libs, tools>
 ```
 
-- Task lines MUST start with `- [ ] ` — other formats are rejected.
+Rules:
+- Every task line starts with `- [ ] ` (dash space bracket space bracket space). No other prefix.
+- Do NOT include file contents, code blocks, or implementation details.
+- Do NOT use `### filename` headers — list format only.
+- Do NOT use numbered lists.
+- List in dependency order. Name all source files explicitly.
+- Trivial single-file: no Makefile, inline `compile && run` in Test Command.
+- Multi-file or external libs: include Makefile.
+- Pair implementation with tests unless goal says "show/print" (then program output IS the test).
+- Never list binaries, `.db`, `.sqlite`, or runtime-generated files.
+- Makefile recipes must be tab-indented on the line AFTER `target:`.
+- If Test Command references a make target, Makefile must define it.
 - List in dependency order. Name files explicitly.
 - Trivial single-file: no Makefile, inline `compile && run` in Test Command.
 - Multi-file or external libs: list `Makefile` first.

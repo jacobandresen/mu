@@ -135,27 +135,25 @@ tasks — especially the repair loop. Qwen3-8B scores 72% HumanEval vs. 88.4% fo
 
 ---
 
-## Integration caveat
+## Integration
 
-mu connects to **Ollama at `localhost:11434`** (hardcoded in `internal/ollama/client.go:19`).
-The LM Studio server at `192.168.0.162:1234` exposes an OpenAI-compatible API — mu does not
-speak that protocol today.
+mu connects to **LM Studio at `localhost:1234`** via its OpenAI-compatible API (`src/mu/client.py`).
+Override the host with `MU_LMSTUDIO_HOST`.
 
-Two paths to use a new model with mu:
+To use a model with mu:
 
-1. **Pull via Ollama** (zero code change):
+1. Load it in LM Studio (Models tab → load)
+2. Start the local server (LM Studio → Developer → Start Server)
+3. Run:
    ```
-   ollama pull qwen2.5-coder:7b-instruct
-   mu agent --model qwen2.5-coder:7b-instruct ...
+   mu agent --model <model-id> "your goal"
+   ```
+   Or set the env var permanently:
+   ```
+   export MU_AGENT_MODEL=qwen/qwen2.5-coder-7b-instruct
    ```
 
-2. **Wire mu to LM Studio** (code change in `internal/ollama/client.go`): replace the hardcoded
-   `localhost:11434` with an env-var override pointing at `192.168.0.162:1234`.
-   LM Studio's `/v1/chat/completions` is OpenAI-compatible; mu's chat loop would need an OpenAI
-   client instead of (or alongside) the Ollama client.
-
-Option 1 is the fastest path to a new baseline run. Option 2 unlocks Devstral/larger models if
-the LM Studio machine has 16GB+ VRAM.
+If `--model` and `MU_AGENT_MODEL` are both unset, mu uses the first model loaded in LM Studio.
 
 ---
 
