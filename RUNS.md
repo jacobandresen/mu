@@ -17,3 +17,4 @@ Timing in seconds per problem. **X** = failed. **?** = not run.
 | [2026-05-21](dojo/claude-qwen3-4b-macos-m2-8gb-v0.5.0-2026-05-21/) (v0.5, qwen3:4b-instruct, run 1) | 4/7 | 9 | X 436 | X 74 | 27 | 26 | 18 | X 240 |
 | [2026-05-21](dojo/claude-qwen3-8b-macos-m2-8gb-v0.5.0-2026-05-21/) (v0.5, qwen3:8b, session I, p3✓first, +WriterToolDefs) | 4/7 | 58 | X 906 | 508 | 174 | X 289 | 149 | X drop |
 | [2026-05-22](dojo/claude-gemma4-e2b-macos-m2-8gb-v0.5.0-2026-05-22/) (v0.5, gemma4:e2b, run 7, +DuplicateAll+reapplyMakefile) | 4/7 | 19 | X 228 | X 86 | 19 | 13 | 16 | X 287 |
+| [2026-05-22](dojo/claude-qwen3-8b-macos-m2-8gb-v0.6.0-2026-05-22/) (v0.6, qwen3:8b, honest harness, no plan-gen/sensors, num_ctx=8192) | 1/7 | 158 | X 1514 | X 256 | X 313 | X 1490 | X 195 | X 123 |
