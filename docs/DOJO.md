@@ -33,23 +33,26 @@ Current backend: **LM Studio** (OpenAI-compatible API), model
 | Run | Score | P1 hello | P2 sqlite | P3 sdl2 | P4 C#/fib | P5 go/gin | P6 rust | P7 flask |
 |-----|-------|----------|-----------|---------|-----------|-----------|---------|----------|
 | [C](../dojo/claude-qwen25coder-7b-lmstudio-v0.7.0-2026-05-23-C/) — first true local baseline | **3/7** | ✓ | X 400 | ✓ | X 400 | X 400 | ✓ | X 400 |
-| [F](../dojo/claude-qwen25coder-7b-lmstudio-v0.7.0-2026-05-23-F/) — + `go mod tidy` (re-ran P5) | — | — | — | — | — | X unused-import | — | — |
-| [05-24](../dojo/claude-qwen25coder-7b-lmstudio-v0.7.0-2026-05-24/) — + pytest upgrade; package refactor | — | — | X test-iso | ✓ | — | — | ✓ | X dep-skew |
+| [05-24-A](../dojo/claude-qwen25coder-7b-lmstudio-v0.7.0-2026-05-24-A/) — clean full run (pytest fix + Go sensor + packaged) | **4/7** | ✓ | X* iso | ✓ | X conv | ✓ | ✓ | X conv |
+| [05-24-B](../dojo/claude-qwen25coder-7b-lmstudio-v0.7.0-2026-05-24-B/) — A/B: `python-env` skill ON (P2/P7 only) | — | — | X lint | — | — | — | — | X conv |
 
 - **C** is the first uninterrupted *local* run (the earlier remote run was
   network-cut). Every failure died on the **HTTP 400** transport bug (C1), which
-  masked each problem's real cause. (Two follow-up runs, the deleted **D**/**E**,
-  cleared C1 and added `ground_plan` — their lessons are folded into C1/C2.)
-- **F** re-ran P5 after wiring `go mod tidy`. Gin now resolves and the build
-  reaches the compiler, which then rejects unused imports (C3) — the next layer
-  of the same problem, now addressed by the unused-import sensor.
-- **05-24** re-ran P2/P7 after upgrading pytest. This run is the one that
-  exposed **C0**: every prior P2/P7 failure was a broken pytest, *not* the
-  agent. With pytest working, P2 reached **2/3 passing** and both repair loops
-  edited the *correct* files — which **falsified [C6](#c6)** (see below).
-  P3/P6 were then re-run as a **regression check** after the package refactor
-  (which fixed a silently-broken skill loader, so the `task-planner` skill now
-  actually reaches the planner) — both still pass, confirming the change is safe.
+  masked each problem's real cause. (Follow-up runs **D**/**E**/**F**, since
+  deleted, cleared C1, added `ground_plan`, and wired `go mod tidy` — their
+  lessons are folded into C1/C2/C3.)
+- **05-24-A** is the current clean baseline: genuine **4/7** (P1, P3, P5, P6).
+  **P5 newly green** — the [C3](#c3) Go unused-import sensor + `go mod tidy`
+  cleared its compile failures. `X*` on P2 marks a **false positive** the run
+  exposed ([C8](#c8)): the planner dropped the `## Test Command`, the gate was
+  *skipped*, and "Goal complete" was reported though the tests fail on shared-DB
+  state. Now fixed by a gate-time `pytest` default. P4/P7 are genuine
+  model-convergence fails (C4/C5-class).
+- **05-24-B** isolates the **`python-env` skill** (now loaded for Python tasks —
+  see [C0](#c0)/Skills). It reaches the writer+repair prompt (logged "Loaded
+  python-env skill") but did **not** flip P2/P7: the 7B model still wrote
+  shared-state tests and stale code. The feature works; the ceiling is model
+  convergence, not missing guidance.
 
 Net: pass/fail score still **3/7** (P1, P3, P6), but the failure *modes* are now
 honest. The dominant blocker was environmental ([C0](#c0)), not the agent; the
@@ -149,7 +152,8 @@ agent failures across **P2 and P7**:
   `apply_go_sensors()`, so it runs in both the write and repair phases.
 - **Related work:** `goimports` (golang.org/x/tools) auto-strips unused and adds
   missing imports; we use the compiler as oracle to avoid a tool dependency.
-- **Status:** fixed for the import class. Does **not** fix unused *locals* (C4).
+- **Status:** fixed. **P5 now passes** (clean run 05-24-A) — the sensor + `go
+  mod tidy` carry it end-to-end. Does **not** fix unused *locals* (C4).
 
 ### C4 — Go server never started (missing `r.Run`) · OPEN (model convergence)
 
@@ -215,6 +219,25 @@ agent failures across **P2 and P7**:
 - **Related work:** constrained / structured tool-calling and grammar-enforced
   decoding (BFCL-style) reduce prose-instead-of-call failures.
 - **Status:** mitigated by retry + code-block extraction; ~1–2× per run.
+
+<a id="c8"></a>
+### C8 — Test gate skipped when planner omits `## Test Command` · LANDED
+
+- **Symptom:** agent logs `No '## Test Command' in PLAN.md — skipping final test
+  gate`, then `Goal complete` — a **false positive**. P2 in run 05-24-A reported
+  success while its tests actually fail 2/4 (shared-DB isolation).
+- **Cause:** the planner sometimes drops the `## Test Command` section (often
+  when it wraps the whole plan in ``` code fences). With no command, the final
+  gate had nothing to run and returned success without testing.
+- **Impact:** any problem whose plan loses the test command silently "passes"
+  untested — the harness over-reports its own score.
+- **Codebase pointer:** `src/mu/agent.py:456` `_final_test_gate` — now, when the
+  command is missing **but the plan has test files**, it defaults to
+  `pytest <testfiles>`; it only skips when there is genuinely nothing to verify.
+- **Related work:** CI "no tests ran" / `--strict` flags treat an empty test
+  collection as failure, not success — same honesty principle.
+- **Status:** fixed. General (any test-file presence triggers it), not
+  problem-specific.
 
 ---
 

@@ -16,6 +16,9 @@ dojo/**/app
 dojo/**/hello
 dojo/**/helloworld
 dojo/**/sdl_line
+dojo/**/p5-go-gin/p5-go-gin
+dojo/**/fibonacci
+dojo/**/*.dll
 dojo/**/*.o
 dojo/**/*.out
 dojo/**/*.exe
