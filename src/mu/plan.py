@@ -525,3 +525,58 @@ def repair_history() -> str:
     if header not in data:
         return ''
     return f'\n\n{data[data.index(header):].strip()}\n\nDo NOT repeat approaches listed in Repair History above.'
+
+
+def record_challenge(label: str, snippet: str = '') -> None:
+    plan_file = 'PLAN.md'
+    try:
+        content = Path(plan_file).read_text()
+    except OSError:
+        return
+    if snippet.strip():
+        lines = snippet.strip().splitlines()[:5]
+        snippet_text = '\n'.join(lines).replace('\n', '\n  ')
+        entry = f'- {label}\n  ```\n  {snippet_text}\n  ```\n'
+    else:
+        entry = f'- {label}\n'
+    header = '\n## Challenges\n'
+    if header in content:
+        idx = content.index(header)
+        content = content[:idx + len(header)] + entry + content[idx + len(header):]
+    else:
+        content = content.rstrip('\n') + '\n' + header + entry
+    Path(plan_file).write_text(content)
+
+
+def get_challenges() -> str:
+    try:
+        data = Path('PLAN.md').read_text()
+    except OSError:
+        return ''
+    header = '## Challenges'
+    if header not in data:
+        return ''
+    start = data.index(header)
+    rest = data[start:]
+    m = re.search(r'\n## ', rest[3:])
+    section = rest[:m.start() + 1] if m else rest
+    return section.strip()
+
+
+def clear_challenges() -> None:
+    plan_file = 'PLAN.md'
+    try:
+        content = Path(plan_file).read_text()
+    except OSError:
+        return
+    header = '\n## Challenges\n'
+    if header not in content:
+        return
+    start = content.index(header)
+    rest = content[start + len(header):]
+    m = re.search(r'^## ', rest, re.MULTILINE)
+    if m:
+        content = content[:start] + '\n' + rest[m.start():]
+    else:
+        content = content[:start]
+    Path(plan_file).write_text(content.rstrip('\n') + '\n')

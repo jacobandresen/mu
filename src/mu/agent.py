@@ -12,14 +12,17 @@ from typing import Optional
 from mu import tools
 from mu.archive import AgentSession
 from mu.client import chat, list_models, load_model, recommended_model
-from mu.plan import (Plan, check_goal_alignment, drop_minority_languages,
+from mu.plan import (Plan, check_goal_alignment, clear_challenges,
+                     drop_minority_languages,
                      drop_runtime_artifacts,
-                     extract_plan_content, ground_plan, has_pending_build_file,
+                     extract_plan_content, get_challenges, ground_plan,
+                     has_pending_build_file,
                      is_build_file, is_test_file, mark_task_done, next_task,
                      normalize_embedded_files,
                      normalize_test_command, parse, parse_content,
                      pending_source_files,
-                     plan_languages, record_failed_repair, relevant_files_context,
+                     plan_languages, record_challenge, record_failed_repair,
+                     relevant_files_context,
                      repair_history, strip_thinking_artifacts, tasks_remaining,
                      write_sketches)
 from mu.sensors import (apply_go_sensors, apply_makefile_sensors,
@@ -277,7 +280,7 @@ def flow(goal: str = '', model: str = '', target_dir: str = '') -> int:
 
 
 def assess(goal: str = '', model: str = '', target_dir: str = '') -> int:
-    """Assess each plan step for missing information and backfill earlier tasks."""
+    """Assess each plan step for goal alignment; revise or skip deviating tasks."""
     import time
     if not model:
         model = os.environ.get('MU_AGENT_MODEL', '')
@@ -300,37 +303,36 @@ def assess(goal: str = '', model: str = '', target_dir: str = '') -> int:
         return 0
 
     timeout = _COMPLEXITY_PLANNER['simple']
-    log("Assessing %d pending task(s) for missing information (timeout=%ds)",
+    log("Assessing %d pending task(s) for goal alignment (timeout=%ds)",
         len(pending), timeout)
 
     system = (
-        "You are a plan reviewer. Your job is to enrich PLAN.md task descriptions "
-        "so that each task has everything the implementer needs — by backfilling "
-        "missing information into earlier tasks, not by adding or removing tasks. "
+        "You are a strict plan reviewer. Your job is to ensure every pending task "
+        "directly serves the stated GOAL — removing or revising tasks that deviate, "
+        "and enriching descriptions so each task has what the implementer needs. "
         "Output ONLY the raw PLAN.md markdown — no preamble, no explanation, no code fences."
     )
     rules = (
         "Rules:\n"
         "- Keep every `- [x]` (done) task exactly as-is, in the same position.\n"
-        "- Preserve the full set of `- [ ]` tasks in the same order — do NOT add, remove, or reorder them.\n"
-        "- For each pending task, check: does its description (and the plan context) give "
-        "  a writer enough information to implement it correctly? Ask: what interface, "
-        "  data structure, function signature, or contract does this task depend on that "
-        "  an earlier task in the plan will produce?\n"
-        "- If a later task needs a specific detail from an earlier task, enrich the "
-        "  earlier task's description (after the `—`) with that contract so it is "
-        "  explicit before the writer ever reaches the later task.\n"
-        "- Only the description part (after `—`) of a task may change. The file path "
+        "- For each `- [ ]` pending task, ask: does this task directly contribute to the GOAL?\n"
+        "  - If YES and description is sufficient: keep it unchanged.\n"
+        "  - If YES but the description lacks needed context (interface, data structure, "
+        "    function signature): enrich the description (after `—`) with that contract.\n"
+        "  - If the task can be REVISED to better align with the GOAL: update its description.\n"
+        "  - If the task clearly DEVIATES from the GOAL and cannot be salvaged: remove it entirely.\n"
+        "- Only the description part (after `—`) of a kept task may change. The file path "
         "  (before `—`) must remain byte-for-byte identical.\n"
-        "- If a task already has sufficient context, leave its description unchanged.\n"
-        "- Use the exact format: `- [ ] path/to/file.ext — enriched description`.\n"
+        "- Do NOT add new tasks.\n"
+        "- Preserve the relative order of kept tasks.\n"
+        "- Use the exact format: `- [ ] path/to/file.ext — description`.\n"
         "- Preserve `## Summary`, `## Test Command`, `## Dependencies`, and all other sections verbatim.\n"
         "- Do NOT write code, prose outside descriptions, or file contents."
     )
+    goal_line = f"GOAL: {goal}\n\n" if goal else ""
     user = (
-        f"Current PLAN.md:\n\n{original}\n\n{rules}\n\n"
-        + (f"GOAL: {goal}\n\n" if goal else "")
-        + "Output the assessed PLAN.md now. Preserve ## Summary if present, then ## Files."
+        f"{goal_line}Current PLAN.md:\n\n{original}\n\n{rules}\n\n"
+        "Output the assessed PLAN.md now. Preserve ## Summary if present, then ## Files."
     )
 
     msgs = [{'role': 'system', 'content': system},
@@ -352,20 +354,44 @@ def assess(goal: str = '', model: str = '', target_dir: str = '') -> int:
         return 1
 
     new_p = parse_content(content)
-    orig_paths = [t.file_path for t in p.tasks]
+    orig_paths = {t.file_path for t in p.tasks}
     new_paths = [t.file_path for t in new_p.tasks]
-    if orig_paths != new_paths:
-        log("Assess: task paths changed (got %d, expected %d) — leaving PLAN.md unchanged.",
-            len(new_paths), len(orig_paths))
+
+    # All kept paths must be from the original set (no new tasks added)
+    added = [fp for fp in new_paths if fp not in orig_paths]
+    if added:
+        log("Assess: response added new tasks (%s) — leaving PLAN.md unchanged.",
+            ', '.join(added))
         return 1
+
+    # Done tasks must all be preserved
+    orig_done = [t.file_path for t in p.tasks if t.done]
+    new_done = [t.file_path for t in new_p.tasks if t.done]
+    if orig_done != new_done:
+        log("Assess: done tasks were altered — leaving PLAN.md unchanged.")
+        return 1
+
+    orig_pending_paths = [t.file_path for t in p.tasks if not t.done]
+    new_pending_paths = [t.file_path for t in new_p.tasks if not t.done]
+    skipped = [fp for fp in orig_pending_paths if fp not in new_pending_paths]
+    if skipped:
+        log("Assess: skipped %d off-goal task(s): %s", len(skipped), ', '.join(skipped))
+
+    merged = _merge_header_pairs(content)
+    if merged != content:
+        merged_paths = {t.file_path for t in parse_content(merged).tasks}
+        header_merged = [fp for fp in new_pending_paths if fp not in merged_paths]
+        log("Assess: merged %d header/impl pair(s): %s",
+            len(header_merged), ', '.join(sorted(header_merged)))
 
     os.makedirs(LOG_DIR, exist_ok=True)
     backup = os.path.join(LOG_DIR, 'PLAN-before-assess.md')
     Path(backup).write_text(original)
-    Path('PLAN.md').write_text(content)
-    log("Assess: plan enriched. Backup saved to %s.", backup)
+    Path('PLAN.md').write_text(merged)
+    log("Assess: plan updated (%d pending -> %d pending). Backup saved to %s.",
+        len(orig_pending_paths), len(new_pending_paths), backup)
     print()
-    print(content, flush=True)
+    print(merged, flush=True)
     return 0
 
 
@@ -379,10 +405,26 @@ def iterate(goal: str = '', model: str = '', target_dir: str = '',
         print("mu-iterate: no PLAN.md found — run `mu plan` or `mu agent` first",
               file=sys.stderr)
         return 1
+    plan_text = Path('PLAN.md').read_text()
+    reset_text = re.sub(r'^(- \[)~(\] )', r'\1 \2', plan_text, flags=re.MULTILINE)
+    reset_count = plan_text.count('- [~]')
+    if reset_count:
+        Path('PLAN.md').write_text(reset_text)
+        log("Reset %d in-progress task(s) to pending.", reset_count)
     if not goal:
         p = parse('PLAN.md')
         goal = p.plan_context[:120].strip() or 'implement the plan'
-    return run(goal=goal, model=model, target_dir='', max_iter=max_iter, force=True)
+
+    challenges = get_challenges()
+    if challenges:
+        mit_model = model or os.environ.get('MU_AGENT_MODEL', '') or _select_model()
+        if mit_model:
+            _run_mitigation_pass(mit_model, parse('PLAN.md'), challenges, goal)
+        clear_challenges()
+        log("Cleared challenges section after mitigation pass.")
+
+    return run(goal=goal, model=model, target_dir='', max_iter=max_iter, force=True,
+               show_result=True)
 
 
 def plan(goal: str, model: str = '', target_dir: str = '', force: bool = False) -> int:
@@ -460,7 +502,7 @@ def plan(goal: str, model: str = '', target_dir: str = '', force: bool = False) 
 
 
 def run(goal: str, model: str = '', target_dir: str = '',
-        max_iter: int = 10, force: bool = False) -> int:
+        max_iter: int = 10, force: bool = False, show_result: bool = False) -> int:
     if not model:
         model = os.environ.get('MU_AGENT_MODEL', '')
     if not model:
@@ -560,20 +602,27 @@ def run(goal: str, model: str = '', target_dir: str = '',
                 break
 
             log("Iteration %d / %d: %s", i, max_iter, task.file_path)
-            write_prompt = _build_write_prompt(goal, task, p)
+            companion = _companion_header(task.description)
+            write_prompt = _build_write_prompt(goal, task, p, companion)
 
-            if not _run_writer(model, task.file_path, write_prompt, auto_system, writer_timeout):
+            if not _run_writer(model, task.file_path, write_prompt, auto_system, writer_timeout,
+                               companion):
                 if not Path(task.file_path).exists():
                     log("Writer did not produce %s — retrying.", task.file_path)
+                    record_challenge(f"writer did not produce {task.file_path} on first attempt")
                     retry = (f"Write file NOW: `{task.file_path}`\n"
                              f"You ONLY have the Write tool. Use it immediately.\n"
                              f"GOAL: {goal}\n{p.plan_context}")
+                    if companion:
+                        retry += (f"\nAlso write `{companion}` first (declarations), "
+                                  f"then `{task.file_path}` (implementation).")
                     ref = relevant_files_context(p, task.file_path)
                     if ref:
                         retry += f"\n\n## Reference files (do not rewrite)\n{ref}"
                         if is_test_file(task.file_path):
                             retry += "\nCRITICAL: Call EXACT method/function names from the reference files above.\n"
-                    if not _run_writer(model, task.file_path, retry, auto_system, writer_timeout):
+                    if not _run_writer(model, task.file_path, retry, auto_system, writer_timeout,
+                                       companion):
                         log("Iteration %d: %s not written after retry.", i, task.file_path)
                         exit_code = 3
                         return exit_code
@@ -586,13 +635,18 @@ def run(goal: str, model: str = '', target_dir: str = '',
                                     '.yaml', '.yml', '.lock')
                 if size < 100 and not is_build_file(task.file_path) and not is_config:
                     log("Near-empty %s (%d bytes) — retrying.", task.file_path, size)
+                    record_challenge(f"near-empty file written for {task.file_path} ({size} bytes)")
                     Path(task.file_path).unlink(missing_ok=True)
                     stub = (f"Write file NOW: `{task.file_path}`\n"
                             f"You ONLY have the Write tool.\nGOAL: {goal}\n{p.plan_context}")
+                    if companion:
+                        stub += (f"\nAlso write `{companion}` first (declarations), "
+                                 f"then `{task.file_path}` (implementation).")
                     ref = relevant_files_context(p, task.file_path)
                     if ref:
                         stub += f"\n\n## Reference files\n{ref}"
-                    _run_writer(model, task.file_path, stub, auto_system, writer_timeout)
+                    _run_writer(model, task.file_path, stub, auto_system, writer_timeout,
+                                companion)
             except OSError:
                 pass
 
@@ -625,6 +679,8 @@ def run(goal: str, model: str = '', target_dir: str = '',
                         if det_fixed:
                             log("Lint auto-fixed (deterministic): %s", task.file_path)
                         else:
+                            record_challenge(
+                                f"lint repair needed for {task.file_path}", lint_head)
                             _run_repair_lint(model, lint_cmd, task.file_path, lint_head,
                                             auto_system, writer_timeout, goal)
                             if not _run_cmd(lint_cmd, lint_log):
@@ -642,6 +698,9 @@ def run(goal: str, model: str = '', target_dir: str = '',
                 test_log = os.path.join(LOG_DIR, f"tests-iter-{i:02d}.log")
                 if not _run_cmd(test_cmd, test_log):
                     log("Tests failing after %s — invoking repair.", task.file_path)
+                    record_challenge(
+                        f"tests failed after writing {task.file_path}",
+                        _tail_file(test_log, 5))
                     if not _run_test_repair_loop(model, test_cmd, test_log, p,
                                                  auto_system, writer_timeout, goal):
                         log("Tests still failing after repair for %s.", task.file_path)
@@ -653,6 +712,10 @@ def run(goal: str, model: str = '', target_dir: str = '',
             mark_task_done('PLAN.md', task.file_path)
             log("Marked done: %s", task.file_path)
             print(f"\n  Iteration {i} done: {task.file_path}\n", flush=True)
+            if show_result:
+                _print_result(task.file_path)
+                if companion and Path(companion).exists():
+                    _print_result(companion)
             p = parse('PLAN.md')
             current_plan = p
 
@@ -758,10 +821,19 @@ def _run_planner(goal: str, model: str, planner_timeout: int) -> None:
 # ── Writer ────────────────────────────────────────────────────────────────────
 
 def _run_writer(model: str, target_file: str, prompt: str,
-                autonomous_system: str, writer_timeout: int) -> bool:
+                autonomous_system: str, writer_timeout: int,
+                companion: str = '') -> bool:
     Path(target_file).parent.mkdir(parents=True, exist_ok=True)
-    rules = ("REMINDER: Call Write ONCE for the file you are given. "
-             "Complete, runnable content. Stop immediately after. Nothing else.")
+    if companion:
+        Path(companion).parent.mkdir(parents=True, exist_ok=True)
+        rules = (f"REMINDER: Write TWO files for this task.\n"
+                 f"1. Call Write for `{companion}` first — declarations, types, and "
+                 f"function prototypes only (no implementations).\n"
+                 f"2. Call Write for `{target_file}` second — full implementation.\n"
+                 f"Complete, runnable content. Stop immediately after the second Write.")
+    else:
+        rules = ("REMINDER: Call Write ONCE for the file you are given. "
+                 "Complete, runnable content. Stop immediately after. Nothing else.")
     sess = Session(autonomous_system + '\n\n' + rules)
     sess.tool_set = tools.WRITER
     ok, err = sess.run(model, prompt, 'Writing', 15, target_file, float(writer_timeout))
@@ -819,6 +891,30 @@ def _run_repair_lint(model: str, lint_cmd: str, file_path: str, lint_head: str,
     _, err = sess.run(model, prompt, 'Repairing', 4, '', float(writer_timeout))
     if err:
         log("Lint repair: %s", err)
+
+
+def _run_mitigation_pass(model: str, p: Plan, challenges: str, goal: str) -> None:
+    test_cmd = p.test_command
+    if not test_cmd:
+        log("Mitigation pass: no test command — skipping.")
+        return
+    os.makedirs(LOG_DIR, exist_ok=True)
+    mit_log = os.path.join(LOG_DIR, 'tests-mitigation.log')
+    log("Challenges found from previous run — running mitigation pass.")
+    if _run_cmd(test_cmd, mit_log):
+        log("Mitigation pass: tests passing — challenges already resolved.")
+        return
+    log("Mitigation pass: tests failing — attempting repair.")
+    complexity = detect_complexity(goal)
+    writer_timeout = _COMPLEXITY_WRITER[complexity]
+    project_dir = os.getcwd()
+    challenge_context = (f"\n\n## Challenges from previous run\n{challenges}\n\n"
+                         "Address these challenges as you repair.")
+    auto_system = _build_autonomous_system(project_dir) + challenge_context
+    if _run_test_repair_loop(model, test_cmd, mit_log, p, auto_system, writer_timeout, goal):
+        log("Mitigation pass: challenges resolved.")
+    else:
+        log("Mitigation pass: could not fully resolve challenges — proceeding anyway.")
 
 
 def _final_test_gate(model: str, p: Optional[Plan], autonomous_system: str,
@@ -915,7 +1011,7 @@ def _python_relevant(goal: str, p: Plan) -> bool:
                                    'python', 'requirements.txt'))
 
 
-def _build_write_prompt(goal: str, task, p: Plan) -> str:
+def _build_write_prompt(goal: str, task, p: Plan, companion: str = '') -> str:
     parts = [f"GOAL: {goal}\n\n## Plan\n{p.plan_context}"]
     existing = relevant_files_context(p, task.file_path)
     if existing:
@@ -923,6 +1019,9 @@ def _build_write_prompt(goal: str, task, p: Plan) -> str:
         if is_test_file(task.file_path):
             parts.append("\nCRITICAL: Call EXACT method/function names from the reference files above. Do not rename or alias them.\n")
     parts.append(f"\n\n## Task\nWrite file: `{task.file_path}`")
+    if companion:
+        parts.append(f"\nAlso write: `{companion}` — declare the interface (types and "
+                     f"function prototypes) before writing the implementation.")
     if task.description:
         parts.append(f"\nPurpose: {task.description}")
     if is_build_file(task.file_path):
@@ -996,6 +1095,79 @@ def _head_file(path: str, n: int) -> str:
         return '\n'.join(lines[:n]) if len(lines) > n else '\n'.join(lines)
     except OSError:
         return ''
+
+
+_IMPL_EXTS = frozenset({'.c', '.cpp', '.cc', '.cxx'})
+_HEADER_EXTS = frozenset({'.h', '.hpp', '.hh', '.hxx'})
+
+
+def _merge_header_pairs(plan_text: str) -> str:
+    """Merge pending .h tasks into their paired pending .c/.cpp tasks.
+
+    When both foo.h and foo.c are pending, the .h task is removed and a note
+    is appended to the .c task so both files are written in one step.
+    Only pairs where BOTH tasks are pending are merged; done tasks are left alone.
+    """
+    pending_re = re.compile(r'^- \[ \] (\S+)', re.MULTILINE)
+
+    pending_h: dict[str, str] = {}  # stem -> file_path
+    pending_c: dict[str, str] = {}
+
+    for m in pending_re.finditer(plan_text):
+        fp = m.group(1)
+        ext = Path(fp).suffix.lower()
+        stem = str(Path(fp).parent / Path(fp).stem)
+        if ext in _HEADER_EXTS:
+            pending_h[stem] = fp
+        elif ext in _IMPL_EXTS:
+            pending_c[stem] = fp
+
+    pairs: dict[str, str] = {}  # h_fp -> c_fp
+    for stem, h_fp in pending_h.items():
+        if stem in pending_c:
+            pairs[h_fp] = pending_c[stem]
+
+    if not pairs:
+        return plan_text
+
+    c_to_h = {c: h for h, c in pairs.items()}
+    result: list[str] = []
+    for line in plan_text.splitlines(keepends=True):
+        m = re.match(r'^(- \[ \] )(\S+)(.*?)(\n?)$', line)
+        if not m:
+            result.append(line)
+            continue
+        fp, rest, nl = m.group(2), m.group(3).rstrip(), m.group(4)
+        if fp in pairs:
+            continue  # remove the .h task line
+        if fp in c_to_h:
+            h_fp = c_to_h[fp]
+            note = f'also write `{h_fp}`'
+            rest = rest + f'; {note}' if rest.strip() else f' — {note}'
+            result.append(f'{m.group(1)}{fp}{rest}{nl}')
+        else:
+            result.append(line)
+    return ''.join(result)
+
+
+def _companion_header(description: str) -> str:
+    """Return the companion header path from a merged task description, or ''."""
+    m = re.search(r'also write `([^`]+\.(?:h|hpp|hh|hxx))`', description or '')
+    return m.group(1) if m else ''
+
+
+def _print_result(file_path: str, max_lines: int = 60) -> None:
+    try:
+        lines = Path(file_path).read_text().splitlines()
+    except OSError:
+        return
+    shown = lines[:max_lines]
+    truncated = len(lines) > max_lines
+    print(f"\n--- {file_path} ---", flush=True)
+    print('\n'.join(shown), flush=True)
+    if truncated:
+        print(f"... [{len(lines) - max_lines} more lines]", flush=True)
+    print("---\n", flush=True)
 
 
 def _load_skill(name: str) -> str:
