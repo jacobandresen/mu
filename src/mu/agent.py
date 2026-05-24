@@ -11,15 +11,17 @@ from typing import Optional
 
 from mu import tools
 from mu.archive import AgentSession
-from mu.client import chat, list_models
+from mu.client import chat, list_models, load_model, recommended_model
 from mu.plan import (Plan, check_goal_alignment, drop_runtime_artifacts,
-                     extract_plan_content, has_pending_build_file, is_build_file,
-                     is_test_file, mark_task_done, next_task, normalize_embedded_files,
+                     extract_plan_content, ground_plan, has_pending_build_file,
+                     is_build_file, is_test_file, mark_task_done, next_task,
+                     normalize_embedded_files,
                      normalize_test_command, parse, pending_source_files,
                      record_failed_repair, relevant_files_context, repair_history,
                      strip_thinking_artifacts, tasks_remaining)
-from mu.sensors import (apply_makefile_sensors, fix_missing_close_paren,
-                        fix_multiline_single_quote, fix_test_import_module, ruff_autofix)
+from mu.sensors import (apply_go_sensors, apply_makefile_sensors,
+                        fix_missing_close_paren, fix_multiline_single_quote,
+                        fix_test_import_module, ruff_autofix)
 from mu.session import Session
 
 LOG_DIR = ".mu"
@@ -53,18 +55,55 @@ def log(msg: str, *args) -> None:
     print(f"==> [mu-agent] {msg}", flush=True)
 
 
+def _match_loaded(loaded: list[str], target: str) -> str:
+    """Return the loaded model id matching the catalog id `target`, or ''.
+
+    LM Studio sometimes serves a model under a slightly different id than the
+    catalog uses (org prefix differences), so fall back to a bare-name match.
+    """
+    if not target:
+        return ''
+    bare = target.split('/')[-1]
+    for m in loaded:
+        if m == target or m.split('/')[-1] == bare:
+            return m
+    return ''
+
+
+def _select_model() -> str:
+    """Pick the model for the agent: prefer the recommended one, loading it if
+    needed; otherwise fall back to whatever is already loaded. Returns '' on
+    failure (caller should abort)."""
+    loaded = list_models()
+    recommended = recommended_model()
+    match = _match_loaded(loaded, recommended)
+    if match:
+        log("Using recommended model: %s", match)
+        return match
+    if recommended:
+        log("Recommended model %s not loaded — loading via LM Studio...", recommended)
+        if load_model(recommended):
+            loaded = list_models()
+            model = _match_loaded(loaded, recommended) or recommended
+            log("Using recommended model: %s", model)
+            return model
+        log("Could not load recommended model — falling back.")
+    if loaded:
+        log("Using LM Studio model: %s", loaded[0])
+        return loaded[0]
+    print("mu-agent: no model loaded in LM Studio — load a model first",
+          file=sys.stderr)
+    return ''
+
+
 def run(goal: str, model: str = '', target_dir: str = '',
         max_iter: int = 10, force: bool = False) -> int:
     if not model:
         model = os.environ.get('MU_AGENT_MODEL', '')
     if not model:
-        loaded = list_models()
-        if not loaded:
-            print("mu-agent: no model loaded in LM Studio — load a model first",
-                  file=sys.stderr)
+        model = _select_model()
+        if not model:
             return 1
-        model = loaded[0]
-        log("Using LM Studio model: %s", model)
 
     archive_dir = (os.environ.get('MU_AGENT_ARCHIVE_DIR', '') or
                    str(Path.home() / '.mu' / 'sessions'))
@@ -121,6 +160,13 @@ def run(goal: str, model: str = '', target_dir: str = '',
         dropped = drop_runtime_artifacts('PLAN.md', p)
         if dropped:
             log("Dropped runtime artifact tasks: %s", ', '.join(dropped))
+            p = parse('PLAN.md')
+            current_plan = p
+
+        grounded = ground_plan('PLAN.md', p)
+        if grounded:
+            for change in grounded:
+                log("Grounded plan against toolchain — %s", change)
             p = parse('PLAN.md')
             current_plan = p
 
@@ -185,6 +231,10 @@ def run(goal: str, model: str = '', target_dir: str = '',
             if task.file_path.endswith('.py'):
                 if fix_test_import_module(task.file_path):
                     log("Fixed %s: corrected import module name.", task.file_path)
+
+            if task.file_path.endswith('.go') or task.file_path.endswith('go.mod'):
+                if apply_go_sensors():
+                    log("Resolved Go module dependencies (go mod tidy).")
 
             if (is_build_file(task.file_path) and
                     Path(task.file_path).name.lower() == 'makefile'):
@@ -360,6 +410,7 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
             if (Path(t.file_path).exists() and is_build_file(t.file_path) and
                     Path(t.file_path).name.lower() == 'makefile'):
                 apply_makefile_sensors(t.file_path)
+        apply_go_sensors()  # resolve Go module deps before each build attempt
 
     return sess.repair_loop(model, goal, _REPAIR_MAX_ITERS, float(writer_timeout),
                             run_test, reapply)

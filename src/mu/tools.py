@@ -1,5 +1,6 @@
 """Tool definitions and dispatch for the agent loop."""
 
+import json
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -72,7 +73,18 @@ WRITER = [WRITE, EDIT]
 REPAIR = [WRITE, EDIT, READ]
 
 
-def dispatch(name: str, args: dict) -> str:
+def _as_dict(args) -> dict:
+    """Tool-call arguments travel as a JSON string (OpenAI schema); parse to dict."""
+    if isinstance(args, str):
+        try:
+            return json.loads(args or '{}')
+        except json.JSONDecodeError:
+            return {}
+    return args or {}
+
+
+def dispatch(name: str, args) -> str:
+    args = _as_dict(args)
     if name == 'Write':
         return _write(args.get('path', ''), args.get('content', ''))
     if name == 'Edit':
@@ -86,7 +98,8 @@ def dispatch(name: str, args: dict) -> str:
 
 
 def log_call(tc: dict) -> None:
-    fn, args = tc['function'], tc['function']['arguments']
+    fn = tc['function']
+    args = _as_dict(fn['arguments'])
     name = fn['name']
     if name in ('Write', 'Edit'):
         print(f"==> [mu-agent] tool: {name}({args.get('path', '')!r})")

@@ -1,5 +1,12 @@
 bin/
 
+# Python compiled / build artifacts (anywhere in the repo)
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ruff_cache/
+.pytest_cache/
+
 # dojo: ignore compiled binaries and build artifacts, keep source
 dojo/**/main
 dojo/**/server

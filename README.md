@@ -102,7 +102,7 @@ dojo/             stress-test harness
 
 ## Practice
 
-The `dojo/` directory is where mu is stress-tested by running a guest model through a fixed problem set (P1–P7). See [docs/PRACTICE.md](docs/PRACTICE.md) for the problem set and [docs/RUNS.md](docs/RUNS.md) for results across sessions.
+The `dojo/` directory is where mu is stress-tested by running a guest model through a fixed problem set (P1–P7). See [docs/PRACTICE.md](docs/PRACTICE.md) for the problem set and [docs/DOJO.md](docs/DOJO.md) for the latest runs and the open challenges.
 
 ## How it works
 

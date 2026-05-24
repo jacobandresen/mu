@@ -103,7 +103,7 @@ skills/               skill prompts loaded by the planner
 ## 4. Dojo workflow & run config
 
 - Each run lives in `dojo/<model>-<host>-<version>-<date>[-suffix>/run-all.sh`.
-- Scores are tracked in `docs/RUNS.md`.
+- Scores and open challenges are tracked in `docs/DOJO.md`.
 - **Bias success over speed:** use the most capable model that fits.
   Recommended: `qwen/qwen2.5-coder-7b-instruct` (8 GB) or `mistralai/devstral-small-2507` (16 GB).
 - Model is selected via `MU_AGENT_MODEL` or auto-detected from the first model loaded in LM Studio.

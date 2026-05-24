@@ -5,7 +5,7 @@ Last updated: 2026-05-23
 ## What the dojo requires
 
 Seven problems across Python, C (SDL2), C# (dotnet), Go (Gin), Rust (cargo), and a hard Flask+SQLite+pytest problem.
-The top failure modes (from CHALLENGES.md) are:
+The top failure modes (from DOJO.md) are:
 
 1. **Tool calling failure** — model generates prose instead of calling Write; repair agent never acts.
 2. **API hallucination** — wrong library versions (gin v2.0.0), SDL3 vs SDL2 APIs, bad go.mod pins.

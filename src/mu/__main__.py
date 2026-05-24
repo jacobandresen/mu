@@ -1,7 +1,6 @@
 """mu CLI — argparse entry point."""
 
 import argparse
-import json
 import os
 import re
 import shutil
@@ -229,11 +228,43 @@ def _cmd_setup(args) -> int:
     print()
     print("Installing Python dependencies...")
     run_cmd('pip3', 'install', '--break-system-packages', 'lmstudio')
+
     print()
-    print("AI backend: download LM Studio from https://lmstudio.ai")
-    print("  Load a model (e.g. qwen/qwen2.5-coder-7b-instruct) and start the local server.")
+    print("AI backend: LM Studio")
+    model = client.recommended_model()
+    if not model:
+        print("  Could not determine a recommended model for this hardware.")
+        print("  Browse options with: mu model list")
+    elif not client.is_running():
+        print(f"  Recommended model for this system: {model}")
+        print("  LM Studio isn't running — download it from https://lmstudio.ai, start it,")
+        print("  then re-run `mu setup` to download the model automatically.")
+    else:
+        print(f"  Recommended model for this system: {model}")
+        if confirm(f"Download {model} now?"):
+            key = client.download_model(model, on_progress=_download_progress())
+            print(f"  Downloaded: {key}" if key else "  Download failed — see message above.")
+    print()
     print(f"  mu connects to {client.LMS_HOST} by default (override: MU_LMSTUDIO_HOST).")
+    print("  Then run: mu agent \"your goal\"")
     return 0
+
+
+def _download_progress():
+    """Return an on_progress callback that prints download percent every ~5%."""
+    state = {'last': -5}
+
+    def cb(update) -> None:
+        total = getattr(update, 'total_bytes', 0) or 0
+        done = getattr(update, 'downloaded_bytes', 0) or 0
+        if total <= 0:
+            return
+        pct = int(done * 100 / total)
+        if pct >= state['last'] + 5 or pct >= 100:
+            state['last'] = pct
+            print(f"  downloading... {pct}% ({done // (1024*1024)} / {total // (1024*1024)} MB)")
+
+    return cb
 
 
 # ── model ─────────────────────────────────────────────────────────────────────
@@ -271,51 +302,8 @@ def _model_active(mid: str, active: set[str]) -> bool:
     return any(bare == a or a.endswith('/' + bare) for a in active)
 
 
-def _recommended_model_id(catalog: list[dict]) -> str:
-    """Return the best catalog model that fits in system RAM."""
-    try:
-        import subprocess as _sp
-        import platform
-        if platform.system() == 'Darwin':
-            out = _sp.check_output(['sysctl', '-n', 'hw.memsize'], text=True)
-            total_gb = int(out.strip()) / (1024 ** 3)
-        else:
-            with open('/proc/meminfo') as f:
-                for line in f:
-                    if line.startswith('MemTotal'):
-                        total_gb = int(line.split()[1]) / (1024 ** 2)
-                        break
-                else:
-                    return ''
-    except Exception:
-        return ''
-
-    # Pick the most capable model whose minimum VRAM requirement fits.
-    # Tiers: >=32GB → 32GB model, >=14GB → 16GB model, else → 8GB model.
-    if total_gb >= 30:
-        tier = 32
-    elif total_gb >= 14:
-        tier = 16
-    else:
-        tier = 8
-
-    tier_map = {32: 32768, 16: 16384, 8: 8192}
-    max_ctx = tier_map[tier]
-    for spec in catalog:
-        ctx = spec.get('contextWindow', 0)
-        # 8GB models have <=32k context, 16GB <=128k, 32GB <=256k+
-        if tier == 8 and ctx <= 32768:
-            return spec.get('id', '')
-        if tier == 16 and 32768 < ctx <= 131072:
-            return spec.get('id', '')
-        if tier >= 32 and ctx > 131072:
-            return spec.get('id', '')
-    return catalog[0].get('id', '') if catalog else ''
-
-
 def _model_status() -> int:
-    catalog = _load_catalog()
-    recommended = _recommended_model_id(catalog)
+    recommended = client.recommended_model()
     active = _active_model_ids()
     available = client.list_models()
 
@@ -391,7 +379,7 @@ def _model_ensure_single() -> int:
 def _model_list() -> int:
     catalog = _load_catalog()
     active = _active_model_ids()
-    recommended = _recommended_model_id(catalog)
+    recommended = client.recommended_model()
     if not catalog:
         for m in active:
             print(m)
@@ -416,7 +404,7 @@ def _model_picker() -> int:
         return 1
     catalog = _load_catalog()
     active = _active_model_ids()
-    recommended = _recommended_model_id(catalog)
+    recommended = client.recommended_model()
     if catalog:
         lines = []
         for spec in catalog:
@@ -446,11 +434,7 @@ def _model_picker() -> int:
 
 
 def _load_catalog() -> list[dict]:
-    catalog_path = Path(__file__).parent / 'models-catalog.json'
-    try:
-        return json.loads(catalog_path.read_text()).get('models', [])
-    except Exception:
-        return []
+    return client.load_catalog()
 
 
 # ── agent ─────────────────────────────────────────────────────────────────────

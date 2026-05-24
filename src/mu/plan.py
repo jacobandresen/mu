@@ -2,6 +2,7 @@
 
 import os
 import re
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -214,6 +215,110 @@ def drop_runtime_artifacts(plan_path: str, p: Plan) -> list[str]:
                    in _RUNTIME_EXTS)]
     Path(plan_path).write_text(''.join(out))
     return dropped
+
+
+def _dotnet_target_framework() -> str:
+    """Ask the installed dotnet SDK its version → matching target framework moniker.
+
+    Grounds the .csproj's TargetFramework in the real toolchain rather than guessing.
+    """
+    try:
+        out = subprocess.run(['dotnet', '--version'], capture_output=True,
+                             text=True, timeout=10)
+        major = out.stdout.strip().split('.')[0]
+        if major.isdigit():
+            return f"net{major}.0"
+    except Exception:
+        pass
+    return "net8.0"  # last LTS fallback when the SDK can't be queried
+
+
+def _csproj_content() -> str:
+    """A minimal, canonical SDK-style console project. SDK-style projects glob all
+    .cs files in the directory, so no source files need to be listed explicitly."""
+    return (
+        '<Project Sdk="Microsoft.NET.Sdk">\n'
+        '  <PropertyGroup>\n'
+        '    <OutputType>Exe</OutputType>\n'
+        f'    <TargetFramework>{_dotnet_target_framework()}</TargetFramework>\n'
+        '    <ImplicitUsings>enable</ImplicitUsings>\n'
+        '    <Nullable>disable</Nullable>\n'
+        '  </PropertyGroup>\n'
+        '</Project>\n'
+    )
+
+
+def _dotnet_run_malformed(tc: str) -> bool:
+    """True if a dotnet test command points at a .cs source instead of a project.
+    `dotnet run --project X.cs` is rejected by the SDK (it wants a .csproj/dir)."""
+    if 'dotnet' not in tc:
+        return False
+    return bool(re.search(r'\.cs(\b|$)', tc)) and '.csproj' not in tc
+
+
+def _set_test_command(text: str, new_cmd: str) -> str:
+    """Replace the body of the `## Test Command` section with a single command."""
+    out, in_sec, wrote = [], False, False
+    for line in text.splitlines():
+        if re.match(r'^##\s+Test Command\s*$', line):
+            out.append(line)
+            out.append(new_cmd)
+            in_sec, wrote = True, True
+            continue
+        if in_sec:
+            if line.startswith('## ') or line.strip() == '':
+                in_sec = False
+                out.append(line)
+            # else: drop the stale command line(s)
+            continue
+        out.append(line)
+    result = '\n'.join(out)
+    if text.endswith('\n'):
+        result += '\n'
+    return result if wrote else text
+
+
+def ground_plan(plan_path: str, p: Plan) -> list[str]:
+    """Validate plan details against the real toolchain before any code is written.
+
+    These are all programming problems, so the build system is a deterministic,
+    problem-agnostic oracle: it knows the *language*, never the test. Currently:
+      - Level 2 (project shape): C# can't build without a .csproj — add one.
+      - Level 3 (build command): rewrite a dotnet command that targets a .cs
+        source (which the SDK rejects) to the canonical `dotnet run`.
+    Returns a list of human-readable grounding changes. Idempotent.
+    """
+    try:
+        data = Path(plan_path).read_text()
+    except OSError:
+        return []
+    text, changes = data, []
+    exts = {Path(t.file_path).suffix.lower() for t in p.tasks}
+    names = [Path(t.file_path).name.lower() for t in p.tasks]
+
+    # Level 2 — C# needs a project file to compile.
+    if '.cs' in exts and not any(n.endswith('.csproj') for n in names):
+        proj = Path(os.getcwd()).name or 'app'
+        csproj = f"{proj}.csproj"
+        try:
+            if not Path(csproj).exists():
+                Path(csproj).write_text(_csproj_content())
+            if f'] {csproj}' not in text:
+                text = text.replace(
+                    '## Files\n',
+                    f'## Files\n- [x] {csproj} — auto-grounded (C# needs a project file)\n', 1)
+            changes.append(f"C#: added {csproj} (dotnet cannot build loose .cs files)")
+        except OSError:
+            pass
+
+    # Level 3 — a dotnet run command must target a project, not a source file.
+    if _dotnet_run_malformed(p.test_command):
+        text = _set_test_command(text, 'dotnet run')
+        changes.append("rewrote Test Command to canonical 'dotnet run'")
+
+    if text != data:
+        Path(plan_path).write_text(text)
+    return changes
 
 
 def check_goal_alignment(p: Plan, goal: str) -> tuple[bool, list[str]]:

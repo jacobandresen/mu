@@ -272,6 +272,74 @@ def fix_duplicate_var(f: str) -> bool:
     return True
 
 
+_GO_UNUSED_IMPORT_RE = re.compile(r'^(\S+):\d+:\d+: "([^"]+)" imported and not used')
+
+
+def fix_go_unused_imports() -> bool:
+    """Strip Go imports the compiler reports as unused.
+
+    Go is strict: an `imported and not used` import is a hard compile error, and
+    small models routinely emit speculative imports (`encoding/json`, `os`) they
+    never reference. This uses the compiler as the oracle — problem-agnostic, no
+    pattern-matching on specific packages — parsing `go build` errors of the form
+    `./main.go:4:2: "encoding/json" imported and not used` and removing exactly
+    the offending import line. Loops because removing one import can surface the
+    next. Returns True if any import was removed.
+    """
+    if not shutil.which('go') or not any(Path('.').rglob('*.go')):
+        return False
+    removed_any = False
+    for _ in range(8):
+        proc = subprocess.run(['go', 'build', './...'],
+                              capture_output=True, text=True, timeout=180)
+        unused = {}  # file -> set of import paths
+        for line in (proc.stderr or '').splitlines():
+            m = _GO_UNUSED_IMPORT_RE.match(line.strip())
+            if m:
+                unused.setdefault(m.group(1), set()).add(m.group(2))
+        if not unused:
+            break
+        progressed = False
+        for fname, paths in unused.items():
+            fp = Path(fname)
+            if not fp.exists():
+                continue
+            kept = []
+            for ln in fp.read_text().splitlines():
+                stripped = ln.strip()
+                # import line is `"path"` or `alias "path"` inside an import block
+                if any(stripped == f'"{p}"' or stripped.endswith(f' "{p}"')
+                       for p in paths):
+                    progressed = removed_any = True
+                    continue
+                kept.append(ln)
+            fp.write_text('\n'.join(kept) + '\n')
+        if not progressed:
+            break
+    return removed_any
+
+
+def apply_go_sensors() -> bool:
+    """Resolve Go module dependencies and clean unused imports before a build.
+
+    Generic, problem-agnostic toolchain steps: any Go project with source files
+    needs a module file (`go mod init`) and its declared imports fetched
+    (`go mod tidy`) — the package manager is the authority on dependency names
+    and versions, not the model's guess — and Go's compiler rejects unused
+    imports outright, so we let the compiler name them and strip them. Idempotent
+    and safe to call repeatedly. Returns True if the go toolchain ran.
+    """
+    if not shutil.which('go') or not any(Path('.').rglob('*.go')):
+        return False
+    if not Path('go.mod').exists():
+        module = Path.cwd().name or 'app'
+        subprocess.run(['go', 'mod', 'init', module], capture_output=True, text=True)
+    # tidy adds missing requires (e.g. gin) and writes go.sum; needs network.
+    subprocess.run(['go', 'mod', 'tidy'], capture_output=True, text=True, timeout=180)
+    fix_go_unused_imports()
+    return True
+
+
 def apply_makefile_sensors(f: str) -> None:
     for fn in [fix_makefile_space_indent, fix_orphan_top_level_commands,
                fix_no_targets, fix_inline_recipe, fix_duplicate_var]:
