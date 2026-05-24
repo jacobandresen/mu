@@ -276,6 +276,99 @@ def flow(goal: str = '', model: str = '', target_dir: str = '') -> int:
     return 0
 
 
+def assess(goal: str = '', model: str = '', target_dir: str = '') -> int:
+    """Assess each plan step for missing information and backfill earlier tasks."""
+    import time
+    if not model:
+        model = os.environ.get('MU_AGENT_MODEL', '')
+    if not model:
+        model = _select_model()
+        if not model:
+            return 1
+
+    if target_dir:
+        os.chdir(target_dir)
+    if not Path('PLAN.md').exists():
+        print("mu-assess: no PLAN.md found — run `mu plan` first", file=sys.stderr)
+        return 1
+
+    original = Path('PLAN.md').read_text()
+    p = parse('PLAN.md')
+    pending = [t for t in p.tasks if not t.done and not t.in_progress]
+    if not pending:
+        log("No pending tasks — nothing to assess.")
+        return 0
+
+    timeout = _COMPLEXITY_PLANNER['simple']
+    log("Assessing %d pending task(s) for missing information (timeout=%ds)",
+        len(pending), timeout)
+
+    system = (
+        "You are a plan reviewer. Your job is to enrich PLAN.md task descriptions "
+        "so that each task has everything the implementer needs — by backfilling "
+        "missing information into earlier tasks, not by adding or removing tasks. "
+        "Output ONLY the raw PLAN.md markdown — no preamble, no explanation, no code fences."
+    )
+    rules = (
+        "Rules:\n"
+        "- Keep every `- [x]` (done) task exactly as-is, in the same position.\n"
+        "- Preserve the full set of `- [ ]` tasks in the same order — do NOT add, remove, or reorder them.\n"
+        "- For each pending task, check: does its description (and the plan context) give "
+        "  a writer enough information to implement it correctly? Ask: what interface, "
+        "  data structure, function signature, or contract does this task depend on that "
+        "  an earlier task in the plan will produce?\n"
+        "- If a later task needs a specific detail from an earlier task, enrich the "
+        "  earlier task's description (after the `—`) with that contract so it is "
+        "  explicit before the writer ever reaches the later task.\n"
+        "- Only the description part (after `—`) of a task may change. The file path "
+        "  (before `—`) must remain byte-for-byte identical.\n"
+        "- If a task already has sufficient context, leave its description unchanged.\n"
+        "- Use the exact format: `- [ ] path/to/file.ext — enriched description`.\n"
+        "- Preserve `## Summary`, `## Test Command`, `## Dependencies`, and all other sections verbatim.\n"
+        "- Do NOT write code, prose outside descriptions, or file contents."
+    )
+    user = (
+        f"Current PLAN.md:\n\n{original}\n\n{rules}\n\n"
+        + (f"GOAL: {goal}\n\n" if goal else "")
+        + "Output the assessed PLAN.md now. Preserve ## Summary if present, then ## Files."
+    )
+
+    msgs = [{'role': 'system', 'content': system},
+            {'role': 'user', 'content': user}]
+    print("  Assessing...", flush=True)
+    t0 = time.time()
+    try:
+        msg, stats = chat(model, msgs, None, float(timeout))
+    except Exception as e:
+        log("Assess error: %s", e)
+        return 1
+    elapsed = time.time() - t0
+    log("chat: prompt=%d gen=%d time=%.1fs",
+        stats.prompt_tokens, stats.generated_tokens, elapsed)
+
+    content = extract_plan_content(msg.get('content') or '')
+    if not content or not re.search(r'(?m)^- \[([ x])\] ', content):
+        log("Assess: response had no valid task checklist — leaving PLAN.md unchanged.")
+        return 1
+
+    new_p = parse_content(content)
+    orig_paths = [t.file_path for t in p.tasks]
+    new_paths = [t.file_path for t in new_p.tasks]
+    if orig_paths != new_paths:
+        log("Assess: task paths changed (got %d, expected %d) — leaving PLAN.md unchanged.",
+            len(new_paths), len(orig_paths))
+        return 1
+
+    os.makedirs(LOG_DIR, exist_ok=True)
+    backup = os.path.join(LOG_DIR, 'PLAN-before-assess.md')
+    Path(backup).write_text(original)
+    Path('PLAN.md').write_text(content)
+    log("Assess: plan enriched. Backup saved to %s.", backup)
+    print()
+    print(content, flush=True)
+    return 0
+
+
 def iterate(goal: str = '', model: str = '', target_dir: str = '',
             max_iter: int = 10) -> int:
     """Continue executing an existing PLAN.md without re-planning."""

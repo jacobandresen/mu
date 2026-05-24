@@ -62,6 +62,9 @@ _TOOLS = [_SEARCH_TOOL, _FETCH_TOOL, _WRITE_TOOL]
 
 _UA = 'Mozilla/5.0 (X11; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0'
 
+_fetch_cache: dict[str, str] = {}
+_search_cache: dict[str, str] = {}
+
 # ── filename helper ───────────────────────────────────────────────────────────
 
 def report_filename(topic: str) -> str:
@@ -81,6 +84,8 @@ _EXT_LANG = {
 # ── web tools ─────────────────────────────────────────────────────────────────
 
 def _search(query: str) -> str:
+    if query in _search_cache:
+        return _search_cache[query]
     try:
         import httpx
         r = httpx.get(
@@ -112,12 +117,16 @@ def _search(query: str) -> str:
             snippet = snippets[i] if i < len(snippets) else ''
             results.append(f"{i + 1}. {title}\n   URL: {url}\n   {snippet}")
 
-        return '\n\n'.join(results) if results else 'No results found.'
+        result = '\n\n'.join(results) if results else 'No results found.'
+        _search_cache[query] = result
+        return result
     except Exception as e:
         return f"Search error: {e}"
 
 
 def _fetch(url: str, max_chars: int = 6000) -> str:
+    if url in _fetch_cache:
+        return _fetch_cache[url]
     try:
         import httpx
         r = httpx.get(url, headers={'User-Agent': _UA}, timeout=15.0,
@@ -132,6 +141,7 @@ def _fetch(url: str, max_chars: int = 6000) -> str:
         text = re.sub(r'\s+', ' ', text).strip()
         if len(text) > max_chars:
             text = text[:max_chars] + f'\n\n[truncated at {max_chars} chars]'
+        _fetch_cache[url] = text
         return text
     except Exception as e:
         return f"Fetch error: {e}"
@@ -166,7 +176,12 @@ def _log_call(name: str, raw_args) -> None:
     except Exception:
         args = {}
     label = args.get('query') or args.get('url') or args.get('path', '')
-    print(f"==> [mu-research] {name}({label!r})", flush=True)
+    cached = (
+        (name == 'Fetch' and args.get('url', '') in _fetch_cache) or
+        (name == 'Search' and args.get('query', '') in _search_cache)
+    )
+    suffix = ' [cached]' if cached else ''
+    print(f"==> [mu-research] {name}({label!r}){suffix}", flush=True)
 
 # ── research loop ─────────────────────────────────────────────────────────────
 

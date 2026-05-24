@@ -89,6 +89,14 @@ def main() -> int:
     flow_p.add_argument('--model', default='',
                         help='LM Studio model ID (overrides MU_AGENT_MODEL)')
 
+    assess_p = sub.add_parser('assess', help='Assess each PLAN.md task for missing information and backfill earlier steps')
+    assess_p.add_argument('goal', nargs='?', default='', metavar='GOAL',
+                          help='Optional goal hint to anchor the assessment')
+    assess_p.add_argument('-d', '--dir', default='', metavar='PATH',
+                          help='Directory containing PLAN.md (default: current)')
+    assess_p.add_argument('--model', default='',
+                          help='LM Studio model ID (overrides MU_AGENT_MODEL)')
+
     iterate_p = sub.add_parser('iterate', help='Continue executing an existing PLAN.md')
     iterate_p.add_argument('goal', nargs='?', default='', metavar='GOAL',
                            help='Optional goal hint (inferred from PLAN.md if omitted)')
@@ -137,6 +145,7 @@ def main() -> int:
         'agent': _cmd_agent,
         'split': _cmd_split,
         'flow': _cmd_flow,
+        'assess': _cmd_assess,
         'iterate': _cmd_iterate,
         'version': _cmd_version,
         'clean': _cmd_clean,
@@ -549,6 +558,12 @@ def _cmd_split(args) -> int:
 
 def _cmd_flow(args) -> int:
     return agent.flow(goal=args.goal, model=args.model, target_dir=args.dir)
+
+
+# ── assess ────────────────────────────────────────────────────────────────────
+
+def _cmd_assess(args) -> int:
+    return agent.assess(goal=args.goal, model=args.model, target_dir=args.dir)
 
 
 # ── iterate ───────────────────────────────────────────────────────────────────
