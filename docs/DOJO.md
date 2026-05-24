@@ -34,7 +34,7 @@ Current backend: **LM Studio** (OpenAI-compatible API), model
 |-----|-------|----------|-----------|---------|-----------|-----------|---------|----------|
 | [C](../dojo/claude-qwen25coder-7b-lmstudio-v0.7.0-2026-05-23-C/) — first true local baseline | **3/7** | ✓ | X 400 | ✓ | X 400 | X 400 | ✓ | X 400 |
 | [F](../dojo/claude-qwen25coder-7b-lmstudio-v0.7.0-2026-05-23-F/) — + `go mod tidy` (re-ran P5) | — | — | — | — | — | X unused-import | — | — |
-| [05-24](../dojo/claude-qwen25coder-7b-lmstudio-v0.7.0-2026-05-24/) — + pytest upgrade (re-ran P2/P7) | — | — | X test-iso | — | — | — | — | X dep-skew |
+| [05-24](../dojo/claude-qwen25coder-7b-lmstudio-v0.7.0-2026-05-24/) — + pytest upgrade; package refactor | — | — | X test-iso | ✓ | — | — | ✓ | X dep-skew |
 
 - **C** is the first uninterrupted *local* run (the earlier remote run was
   network-cut). Every failure died on the **HTTP 400** transport bug (C1), which
@@ -47,6 +47,9 @@ Current backend: **LM Studio** (OpenAI-compatible API), model
   exposed **C0**: every prior P2/P7 failure was a broken pytest, *not* the
   agent. With pytest working, P2 reached **2/3 passing** and both repair loops
   edited the *correct* files — which **falsified [C6](#c6)** (see below).
+  P3/P6 were then re-run as a **regression check** after the package refactor
+  (which fixed a silently-broken skill loader, so the `task-planner` skill now
+  actually reaches the planner) — both still pass, confirming the change is safe.
 
 Net: pass/fail score still **3/7** (P1, P3, P6), but the failure *modes* are now
 honest. The dominant blocker was environmental ([C0](#c0)), not the agent; the
