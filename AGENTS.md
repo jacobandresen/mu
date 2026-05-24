@@ -87,7 +87,7 @@ src/mu/tools.py       Write/Edit/Bash/Read tool definitions and dispatch
 src/mu/client.py      LM Studio HTTP client (OpenAI-compatible API)
 src/mu/archive.py     session tombstones in ~/.mu/sessions/
 src/mu/__main__.py    CLI (argparse) and all commands
-skills/               skill prompts loaded by the planner
+src/mu/skills/        skill prompts loaded by the planner (packaged data)
 ```
 
 `mu agent` is a deterministic control plane composing model sessions:

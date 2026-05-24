@@ -60,7 +60,7 @@ Planning in mu produces `PLAN.md`: a file-system-persisted, machine-parseable ta
 
 ### 3.1 LLM-Based Planning
 
-The planner agent is always invoked with the `task-planner` skill injected into the system prompt. Skill files (read from `skills/` at runtime via `_load_skill()`) are the mechanism by which the harness shapes model behaviour toward correct output formats — a form of *prompt-level guardrail* [5]. This design reflects the harness-engineering principle of *deferring model invocation to where it is irreplaceable* [2][3]: the harness manages orchestration deterministically, the model handles open-ended content generation.
+The planner agent is always invoked with the `task-planner` skill injected into the system prompt. Skill files (packaged under `src/mu/skills/`, read at runtime via `_load_skill()`) are the mechanism by which the harness shapes model behaviour toward correct output formats — a form of *prompt-level guardrail* [5]. This design reflects the harness-engineering principle of *deferring model invocation to where it is irreplaceable* [2][3]: the harness manages orchestration deterministically, the model handles open-ended content generation.
 
 ### 3.2 Plan Normalisation (Pre-Execution Sensor Pass)
 

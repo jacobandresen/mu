@@ -97,7 +97,7 @@ agent failures across **P2 and P7**:
   `pip install` is sandboxed and version skew can't reach the host.
 - **Related work:** per-project virtualenvs / ephemeral CI containers — the
   universal Python isolation pattern; also captured as a repo skill
-  (`skills/python-env/SKILL.md`).
+  (`src/mu/skills/python-env/SKILL.md`).
 - **Status:** open (isolation). Documented as the top harness fix.
 
 ### C1 — Tool-call `arguments` re-sent as object → HTTP 400 · LANDED

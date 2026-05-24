@@ -41,13 +41,13 @@ For each problem below:
 **Agent code** (`src/mu/` — Python source): orchestration logic, timeouts, plan validation,
 prompt construction, complexity detection, test normalization.
 
-**Skills** (`skills/` — Markdown): the skill files that shape how the underlying LLM
-behaves during planning and writing. When you find the model consistently making the same
-mistake, a skill-level fix is often more durable than a code change.
+**Skills** (`src/mu/skills/` — Markdown, packaged as data): the skill files that shape how
+the underlying LLM behaves during planning and writing. When you find the model consistently
+making the same mistake, a skill-level fix is often more durable than a code change.
 
 To improve a skill:
-1. Edit it directly in `skills/<name>/SKILL.md` in this repo
-2. No rebuild needed — skills are read from disk at runtime
+1. Edit it directly in `src/mu/skills/<name>/SKILL.md` in this repo
+2. No rebuild needed with an editable install — skills are read at runtime via `importlib.resources`
 3. Describe the change and its rationale in `findings.md`
 
 ## Standards

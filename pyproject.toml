@@ -1,19 +1,58 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "mu"
-version = "0.7.0"
-description = "Local AI coding toolkit"
+dynamic = ["version"]
+description = "Local AI coding toolkit that drives an autonomous coding loop from a plain-English goal."
+readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Jacob Andresen", email = "jacob.andresen@gmail.com" },
+]
+keywords = ["ai", "coding-agent", "llm", "lmstudio", "local-llm", "code-generation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Code Generators",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "httpx>=0.27",
     "lmstudio>=1.5",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "build>=1.2",
+    "ruff>=0.6",
+    "pytest>=8",
+]
+
+[project.urls]
+Homepage = "https://github.com/jacobandresen/mu"
+Repository = "https://github.com/jacobandresen/mu"
+Issues = "https://github.com/jacobandresen/mu/issues"
+
 [project.scripts]
 mu = "mu.__main__:main"
 
+[tool.setuptools.dynamic]
+version = { attr = "mu.__version__" }
+
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+mu = ["skills/*/SKILL.md", "models-catalog.json"]

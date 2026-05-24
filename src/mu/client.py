@@ -43,10 +43,10 @@ def _lms_client():
 
 def load_catalog() -> list[dict]:
     """Curated model specs shipped alongside the package."""
-    from pathlib import Path
-    path = Path(__file__).parent / 'models-catalog.json'
+    from importlib.resources import files
     try:
-        return json.loads(path.read_text()).get('models', [])
+        data = (files('mu') / 'models-catalog.json').read_text(encoding='utf-8')
+        return json.loads(data).get('models', [])
     except Exception:
         return []
 

@@ -85,19 +85,20 @@ pip3 install --break-system-packages -e .
 ## Package structure
 
 ```
-src/mu/           Python package
-  __init__.py     version
-  __main__.py     CLI (argparse) + all commands
-  agent.py        autonomous orchestration loop
-  archive.py      session tombstones (~/.mu/sessions/)
-  client.py       LM Studio HTTP client
-  plan.py         PLAN.md parsing and manipulation
-  sensors.py      deterministic code fixers
-  session.py      writer loop and repair loop
-  tools.py        tool definitions (Write/Edit/Bash/Read)
-bin/mu            executable entry point
-skills/           skill prompts loaded by the planner
-dojo/             stress-test harness
+src/mu/                Python package
+  __init__.py          __version__
+  __main__.py          CLI (argparse) + all commands
+  agent.py             autonomous orchestration loop
+  archive.py           session tombstones (~/.mu/sessions/)
+  client.py            LM Studio HTTP client
+  plan.py              PLAN.md parsing and manipulation
+  sensors.py           deterministic code fixers
+  session.py           writer loop and repair loop
+  tools.py             tool definitions (Write/Edit/Bash/Read)
+  models-catalog.json  curated model specs (packaged data)
+  skills/              skill prompts loaded by the planner (packaged data)
+bin/mu                 executable entry point
+dojo/                  stress-test harness
 ```
 
 ## Practice

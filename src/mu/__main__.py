@@ -8,7 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from mu import VERSION
+from mu import __version__
 from mu import agent
 from mu import client
 from mu import theme as _theme
@@ -447,7 +447,7 @@ def _cmd_agent(args) -> int:
 # ── version ───────────────────────────────────────────────────────────────────
 
 def _cmd_version(args) -> int:
-    print(f"mu version {VERSION}")
+    print(f"mu version {__version__}")
     return 0
 
 

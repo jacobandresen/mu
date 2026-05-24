@@ -601,10 +601,11 @@ def _head_file(path: str, n: int) -> str:
 
 
 def _load_skill(name: str) -> str:
-    skill_path = Path(__file__).parent.parent / 'skills' / name / 'SKILL.md'
-    if not skill_path.exists():
+    from importlib.resources import files
+    skill_path = files('mu') / 'skills' / name / 'SKILL.md'
+    if not skill_path.is_file():
         return ''
-    content = skill_path.read_text()
+    content = skill_path.read_text(encoding='utf-8')
     if content.startswith('---'):
         end = content.find('\n---', 3)
         if end >= 0:
