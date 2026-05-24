@@ -12,13 +12,16 @@ from typing import Optional
 from mu import tools
 from mu.archive import AgentSession
 from mu.client import chat, list_models, load_model, recommended_model
-from mu.plan import (Plan, check_goal_alignment, drop_runtime_artifacts,
+from mu.plan import (Plan, check_goal_alignment, drop_minority_languages,
+                     drop_runtime_artifacts,
                      extract_plan_content, ground_plan, has_pending_build_file,
                      is_build_file, is_test_file, mark_task_done, next_task,
                      normalize_embedded_files,
-                     normalize_test_command, parse, pending_source_files,
-                     record_failed_repair, relevant_files_context, repair_history,
-                     strip_thinking_artifacts, tasks_remaining)
+                     normalize_test_command, parse, parse_content,
+                     pending_source_files,
+                     plan_languages, record_failed_repair, relevant_files_context,
+                     repair_history, strip_thinking_artifacts, tasks_remaining,
+                     write_sketches)
 from mu.sensors import (apply_go_sensors, apply_makefile_sensors,
                         fix_missing_close_paren, fix_multiline_single_quote,
                         fix_test_import_module, ruff_autofix)
@@ -94,6 +97,273 @@ def _select_model() -> str:
     print("mu-agent: no model loaded in LM Studio — load a model first",
           file=sys.stderr)
     return ''
+
+
+def split(goal: str = '', model: str = '', target_dir: str = '') -> int:
+    """Rewrite PLAN.md so pending tasks are split into smaller, more actionable files."""
+    import time
+    if not model:
+        model = os.environ.get('MU_AGENT_MODEL', '')
+    if not model:
+        model = _select_model()
+        if not model:
+            return 1
+
+    if target_dir:
+        os.chdir(target_dir)
+    if not Path('PLAN.md').exists():
+        print("mu-split: no PLAN.md found — run `mu plan` first", file=sys.stderr)
+        return 1
+
+    original = Path('PLAN.md').read_text()
+    p = parse('PLAN.md')
+    pending = [t for t in p.tasks if not t.done and not t.in_progress]
+    if not pending:
+        log("No pending tasks — nothing to split.")
+        return 0
+
+    timeout = _COMPLEXITY_PLANNER['simple']
+    log("Splitting %d pending task(s) (timeout=%ds)", len(pending), timeout)
+
+    system = (
+        "You refine PLAN.md by splitting broad or vague pending tasks into smaller, "
+        "more actionable file-level tasks. Output ONLY the raw PLAN.md markdown — "
+        "no preamble, no explanation, no code fences."
+    )
+    rules = (
+        "Rules:\n"
+        "- Keep every `- [x]` (done) task exactly as-is, in the same position.\n"
+        "- For each `- [ ]` task that is broad, multi-purpose, or vague, split it\n"
+        "  into 2-4 concrete files, each with a single clear responsibility.\n"
+        "- If a task is already narrow and single-purpose, leave it unchanged.\n"
+        "- Use the exact format: `- [ ] path/to/file.ext — short purpose`.\n"
+        "- Stay in the dominant language already used in the plan.\n"
+        "- Preserve `## Test Command`, `## Dependencies`, and all other sections verbatim.\n"
+        "- Do NOT write code, prose, or file contents — only the task checklist."
+    )
+    user = (
+        f"Current PLAN.md:\n\n{original}\n\n{rules}\n\n"
+        + (f"GOAL: {goal}\n\n" if goal else "")
+        + "Output the revised PLAN.md now. Start with `## Files`."
+    )
+
+    msgs = [{'role': 'system', 'content': system},
+            {'role': 'user', 'content': user}]
+    print("  Splitting...", flush=True)
+    t0 = time.time()
+    try:
+        msg, stats = chat(model, msgs, None, float(timeout))
+    except Exception as e:
+        log("Split error: %s", e)
+        return 1
+    elapsed = time.time() - t0
+    log("chat: prompt=%d gen=%d time=%.1fs",
+        stats.prompt_tokens, stats.generated_tokens, elapsed)
+
+    content = extract_plan_content(msg.get('content') or '')
+    if not content or not re.search(r'(?m)^- \[([ x])\] ', content):
+        log("Split: response had no valid task checklist — leaving PLAN.md unchanged.")
+        return 1
+
+    new_p = parse_content(content)
+    new_pending = [t for t in new_p.tasks if not t.done and not t.in_progress]
+    if len(new_pending) <= len(pending):
+        log("Split: no new tasks produced (%d -> %d pending) — leaving PLAN.md unchanged.",
+            len(pending), len(new_pending))
+        return 0
+
+    os.makedirs(LOG_DIR, exist_ok=True)
+    backup = os.path.join(LOG_DIR, 'PLAN-before-split.md')
+    Path(backup).write_text(original)
+    Path('PLAN.md').write_text(content)
+    log("Split: %d -> %d pending tasks. Backup saved to %s.",
+        len(pending), len(new_pending), backup)
+    print()
+    print(content, flush=True)
+    return 0
+
+
+def flow(goal: str = '', model: str = '', target_dir: str = '') -> int:
+    """Reorganize PLAN.md so each write step is immediately followed by a testable step."""
+    import time
+    if not model:
+        model = os.environ.get('MU_AGENT_MODEL', '')
+    if not model:
+        model = _select_model()
+        if not model:
+            return 1
+
+    if target_dir:
+        os.chdir(target_dir)
+    if not Path('PLAN.md').exists():
+        print("mu-flow: no PLAN.md found — run `mu plan` first", file=sys.stderr)
+        return 1
+
+    original = Path('PLAN.md').read_text()
+    p = parse('PLAN.md')
+    pending = [t for t in p.tasks if not t.done and not t.in_progress]
+    if not pending:
+        log("No pending tasks — nothing to flow.")
+        return 0
+
+    timeout = _COMPLEXITY_PLANNER['simple']
+    log("Flowing %d pending task(s) into write+test pairs (timeout=%ds)", len(pending), timeout)
+
+    system = (
+        "You reorganize PLAN.md so every source file task is immediately followed by a "
+        "testable step that exercises it. Output ONLY the raw PLAN.md markdown — "
+        "no preamble, no explanation, no code fences."
+    )
+    rules = (
+        "Rules:\n"
+        "- Keep every `- [x]` (done) task exactly as-is, in the same position.\n"
+        "- Build files (Makefile, Cargo.toml, go.mod, pyproject.toml, package.json, "
+        "  CMakeLists.txt, etc.) stay at the top in their current order; no test pair needed.\n"
+        "- Config-only files (.toml, .json, .yaml, .lock, requirements.txt, .mod, .sum) "
+        "  need no test pair unless they ARE the build artifact.\n"
+        "- For each pending source file (non-build, non-config, non-test), ensure the very "
+        "  next task is a test or verification file that directly exercises it.\n"
+        "  - If a test file for that source already exists in the plan, move it to immediately "
+        "    follow the source file.\n"
+        "  - If no test file exists, add a new task right after the source file using the "
+        "    naming convention appropriate for the language (e.g. test_X.py for Python, "
+        "    X_test.go for Go, X.test.ts for TypeScript, X_spec.rb for Ruby). "
+        "    Give it a description like 'verify <source file>'.\n"
+        "- Test files that are already paired must stay paired; do not scatter them.\n"
+        "- Use the exact format: `- [ ] path/to/file.ext — short purpose`.\n"
+        "- Preserve `## Test Command`, `## Dependencies`, and all other sections verbatim.\n"
+        "- Do NOT write code, prose, or file contents — only the task checklist."
+    )
+    user = (
+        f"Current PLAN.md:\n\n{original}\n\n{rules}\n\n"
+        + (f"GOAL: {goal}\n\n" if goal else "")
+        + "Output the revised PLAN.md now. Start with `## Files`."
+    )
+
+    msgs = [{'role': 'system', 'content': system},
+            {'role': 'user', 'content': user}]
+    print("  Flowing...", flush=True)
+    t0 = time.time()
+    try:
+        msg, stats = chat(model, msgs, None, float(timeout))
+    except Exception as e:
+        log("Flow error: %s", e)
+        return 1
+    elapsed = time.time() - t0
+    log("chat: prompt=%d gen=%d time=%.1fs",
+        stats.prompt_tokens, stats.generated_tokens, elapsed)
+
+    content = extract_plan_content(msg.get('content') or '')
+    if not content or not re.search(r'(?m)^- \[([ x])\] ', content):
+        log("Flow: response had no valid task checklist — leaving PLAN.md unchanged.")
+        return 1
+
+    new_p = parse_content(content)
+    new_pending = [t for t in new_p.tasks if not t.done and not t.in_progress]
+    if len(new_pending) < len(pending):
+        log("Flow: pending count decreased (%d -> %d) — leaving PLAN.md unchanged.",
+            len(pending), len(new_pending))
+        return 1
+
+    os.makedirs(LOG_DIR, exist_ok=True)
+    backup = os.path.join(LOG_DIR, 'PLAN-before-flow.md')
+    Path(backup).write_text(original)
+    Path('PLAN.md').write_text(content)
+    log("Flow: %d -> %d pending tasks. Backup saved to %s.",
+        len(pending), len(new_pending), backup)
+    print()
+    print(content, flush=True)
+    return 0
+
+
+def iterate(goal: str = '', model: str = '', target_dir: str = '',
+            max_iter: int = 10) -> int:
+    """Continue executing an existing PLAN.md without re-planning."""
+    if target_dir:
+        Path(target_dir).mkdir(parents=True, exist_ok=True)
+        os.chdir(target_dir)
+    if not Path('PLAN.md').exists():
+        print("mu-iterate: no PLAN.md found — run `mu plan` or `mu agent` first",
+              file=sys.stderr)
+        return 1
+    if not goal:
+        p = parse('PLAN.md')
+        goal = p.plan_context[:120].strip() or 'implement the plan'
+    return run(goal=goal, model=model, target_dir='', max_iter=max_iter, force=True)
+
+
+def plan(goal: str, model: str = '', target_dir: str = '', force: bool = False) -> int:
+    """Generate PLAN.md and write sketch stubs for each planned file."""
+    if not model:
+        model = os.environ.get('MU_AGENT_MODEL', '')
+    if not model:
+        model = _select_model()
+        if not model:
+            return 1
+
+    if target_dir:
+        Path(target_dir).mkdir(parents=True, exist_ok=True)
+        os.chdir(target_dir)
+
+    err = _check_standalone(force)
+    if err:
+        print(err, file=sys.stderr)
+        return 1
+
+    complexity = detect_complexity(goal)
+    planner_timeout = _COMPLEXITY_PLANNER[complexity]
+
+    if Path('PLAN.md').exists():
+        log("PLAN.md already exists — skipping task-planner.")
+        err = _validate_existing_plan()
+        if err:
+            print(f"mu-plan: {err}", file=sys.stderr)
+            return 1
+    else:
+        if not _run_planning_phase(goal, model, planner_timeout, complexity):
+            return 1
+
+    if strip_thinking_artifacts('PLAN.md'):
+        log("WARNING: thinking artifact tokens stripped from PLAN.md")
+    extracted = normalize_embedded_files('PLAN.md')
+    if extracted:
+        log("Extracted embedded files: %s", ', '.join(extracted))
+    if normalize_test_command('PLAN.md'):
+        log("Normalized test command for portability.")
+
+    p = parse('PLAN.md')
+
+    dropped = drop_runtime_artifacts('PLAN.md', p)
+    if dropped:
+        log("Dropped runtime artifact tasks: %s", ', '.join(dropped))
+        p = parse('PLAN.md')
+
+    minority = drop_minority_languages('PLAN.md', p)
+    if minority:
+        langs = plan_languages(parse('PLAN.md'))
+        dominant = next(iter(langs)) if langs else '?'
+        log("Dropped minority-language files (keeping %s): %s", dominant, ', '.join(minority))
+        p = parse('PLAN.md')
+
+    grounded = ground_plan('PLAN.md', p)
+    if grounded:
+        for change in grounded:
+            log("Grounded plan against toolchain — %s", change)
+        p = parse('PLAN.md')
+
+    ok, missing = check_goal_alignment(p, goal)
+    if not ok:
+        log("WARNING: PLAN.md contains none of the goal keywords.")
+    elif missing:
+        log("NOTE: PLAN.md missing some goal terms: %s", ', '.join(missing))
+
+    sketched = write_sketches(p, goal)
+    if sketched:
+        log("Sketched %d file(s): %s", len(sketched), ', '.join(sketched))
+    else:
+        log("No new stub files to create (all already exist or are build/runtime files).")
+
+    return 0
 
 
 def run(goal: str, model: str = '', target_dir: str = '',

@@ -14,6 +14,30 @@ _BUILD_NAMES = {
     'Makefile', 'CMakeLists.txt', 'setup.py', 'Cargo.toml',
     'build.sh', 'package.json', 'pyproject.toml', 'meson.build', 'go.mod',
 }
+_EXT_LANGUAGE: dict[str, str] = {
+    '.py': 'Python',
+    '.go': 'Go',
+    '.rs': 'Rust',
+    '.c': 'C', '.h': 'C',
+    '.cpp': 'C++', '.cc': 'C++', '.cxx': 'C++', '.hpp': 'C++',
+    '.cs': 'C#',
+    '.js': 'JavaScript', '.jsx': 'JavaScript',
+    '.ts': 'TypeScript', '.tsx': 'TypeScript',
+    '.rb': 'Ruby',
+    '.java': 'Java',
+    '.swift': 'Swift',
+    '.kt': 'Kotlin',
+    '.pas': 'Pascal', '.pp': 'Pascal',
+    '.lua': 'Lua',
+    '.php': 'PHP',
+    '.ex': 'Elixir', '.exs': 'Elixir',
+    '.hs': 'Haskell',
+    '.ml': 'OCaml', '.mli': 'OCaml',
+    '.fs': 'F#', '.fsx': 'F#',
+    '.scala': 'Scala',
+    '.nim': 'Nim',
+    '.zig': 'Zig',
+}
 
 
 @dataclass
@@ -217,6 +241,46 @@ def drop_runtime_artifacts(plan_path: str, p: Plan) -> list[str]:
     return dropped
 
 
+def plan_languages(p: Plan) -> dict[str, list[str]]:
+    """Return {language: [file_paths]} for all non-build tasks with a known language."""
+    langs: dict[str, list[str]] = {}
+    for task in p.tasks:
+        if is_build_file(task.file_path):
+            continue
+        lang = _EXT_LANGUAGE.get(Path(task.file_path).suffix.lower(), '')
+        if lang:
+            langs.setdefault(lang, []).append(task.file_path)
+    return langs
+
+
+def drop_minority_languages(plan_path: str, p: Plan) -> list[str]:
+    """Remove minority-language tasks from PLAN.md, keeping only the dominant language.
+
+    When a plan spans multiple source languages the dominant language (most task
+    files) wins and all others are stripped. Returns the list of dropped paths.
+    Idempotent — does nothing when the plan is already single-language.
+    """
+    langs = plan_languages(p)
+    if len(langs) <= 1:
+        return []
+    dominant = max(langs, key=lambda k: len(langs[k]))
+    to_drop = {fp for lang, fps in langs.items() if lang != dominant for fp in fps}
+    if not to_drop:
+        return []
+    try:
+        lines = Path(plan_path).read_text().splitlines(keepends=True)
+    except OSError:
+        return []
+    out = []
+    for line in lines:
+        m = _TASK_RE.match(line.rstrip('\n'))
+        if m and m.group(2) in to_drop:
+            continue
+        out.append(line)
+    Path(plan_path).write_text(''.join(out))
+    return sorted(to_drop)
+
+
 def _dotnet_target_framework() -> str:
     """Ask the installed dotnet SDK its version → matching target framework moniker.
 
@@ -376,6 +440,46 @@ def pending_source_files(p: Plan, current: str) -> str:
         if found:
             lines.append('  ' + t.file_path)
     return '\n'.join(lines)
+
+
+def _sketch_comment(ext: str, lines: list[str]) -> str:
+    if ext in ('.c', '.h', '.cpp', '.cc', '.cxx', '.hpp',
+               '.go', '.rs', '.ts', '.tsx', '.js', '.jsx',
+               '.cs', '.java', '.swift', '.kt'):
+        body = '\n'.join(f' * {l}' for l in lines)
+        return f'/*\n{body}\n */\n'
+    if ext in ('.html', '.xml', '.svg'):
+        body = '\n'.join(f'  {l}' for l in lines)
+        return f'<!--\n{body}\n-->\n'
+    return '\n'.join(f'# {l}' for l in lines) + '\n'
+
+
+def write_sketches(p: 'Plan', goal: str) -> list[str]:
+    """Create stub files for every pending, non-build task in `p`.
+
+    Each stub contains only a comment block describing the file's role so the
+    agent writer can fill it in. Skips files that already exist.
+    Returns the list of paths created.
+    """
+    created = []
+    for task in p.tasks:
+        if task.done or is_build_file(task.file_path):
+            continue
+        path = Path(task.file_path)
+        if path.exists():
+            continue
+        ext = path.suffix.lower()
+        lines: list[str] = [f'PLAN: {task.file_path}', f'GOAL: {goal}']
+        if task.description:
+            lines.append(f'PURPOSE: {task.description}')
+        comment = _sketch_comment(ext, lines)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(comment)
+            created.append(task.file_path)
+        except OSError:
+            pass
+    return created
 
 
 def extract_plan_content(s: str) -> str:

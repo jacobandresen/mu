@@ -38,6 +38,30 @@ def main() -> int:
     model_sub.add_parser('ensure-single',
                          help='Abort if more than one non-embedding model is loaded')
 
+    research_p = sub.add_parser('research', help='Search the web and write a factual report')
+    research_p.add_argument('topic', help='Topic to research')
+    research_p.add_argument('output', nargs='?', default='', metavar='FILE',
+                            help='Output file (default: <topic>_report.md)')
+    research_p.add_argument('--model', default='',
+                            help='LM Studio model ID (overrides MU_AGENT_MODEL)')
+
+    deep_p = sub.add_parser('deep', help='Research each PLAN.md task and annotate with actionable context')
+    deep_p.add_argument('goal', nargs='?', default='', metavar='GOAL',
+                        help='Optional plain-English goal to anchor research queries')
+    deep_p.add_argument('-d', '--dir', default='', metavar='PATH',
+                        help='Directory containing PLAN.md (default: current)')
+    deep_p.add_argument('--model', default='',
+                        help='LM Studio model ID (overrides MU_AGENT_MODEL)')
+
+    plan_p = sub.add_parser('plan', help='Generate PLAN.md and write file sketches')
+    plan_p.add_argument('goal', help='Plain-English coding goal')
+    plan_p.add_argument('-d', '--dir', default='', metavar='PATH',
+                        help='Create/enter PATH before running')
+    plan_p.add_argument('--force', action='store_true',
+                        help='Skip the existing-project guard')
+    plan_p.add_argument('--model', default='',
+                        help='LM Studio model ID (overrides MU_AGENT_MODEL)')
+
     agent_p = sub.add_parser('agent', help='Autonomous goal-to-code orchestrator')
     agent_p.add_argument('goal', help='Plain-English coding goal')
     agent_p.add_argument('-d', '--dir', default='', metavar='PATH',
@@ -48,6 +72,32 @@ def main() -> int:
                          help='Skip the existing-project guard')
     agent_p.add_argument('--model', default='',
                          help='LM Studio model ID (overrides MU_AGENT_MODEL)')
+
+    split_p = sub.add_parser('split', help='Split PLAN.md tasks into smaller, actionable files')
+    split_p.add_argument('goal', nargs='?', default='', metavar='GOAL',
+                         help='Optional goal hint to focus the split')
+    split_p.add_argument('-d', '--dir', default='', metavar='PATH',
+                         help='Directory containing PLAN.md (default: current)')
+    split_p.add_argument('--model', default='',
+                         help='LM Studio model ID (overrides MU_AGENT_MODEL)')
+
+    flow_p = sub.add_parser('flow', help='Pair each PLAN.md task with a testable step')
+    flow_p.add_argument('goal', nargs='?', default='', metavar='GOAL',
+                        help='Optional goal hint to anchor pairing')
+    flow_p.add_argument('-d', '--dir', default='', metavar='PATH',
+                        help='Directory containing PLAN.md (default: current)')
+    flow_p.add_argument('--model', default='',
+                        help='LM Studio model ID (overrides MU_AGENT_MODEL)')
+
+    iterate_p = sub.add_parser('iterate', help='Continue executing an existing PLAN.md')
+    iterate_p.add_argument('goal', nargs='?', default='', metavar='GOAL',
+                           help='Optional goal hint (inferred from PLAN.md if omitted)')
+    iterate_p.add_argument('-d', '--dir', default='', metavar='PATH',
+                           help='Directory containing PLAN.md (default: current)')
+    iterate_p.add_argument('-n', '--max-iter', type=int, default=10, dest='max_iter',
+                           help='Maximum iterations (default: 10)')
+    iterate_p.add_argument('--model', default='',
+                           help='LM Studio model ID (overrides MU_AGENT_MODEL)')
 
     sub.add_parser('version', help='Print version')
 
@@ -81,7 +131,13 @@ def main() -> int:
         'check': _cmd_check,
         'setup': _cmd_setup,
         'model': _cmd_model,
+        'research': _cmd_research,
+        'deep': _cmd_deep,
+        'plan': _cmd_plan,
         'agent': _cmd_agent,
+        'split': _cmd_split,
+        'flow': _cmd_flow,
+        'iterate': _cmd_iterate,
         'version': _cmd_version,
         'clean': _cmd_clean,
         'extract': _cmd_extract,
@@ -437,11 +493,69 @@ def _load_catalog() -> list[dict]:
     return client.load_catalog()
 
 
+# ── research ──────────────────────────────────────────────────────────────────
+
+def _cmd_research(args) -> int:
+    from mu import researcher
+    model = args.model or os.environ.get('MU_AGENT_MODEL', '')
+    if not model:
+        model = agent._select_model()
+        if not model:
+            return 1
+    output = args.output or researcher.report_filename(args.topic)
+    return researcher.research(args.topic, output, model)
+
+
+# ── deep ──────────────────────────────────────────────────────────────────────
+
+def _cmd_deep(args) -> int:
+    from mu import researcher
+    model = args.model or os.environ.get('MU_AGENT_MODEL', '')
+    if not model:
+        model = agent._select_model()
+        if not model:
+            return 1
+    target_dir = args.dir
+    if target_dir:
+        os.chdir(target_dir)
+    plan_path = 'PLAN.md'
+    if not Path(plan_path).exists():
+        print(f"mu-deep: {plan_path} not found — run `mu plan` first", file=sys.stderr)
+        return 1
+    return researcher.deep(plan_path, model, args.goal)
+
+
+# ── plan ──────────────────────────────────────────────────────────────────────
+
+def _cmd_plan(args) -> int:
+    return agent.plan(goal=args.goal, model=args.model,
+                      target_dir=args.dir, force=args.force)
+
+
 # ── agent ─────────────────────────────────────────────────────────────────────
 
 def _cmd_agent(args) -> int:
     return agent.run(goal=args.goal, model=args.model, target_dir=args.dir,
                      max_iter=args.max_iter, force=args.force)
+
+
+# ── split ─────────────────────────────────────────────────────────────────────
+
+def _cmd_split(args) -> int:
+    return agent.split(goal=args.goal, model=args.model, target_dir=args.dir)
+
+
+# ── flow ──────────────────────────────────────────────────────────────────────
+
+def _cmd_flow(args) -> int:
+    return agent.flow(goal=args.goal, model=args.model, target_dir=args.dir)
+
+
+# ── iterate ───────────────────────────────────────────────────────────────────
+
+def _cmd_iterate(args) -> int:
+    return agent.iterate(goal=args.goal, model=args.model,
+                         target_dir=args.dir, max_iter=args.max_iter)
 
 
 # ── version ───────────────────────────────────────────────────────────────────
