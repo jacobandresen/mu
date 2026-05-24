@@ -138,13 +138,13 @@ def split(goal: str = '', model: str = '', target_dir: str = '') -> int:
         "- If a task is already narrow and single-purpose, leave it unchanged.\n"
         "- Use the exact format: `- [ ] path/to/file.ext — short purpose`.\n"
         "- Stay in the dominant language already used in the plan.\n"
-        "- Preserve `## Test Command`, `## Dependencies`, and all other sections verbatim.\n"
+        "- Preserve `## Summary`, `## Test Command`, `## Dependencies`, and all other sections verbatim.\n"
         "- Do NOT write code, prose, or file contents — only the task checklist."
     )
     user = (
         f"Current PLAN.md:\n\n{original}\n\n{rules}\n\n"
         + (f"GOAL: {goal}\n\n" if goal else "")
-        + "Output the revised PLAN.md now. Start with `## Files`."
+        + "Output the revised PLAN.md now. Preserve ## Summary if present, then ## Files."
     )
 
     msgs = [{'role': 'system', 'content': system},
@@ -231,13 +231,13 @@ def flow(goal: str = '', model: str = '', target_dir: str = '') -> int:
         "    Give it a description like 'verify <source file>'.\n"
         "- Test files that are already paired must stay paired; do not scatter them.\n"
         "- Use the exact format: `- [ ] path/to/file.ext — short purpose`.\n"
-        "- Preserve `## Test Command`, `## Dependencies`, and all other sections verbatim.\n"
+        "- Preserve `## Summary`, `## Test Command`, `## Dependencies`, and all other sections verbatim.\n"
         "- Do NOT write code, prose, or file contents — only the task checklist."
     )
     user = (
         f"Current PLAN.md:\n\n{original}\n\n{rules}\n\n"
         + (f"GOAL: {goal}\n\n" if goal else "")
-        + "Output the revised PLAN.md now. Start with `## Files`."
+        + "Output the revised PLAN.md now. Preserve ## Summary if present, then ## Files."
     )
 
     msgs = [{'role': 'system', 'content': system},
@@ -612,11 +612,15 @@ def _run_planner(goal: str, model: str, planner_timeout: int) -> None:
     import time
     project_dir = os.getcwd()
     system = (f"You are a planning agent in: {project_dir}\n"
-              "Output ONLY the raw PLAN.md markdown. No preamble, no explanation, no code blocks.")
+              "Output ONLY the raw PLAN.md markdown. No preamble, no explanation, no code blocks. "
+              "Begin with ## Summary, then ## Files.")
     skill = _load_skill('task-planner')
     if skill:
         system += '\n\n' + skill
     example = (
+        "## Summary\n"
+        "Implement a command-line tool in C that prints a greeting. "
+        "Build with make and verify with a direct invocation.\n\n"
         "## Files\n"
         "- [ ] main.c — C source\n"
         "- [ ] Makefile — build rules\n\n"
@@ -629,10 +633,13 @@ def _run_planner(goal: str, model: str, planner_timeout: int) -> None:
             f"Create a PLAN.md task list for this goal.\n\n"
             f"GOAL: {goal}\nDIR: {project_dir}\n\n"
             f"Rules:\n"
-            f"- List ONLY filenames with `- [ ] ` prefix. Do NOT write file contents or code.\n"
-            f"- No code blocks, no prose, no headers other than ## Files / ## Test Command / ## Dependencies.\n\n"
+            f"- Start with a `## Summary` section: 2-4 sentences describing the approach, "
+            f"key design decisions, and how correctness will be verified.\n"
+            f"- Then list ONLY filenames with `- [ ] ` prefix under `## Files`. "
+            f"Do NOT write file contents or code.\n"
+            f"- No code blocks. Allowed headers: ## Summary / ## Files / ## Test Command / ## Dependencies.\n\n"
             f"Example output:\n{example}\n\n"
-            f"Now output the PLAN.md for the goal above. Start with ## Files.")},
+            f"Now output the PLAN.md for the goal above. Start with ## Summary.")},
     ]
     print("  Planning...", flush=True)
     t0 = time.time()

@@ -97,7 +97,7 @@ def _extract_test_command(lines: list[str]) -> str:
 
 
 def _extract_plan_context(lines: list[str]) -> str:
-    want = {'Files', 'Test Command', 'Dependencies', 'Notes'}
+    want = {'Summary', 'Files', 'Test Command', 'Dependencies', 'Notes'}
     buf = []
     in_section = False
     for line in lines:
@@ -492,6 +492,8 @@ def extract_plan_content(s: str) -> str:
             inner = s[nl + 1:]
             end = inner.rfind('```')
             s = inner[:end].strip() if end >= 0 else inner
+    if '## Summary' in s:
+        return s[s.index('## Summary'):]
     if '## Files' in s:
         return s[s.index('## Files'):]
     return s if '- [ ]' in s else ''
