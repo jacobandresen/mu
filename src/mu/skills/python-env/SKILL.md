@@ -17,16 +17,24 @@ installed Werkzeug 3.x:
 ImportError: cannot import name 'url_quote' from 'werkzeug.urls'
 ```
 
-Always sandbox the install + test:
+Always sandbox the install + test in a throwaway venv that owns its own tools:
 
 ```sh
 python -m venv .venv
-.venv/bin/pip install -r requirements.txt
+.venv/bin/pip install -r requirements.txt pytest   # tools live IN the sandbox
 .venv/bin/pytest
 ```
 
 A Makefile `test:` target for a pip-based project should create and use a local
 `.venv`, not assume the caller's environment.
+
+**Caveat — `--system-site-packages` does not inherit another venv's packages.**
+A venv created from the *system* interpreter only sees the *system* site
+(`/usr/lib/...`), not the tools installed in some other project venv. So either
+install the full toolset (pytest + libs) into the sandbox, or build it from the
+interpreter whose packages you actually want. Compilers and CLIs found via
+`shutil.which` (clang, go, cargo, dotnet, ruff) are on `PATH` regardless and
+need no reinstall.
 
 ## 2. The test runner must match the host Python
 

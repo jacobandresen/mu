@@ -184,6 +184,11 @@ def run(goal: str, model: str = '', target_dir: str = '',
 
         project_dir = os.getcwd()
         auto_system = _build_autonomous_system(project_dir)
+        if _python_relevant(goal, p):
+            skill = _load_skill('python-env')
+            if skill:
+                auto_system += '\n\n' + skill
+                log("Loaded python-env skill (Python task).")
 
         for i in range(1, max_iter + 1):
             task = next_task(p)
@@ -450,8 +455,17 @@ def _final_test_gate(model: str, p: Optional[Plan], autonomous_system: str,
                      writer_timeout: int, goal: str) -> Optional[str]:
     test_cmd = (p.test_command if p else '') or ''
     if not test_cmd:
-        log("No '## Test Command' in PLAN.md — skipping final test gate.")
-        return None
+        # Planner sometimes omits '## Test Command' (e.g. wraps output in code
+        # fences and drops sections). Skipping the gate then declares success
+        # without ever testing — a false positive. If the plan has test files,
+        # run them; only skip when there is genuinely nothing to verify.
+        test_files = [t.file_path for t in (p.tasks if p else []) if is_test_file(t.file_path)]
+        if test_files:
+            test_cmd = 'pytest ' + ' '.join(test_files)
+            log("No '## Test Command' — defaulting to: %s", test_cmd)
+        else:
+            log("No '## Test Command' and no test files — skipping final test gate.")
+            return None
     test_log = os.path.join(LOG_DIR, 'tests-final.log')
     if _run_test_repair_loop(model, test_cmd, test_log, p, autonomous_system,
                              writer_timeout, goal):
@@ -515,6 +529,20 @@ OFF-LIMITS:
 - No arbitrary network calls (curl, wget, fetch, http, etc.).
 - Only install packages explicitly listed in PLAN.md.
 - Never read from stdin unless the goal explicitly says "interactive"."""
+
+
+def _python_relevant(goal: str, p: Plan) -> bool:
+    """True when the task involves Python, so the python-env skill applies.
+
+    Generic signal, not problem-specific: any .py file in the plan, or a test
+    command / goal that names the Python toolchain (pytest, pip, python,
+    requirements.txt). Non-Python tasks (C, Go, Rust, C#) never match.
+    """
+    if any(t.file_path.endswith('.py') for t in p.tasks):
+        return True
+    blob = f"{goal}\n{p.test_command}\n{p.plan_context}".lower()
+    return any(k in blob for k in ('pytest', 'pip install', 'pip3 ',
+                                   'python', 'requirements.txt'))
 
 
 def _build_write_prompt(goal: str, task, p: Plan) -> str:

@@ -98,6 +98,18 @@ src/mu/skills/        skill prompts loaded by the planner (packaged data)
 - **Lint gate → Repair → Test gate → Final test gate** → `Session.repair_loop` injects test output between edits
 - **Plan hygiene** (`mu/plan.py`) → general normalizers only
 
+### Skills (`src/mu/skills/`, packaged data, loaded via `_load_skill`)
+
+- **`task-planner`** — injected into the planner system prompt; defines the
+  `PLAN.md` format.
+- **`python-env`** — environment and test-tooling rules for Python work
+  (venv isolation, matching pytest to the interpreter, compatible dependency
+  pins, stateless tests, import-safe modules). **Apply it whenever you generate,
+  debug, or repair Python that installs packages or runs pytest** — these are the
+  rules behind the C0 failure class (broken pytest, dep skew) on P2/P7; see
+  `docs/DOJO.md`. Keep it current: when a Python tooling/env failure recurs,
+  record the general rule there rather than patching one problem.
+
 ---
 
 ## 4. Dojo workflow & run config
