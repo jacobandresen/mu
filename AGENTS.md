@@ -114,7 +114,7 @@ src/mu/skills/        skill prompts loaded by the planner (packaged data)
 
 ## 4. Dojo workflow & run config
 
-- Each run lives in `dojo/<model>-<host>-<version>-<date>[-suffix>/run-all.sh`.
+- Each run lives in `dojo/`.
 - open challenges an where to push next is tracked in `docs/DOJO.md`.
 - **Bias success over speed:** use the most capable model that fits.
   Recommended: `qwen/qwen2.5-coder-7b-instruct` (8 GB) or `mistralai/devstral-small-2507` (16 GB).

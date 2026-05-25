@@ -1,20 +1,16 @@
 # Practice
 
-## Setup
+## Dojo run 
 
-1. Use the  ./dojo directory to store the results locally. Clean the folder when you start
-
-## Workflow
-
-First: inspect DOJO.md to see where to push next. Implement the improvement noted there (if any).
-
-Then for each problem below:
-
-1. Run it with `mu agent`
-2. Inspect the session logs in `~/.mu`
-3. Identify weaknesses in the agent
-4. Improve the agent code (Go source in this directory) **and/or** the skills it relies on
-5. Record where to push next in DOJO.md 
+0. Clean the ./dojo folder
+1. Run ./sit.sh  
+2. Inspect the logs ./dojo
+3. Inspect the session logs in `~/.mu`
+4. Identify weaknesses in the agent
+5. Implement changes to improve the agent code and the skills it relies on
+6. Bump the mu version.
+8. Commit your changes with reference to the mu version
+7. Record where to push next in DOJO.md 
 
 ### What you can improve
 
