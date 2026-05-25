@@ -115,7 +115,7 @@ src/mu/skills/        skill prompts loaded by the planner (packaged data)
 ## 4. Dojo workflow & run config
 
 - Each run lives in `dojo/<model>-<host>-<version>-<date>[-suffix>/run-all.sh`.
-- Scores and open challenges are tracked in `docs/DOJO.md`.
+- open challenges an where to push next is tracked in `docs/DOJO.md`.
 - **Bias success over speed:** use the most capable model that fits.
   Recommended: `qwen/qwen2.5-coder-7b-instruct` (8 GB) or `mistralai/devstral-small-2507` (16 GB).
 - Model is selected via `MU_AGENT_MODEL` or auto-detected from the first model loaded in LM Studio.
@@ -135,10 +135,3 @@ python3 -m mu check
 - Don't add documentation files unless asked.
 - mu drives LM Studio via its OpenAI-compatible API (`mu/client.py`).
 
----
-
-## 6. Known open issues
-
-- **Repair-prompt file confusion:** the repair agent sometimes writes one file's
-  content into another. This is a general prompt-clarity problem worth fixing
-  generically — not per-problem.

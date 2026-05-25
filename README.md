@@ -135,7 +135,7 @@ dojo/                  stress-test harness
 
 ## Practice
 
-The `dojo/` directory stress-tests mu by driving a guest model through a fixed problem set (P1–P7) and recording exactly where the autonomous loop breaks. See [PRACTICE.md](docs/PRACTICE.md) for the problem set and [DOJO.md](DOJO.md) for the latest runs and open challenges.
+The `dojo/` directory stress-tests mu by driving a guest model through a fixed problem set (P1–P7) and recording exactly where the autonomous loop breaks. See [PRACTICE.md](PRACTICE.md) for the problem set and [DOJO.md](DOJO.md) for the latest runs and open challenges.
 
 ### Using the dojo to refine skills and models
 

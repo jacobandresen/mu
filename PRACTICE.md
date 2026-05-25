@@ -2,39 +2,19 @@
 
 ## Setup
 
-1. Create a working folder named after the models, hardware, version, and date:
-
-   ```
-   ./dojo/<agent-model>-<local-model>-<os>-<cpu>-<ram>[-<gpu>]-v<version>-<date>
-   ```
-
-   - `<agent-model>`: the model running this practice session (e.g. `claude`)
-   - `<local-model>`: the local model under test via LM Studio (e.g. `qwen25coder-7b`)
-   - `<os>`: operating system (e.g. `macos`, `linux`, `windows`)
-   - `<cpu>`: CPU identifier (e.g. `m3`, `i9-13900k`)
-   - `<ram>`: total RAM (e.g. `36gb`)
-   - `<version>`: mu version from `mu version` (e.g. `v0.7.0`)
-   - `<date>`: date in `YYYY-MM-DD` format
-
-   For multiple runs on the same day, append `-A`, `-B`, `-C`, …
-
-   Examples:
-   ```
-   ./dojo/claude-qwen25coder-7b-lmstudio-v0.7.0-2026-05-23
-   ./dojo/claude-devstral-macos-m3-36gb-v0.7.0-2026-05-24
-   ./dojo/claude-devstral-macos-m3-36gb-v0.7.0-2026-05-24-A
-   ```
-2. Write all output and findings there
+1. Use the  ./dojo directory to store the results locally. Clean the folder when you start
 
 ## Workflow
 
-For each problem below:
+First: inspect DOJO.md to see where to push next. Implement the improvement noted there (if any).
+
+Then for each problem below:
 
 1. Run it with `mu agent`
 2. Inspect the session logs in `~/.mu`
 3. Identify weaknesses in the agent
 4. Improve the agent code (Go source in this directory) **and/or** the skills it relies on
-5. Record findings in your dojo folder
+5. Record where to push next in DOJO.md 
 
 ### What you can improve
 
