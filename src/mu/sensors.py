@@ -134,6 +134,41 @@ def ruff_autofix(file_path: str) -> bool:
     return True
 
 
+def fix_sqlite_in_memory(file_path: str) -> bool:
+    """Replace file‑based SQLite connections with an in‑memory DB.
+
+    This generic sensor looks for ``sqlite3.connect(<path>)`` calls where the
+    argument is a string literal that appears to be a filesystem path (e.g.
+    ends with ``.db`` or ``.sqlite`` or contains a path separator). It rewrites
+    the argument to ``":memory:"`` to ensure deterministic, side‑effect‑free
+    tests. Returns ``True`` if the file was modified.
+    """
+    if not file_path.endswith('.py'):
+        return False
+    try:
+        src = Path(file_path).read_text()
+    except OSError:
+        return False
+    # Match sqlite3.connect('path') or sqlite3.connect("path")
+    pattern = re.compile(r"""(\bsqlite3\.connect\s*\(\s*)(['\"])"""  # prefix and opening quote
+                         r"([^\'\"]+?)"""          # path content
+                         r"(['\"])"""                 # closing quote
+                         r"(\s*\))", re.IGNORECASE)
+    def repl(m):
+        prefix, open_q, path, close_q, suffix = m.groups()
+        # Detect typical file path patterns
+        if any(sep in path for sep in ('/', '\\')) or path.lower().endswith(('.db', '.sqlite', '.sqlite3')):
+            return f"{prefix}{open_q}:memory:{close_q}{suffix}"
+        return m.group(0)
+    new_src, count = pattern.subn(repl, src)
+    if count == 0:
+        return False
+    if new_src == src:
+        return False
+    Path(file_path).write_text(new_src)
+    return True
+
+
 # ── Makefile sensors ──────────────────────────────────────────────────────────
 
 # ── AST‑based generic fixers ──────────────────────────────────────────────────────

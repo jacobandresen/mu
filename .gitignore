@@ -9,33 +9,7 @@ __pycache__/
 build/
 dist/
 
-# dojo: ignore compiled binaries and build artifacts, keep source
-dojo/**/main
-dojo/**/server
-dojo/**/app
-dojo/**/hello
-dojo/**/helloworld
-dojo/**/sdl_line
-dojo/**/p5-go-gin/p5-go-gin
-dojo/**/fibonacci
-dojo/**/*.dll
-dojo/**/*.o
-dojo/**/*.out
-dojo/**/*.exe
-dojo/**/*.db
-dojo/**/*.sqlite
-dojo/**/.mu/
-dojo/**/target/
-dojo/**/node_modules/
-dojo/**/.git/
-dojo/**/obj/
-dojo/**/bin/
-dojo/**/__pycache__/
-dojo/**/*.pyc
-dojo/**/*.pdb
-dojo/**/.ruff_cache/
-dojo/**/.pytest_cache/
-dojo/**/.mu/
-dojo/**/Cargo.lock
+# Ignore entire dojo directory
+dojo/
 # Exclude temporary main file for local testing
 tmp_main.rs

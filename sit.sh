@@ -89,3 +89,42 @@ else
 fi
 
 # End of script
+
+# Commit any Git changes (if any) after all runs have completed.
+# This ensures that we only clean the dojo directory after the changes
+# have been recorded in version control.
+if git rev-parse --git-dir > /dev/null 2>&1; then
+  # Check for uncommitted changes (including staged and unstaged).
+  if ! git diff-index --quiet HEAD --; then
+    echo "Committing changes before cleaning..."
+    git add .
+    # Use a generic commit message; the user can amend later if needed.
+    MU_VER=$(awk -F'"' '/__version__/ {print $2}' src/mu/__init__.py)
+    git commit -m "Mu dojo run: record changes (mu version $MU_VER)"
+  else
+    echo "No changes to commit."
+  fi
+else
+  echo "Not a git repository; skipping commit step."
+fi
+
+# Clean the dojo directory after the run.
+# This ensures a fresh state for subsequent runs. It removes all files
+# and subdirectories inside the dojo folder while preserving the folder
+# itself. The command is safe even if the folder is empty.
+
+echo "Cleaning dojo directory..."
+# Use find to delete everything inside dojo, ignoring the dojo directory itself.
+if [ -d "dojo" ]; then
+  find dojo -mindepth 1 -exec rm -rf {} + || true
+fi
+# Clean the dojo directory after the run.
+# This ensures a fresh state for subsequent runs. It removes all files
+# and subdirectories inside the dojo folder while preserving the folder
+# itself. The command is safe even if the folder is empty.
+
+echo "Cleaning dojo directory..."
+# Use find to delete everything inside dojo, ignoring the dojo directory itself.
+if [ -d "dojo" ]; then
+  find dojo -mindepth 1 -exec rm -rf {} + || true
+fi
