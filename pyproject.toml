@@ -54,5 +54,3 @@ version = { attr = "mu.__version__" }
 [tool.setuptools.packages.find]
 where = ["src"]
 
-[tool.setuptools.package-data]
-mu = ["skills/*/SKILL.md", "models-catalog.json"]

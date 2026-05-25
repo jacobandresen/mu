@@ -67,6 +67,36 @@ mu uses the [LM Studio Python SDK](https://lmstudio.ai/docs/sdk) for model manag
 
 See [docs/MODELS.md](docs/MODELS.md) for full benchmark research and HuggingFace links.
 
+### models-catalog.json
+
+`models-catalog.json` is a curated list of models mu knows about. The `mu model` picker reads it to show descriptions and context-window sizes alongside the models currently loaded in LM Studio.
+
+```json
+{
+  "models": [
+    {
+      "id": "qwen/qwen2.5-coder-7b-instruct",
+      "contextWindow": 32768,
+      "input": ["text"],
+      "description": "Best 8 GB option. Code specialist, 88.4% HumanEval, native tool calling, 92+ languages."
+    }
+  ]
+}
+```
+
+Each entry has `id` (matches the LM Studio model identifier), `contextWindow`, `input` modalities (`text`, `image`), and a short `description`. Models not in the catalog still work — they just show without metadata.
+
+## Skills
+
+Skills are prompt fragments injected into the planner's context to guide the model on specific domains. They live in `skills/<name>/SKILL.md` and are loaded automatically when the planner detects a relevant task.
+
+| Skill | Trigger | What it enforces |
+|-------|---------|-----------------|
+| `python-env` | Any Python task that installs packages or runs pytest | Isolated venvs, `pytest >= 8` on Python 3.12+, compatible dependency pinning, stateless tests |
+| `task-planner` | Goal decomposition at session start | PLAN.md format — flat checklist, explicit filenames, tab-indented Makefile recipes, no runtime-generated files |
+
+To add a skill, create `skills/<name>/SKILL.md` with a YAML frontmatter block (`name`, `description`) followed by the prompt body. The planner selects skills by matching the `description` against the current goal.
+
 ## Install
 
 ```sh
@@ -95,9 +125,11 @@ src/mu/                Python package
   sensors.py           deterministic code fixers
   session.py           writer loop and repair loop
   tools.py             tool definitions (Write/Edit/Bash/Read)
-  models-catalog.json  curated model specs (packaged data)
-  skills/              skill prompts loaded by the planner (packaged data)
 bin/mu                 executable entry point
+models-catalog.json    curated model specs (read by mu model picker)
+skills/                skill prompts injected into the planner
+  python-env/SKILL.md  Python venv + pytest rules
+  task-planner/SKILL.md  PLAN.md structure rules
 dojo/                  stress-test harness
 ```
 

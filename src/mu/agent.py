@@ -1171,8 +1171,9 @@ def _print_result(file_path: str, max_lines: int = 60) -> None:
 
 
 def _load_skill(name: str) -> str:
-    from importlib.resources import files
-    skill_path = files('mu') / 'skills' / name / 'SKILL.md'
+    default_skills_dir = Path(__file__).parent.parent.parent / 'skills'
+    skills_dir = Path(os.environ.get('MU_SKILLS_DIR', '') or default_skills_dir)
+    skill_path = skills_dir / name / 'SKILL.md'
     if not skill_path.is_file():
         return ''
     content = skill_path.read_text(encoding='utf-8')
