@@ -1,8 +1,0 @@
-import pytest
-import sys
-sys.path.insert(0, '..')
-import sys
-sys.path.insert(0, '..')
-import sys
-sys.path.insert(0, '..')
-from app import app

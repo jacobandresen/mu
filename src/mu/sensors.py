@@ -148,7 +148,12 @@ def _run_ast_fixers(file_path: str) -> bool:
     """
     suffix = Path(file_path).suffix.lower()
     if suffix == '.py':
-        return _fix_python_ast(file_path)
+        # Apply generic Python AST fixers and SQLite test isolation fix.
+        changed = _fix_python_ast(file_path)
+        # Additional generic fix: replace fixed SQLite file paths with in‑memory DB.
+        if fix_sqlite_in_memory(file_path):
+            changed = True
+        return changed
     if suffix == '.rs':
         return _fix_rust_ast(file_path)
     if suffix == '.go':
