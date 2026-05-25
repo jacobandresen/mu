@@ -135,7 +135,15 @@ dojo/                  stress-test harness
 
 ## Practice
 
-The `dojo/` directory is where mu is stress-tested by running a guest model through a fixed problem set (P1–P7). See [docs/PRACTICE.md](docs/PRACTICE.md) for the problem set and [docs/DOJO.md](docs/DOJO.md) for the latest runs and the open challenges.
+The `dojo/` directory stress-tests mu by driving a guest model through a fixed problem set (P1–P7) and recording exactly where the autonomous loop breaks. See [PRACTICE.md](docs/PRACTICE.md) for the problem set and [DOJO.md](DOJO.md) for the latest runs and open challenges.
+
+### Using the dojo to refine skills and models
+
+**Skills** — if a class of problems fails because the model consistently makes a category-level mistake (wrong venv setup, bad Makefile structure, stale dependency pins), write or tighten the matching skill in `skills/<name>/SKILL.md`. Re-run the dojo on the affected problems only, compare before/after scores, and record the result in DOJO.md. A skill fix should flip at least one problem from fail → pass without regressing others.
+
+**Models (tensors)** — swap the guest model via `mu model load <id>` or by setting `MU_MODEL` before running the dojo. The DOJO.md run table tracks score per model so regressions are visible. Use `MU_NUM_CTX` to control context window size; larger context lets the repair loop accumulate more history but increases VRAM pressure. See [MODELS.md](docs/MODELS.md) for benchmark data and [TUNING.md](docs/TUNING.md) for the recommended knobs.
+
+The honest-harness rule applies to both: a sensor or skill that pattern-matches a specific problem is invalid — fixes must generalise beyond P1–P7. Record every run in DOJO.md so the score history stays auditable.
 
 ## How it works
 

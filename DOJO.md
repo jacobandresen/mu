@@ -2,9 +2,9 @@
 
 The dojo stress-tests **mu** by driving a guest model through a fixed problem set
 (P1–P7) and recording where the autonomous loop breaks. Problem prompts live in
-[PRACTICE.md](PRACTICE.md); model selection and tuning in [MODELS.md](MODELS.md)
-and [TUNING.md](TUNING.md); the design rationale in
-[HARNESS_ENGINEERING.md](HARNESS_ENGINEERING.md).
+[PRACTICE.md](docs/PRACTICE.md); model selection and tuning in [MODELS.md](docs/MODELS.md)
+and [TUNING.md](docs/TUNING.md); the design rationale in
+[HARNESS_ENGINEERING.md](docs/HARNESS_ENGINEERING.md).
 
 Current backend: **LM Studio** (OpenAI-compatible API), model
 **qwen2.5-coder-7b-instruct** Q4_K_M. Updated 2026-05-24 (v0.7.0).
@@ -251,7 +251,7 @@ agent failures across **P2 and P7**:
    and stops `make test` from corrupting the host environment. Minimal, generic,
    no model dependency.
 2. **C4/C5/P2-isolation** are model-convergence walls: the cleanest path is a
-   stronger agentic guest model (Devstral on 16 GB — see [MODELS.md](MODELS.md)),
+   stronger agentic guest model (Devstral on 16 GB — see [MODELS.md](docs/MODELS.md)),
    not more sensors. A 7B model won't reliably add a `tmp_path` fixture or track a
    single-entry-point constraint across files.
 3. Keep feeding compiler/oracle output verbatim into repair prompts — the honest,
