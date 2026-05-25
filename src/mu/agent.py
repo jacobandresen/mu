@@ -27,7 +27,7 @@ from mu.plan import (Plan, check_goal_alignment, clear_challenges,
                      write_sketches)
 from mu.sensors import (apply_go_sensors, apply_makefile_sensors,
                         fix_missing_close_paren, fix_multiline_single_quote,
-                        fix_test_import_module, ruff_autofix)
+                        fix_test_import_module, ruff_autofix, _run_ast_fixers)
 from mu.session import Session
 
 LOG_DIR = ".mu"
@@ -663,6 +663,10 @@ def run(goal: str, model: str = '', target_dir: str = '',
                 apply_makefile_sensors(task.file_path)
                 log("Applied Makefile sensors to %s.", task.file_path)
 
+            # Run generic AST‑based fixers for any file type
+            if _run_ast_fixers(task.file_path):
+                log("AST fixers applied to %s", task.file_path)
+
             lint_cmd = _lint_command(task.file_path, p)
             if lint_cmd:
                 lint_log = os.path.join(LOG_DIR, f"lint-iter-{i:02d}.log")
@@ -875,11 +879,21 @@ def _run_repair_lint(model: str, lint_cmd: str, file_path: str, lint_head: str,
     is_sq = ('missing closing quote in string literal' in lint_head or
               ('invalid-syntax' in lint_head and "execute('" in lint_head))
     is_mp = 'invalid-syntax' in lint_head and 'execute(' in lint_head and not is_sq
+    # Detect missing import errors (generic Python import hint)
+    is_missing_import = any(kw in lint_head for kw in ('ImportError:', 'NameError:'))
     hint = ''
     if is_sq:
         hint = "\n\nHINT: multi-line SQL string using single quotes — use triple-quoted strings."
     elif is_mp:
         hint = "\n\nHINT: missing closing ')' after triple-quoted string in execute() call."
+    elif is_missing_import:
+        # Extract missing name if possible
+        m = re.search(r"(?:ImportError:.*?['\"](\w+)['\"]|NameError: name ['\"](\w+)['\"] is not defined)", lint_head)
+        if m:
+            missing_name = m.group(1) or m.group(2)
+            hint = f"\n\nHINT: missing import – add `import {missing_name}` (or appropriate from‑module import) at the top of the file."
+        else:
+            hint = "\n\nHINT: missing import – add the required import at the top of the file."
     fix_rules = (f"REPAIR PROTOCOL:\n"
                  f"- Call Edit to make the smallest targeted change to fix {file_path}.\n"
                  f"- Only modify {file_path}. Do not create new files or modify other files.\n"

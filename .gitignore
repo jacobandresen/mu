@@ -37,3 +37,5 @@ dojo/**/.ruff_cache/
 dojo/**/.pytest_cache/
 dojo/**/.mu/
 dojo/**/Cargo.lock
+# Exclude temporary main file for local testing
+tmp_main.rs

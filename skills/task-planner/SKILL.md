@@ -39,3 +39,8 @@ Rules:
 - No `git push`, publish commands, or external HTTP writes in Test Command or Makefile.
 - If PLAN.md exists with `[ ]` tasks, resume from the first incomplete — do not replan.
 - One task = one complete file, not lines of code.
+
+## Additional Generic Rules (auto‑added by the planner)
+- **Python projects**: when the goal references third‑party Python packages (e.g. mentions `Flask`, `SQLAlchemy`, `requests`, or any import not in the standard library), automatically add a `requirements.txt` file listing those packages (un‑pinned) and a simple `Makefile` target `install:` that runs `python -m venv .venv && .venv/bin/pip install -r requirements.txt`. The test command should use the venv (`.venv/bin/pytest`).
+- **Makefile requirement**: if the goal mentions any of `install`, `pip`, `requirements`, `make`, or `Makefile`, ensure a `Makefile` is listed as the first task and contains at least an `install` (or `test`) target appropriate for the language (e.g. `install:` for Python, `build:` for C/Go). This prevents missing‑term failures.
+- **Test file placeholder**: when the goal contains the words `test`, `pytest`, `unittest`, `go test`, or mentions a testing framework (e.g. `Gin` with `GET /ping`), automatically add a test file stub (`*_test.py` for Python, `*_test.go` for Go, etc.) with a minimal skeleton that the model can flesh out. The test file should be listed as a task and the test command should invoke the appropriate test runner (e.g. `pytest` or `go test`).
