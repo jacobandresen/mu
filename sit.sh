@@ -112,9 +112,14 @@ fi
 # This ensures a fresh state for subsequent runs. It removes all files
 # and subdirectories inside the dojo folder while preserving the folder
 # itself. The command is safe even if the folder is empty.
+# Set environment variable SKIP_CLEAN=1 to skip cleaning (useful for debugging).
 
-echo "Cleaning dojo directory..."
-# Use find to delete everything inside dojo, ignoring the dojo directory itself.
-if [ -d "dojo" ]; then
-  find dojo -mindepth 1 -exec rm -rf {} + || true
+if [ -z "${SKIP_CLEAN:-}" ]; then
+  echo "Cleaning dojo directory..."
+  # Use find to delete everything inside dojo, ignoring the dojo directory itself.
+  if [ -d "dojo" ]; then
+    find dojo -mindepth 1 -exec rm -rf {} + || true
+  fi
+else
+  echo "Skipping dojo cleanup (SKIP_CLEAN is set)."
 fi
