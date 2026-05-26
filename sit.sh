@@ -16,7 +16,7 @@ if [[ $# -gt 1 ]]; then
 fi
 
 # Optional problem identifier; if empty, run all problems.
-PROBLEM_ID="${1:-}"  # optional; if empty run all problems
+PROBLEM_ID="${1:-}" # optional; if empty run all problems
 
 # ---------------------------------------------------------------------------
 # Function that returns the goal string for a given problem identifier.
@@ -24,30 +24,30 @@ PROBLEM_ID="${1:-}"  # optional; if empty run all problems
 # ---------------------------------------------------------------------------
 get_goal() {
   case "$1" in
-    p1-helloworld)
-      echo "write a hello world program in C. Use clang to compile it and run it."
-      ;;
-    p2-sqlite)
-      echo "write a Python todo list manager that stores todos in a SQLite database. Support add, list, and delete operations. Include a test file using pytest."
-      ;;
-    p3-sdl2)
-      echo "render a line on screen via SDL2. Use sdl2-config in the Makefile to set up SDL2 libs."
-      ;;
-    p4-fibonacci)
-      echo "write the fibonacci sequence using C#. Use the dotnet command to compile C#."
-      ;;
-    p5-gin)
-      echo "write a Go HTTP server with a GET /ping endpoint that returns JSON {\"status\":\"ok\"}. Use the Gin framework. Include a Makefile."
-      ;;
-    p6-rust)
-      echo "write a Rust command-line program that prints the first 10 Fibonacci numbers. Use cargo to build and run."
-      ;;
-    p7-flask)
-      echo "write a Python REST API using Flask with a SQLite backend. Support POST /todos (body: JSON with a \"task\" field) and GET /todos (returns list of todos). Include a pytest test file that tests both endpoints. Provide a Makefile that installs dependencies with pip and runs pytest."
-      ;;
-    *)
-      return 1
-      ;;
+  p1-helloworld)
+    echo "write a hello world program in C. Use clang to compile it and run it."
+    ;;
+  p2-sqlite)
+    echo "write a Python todo list manager that stores todos in a SQLite database. Support add, list, and delete operations. Include a test file using pytest."
+    ;;
+  p3-sdl2)
+    echo "render a line on screen via SDL2. Use sdl2-config in the Makefile to set up SDL2 libs."
+    ;;
+  p4-fibonacci)
+    echo "write the fibonacci sequence using C#. Use the dotnet command to compile C#."
+    ;;
+  p5-gin)
+    echo "write a Go HTTP server with a GET /ping endpoint that returns JSON {\"status\":\"ok\"}. Use the Gin framework. Include a Makefile."
+    ;;
+  p6-rust)
+    echo "write a Rust command-line program that prints the first 10 Fibonacci numbers. Use cargo to build and run."
+    ;;
+  p7-flask)
+    echo "write a Python REST API using Flask with a SQLite backend. Support POST /todos (body: JSON with a \"task\" field) and GET /todos (returns list of todos). Include a pytest test file that tests both endpoints. Provide a Makefile that installs dependencies with pip and runs pytest."
+    ;;
+  *)
+    return 1
+    ;;
   esac
 }
 
@@ -67,10 +67,10 @@ run_problem() {
   local goal="$2"
   local workdir="./dojo/${folder}"
   mkdir -p "${workdir}"
-  pushd "${workdir}" > /dev/null
+  pushd "${workdir}" >/dev/null
   echo "Running problem '${folder}'"
   "${MU_CMD}" agent "${goal}" --dir .
-  popd > /dev/null
+  popd >/dev/null
 }
 
 if [[ -n "${PROBLEM_ID}" ]]; then
@@ -93,7 +93,7 @@ fi
 # Commit any Git changes (if any) after all runs have completed.
 # This ensures that we only clean the dojo directory after the changes
 # have been recorded in version control.
-if git rev-parse --git-dir > /dev/null 2>&1; then
+if git rev-parse --git-dir >/dev/null 2>&1; then
   # Check for uncommitted changes (including staged and unstaged).
   if ! git diff-index --quiet HEAD --; then
     echo "Committing changes before cleaning..."
@@ -108,16 +108,6 @@ else
   echo "Not a git repository; skipping commit step."
 fi
 
-# Clean the dojo directory after the run.
-# This ensures a fresh state for subsequent runs. It removes all files
-# and subdirectories inside the dojo folder while preserving the folder
-# itself. The command is safe even if the folder is empty.
-
-echo "Cleaning dojo directory..."
-# Use find to delete everything inside dojo, ignoring the dojo directory itself.
-if [ -d "dojo" ]; then
-  find dojo -mindepth 1 -exec rm -rf {} + || true
-fi
 # Clean the dojo directory after the run.
 # This ensures a fresh state for subsequent runs. It removes all files
 # and subdirectories inside the dojo folder while preserving the folder
