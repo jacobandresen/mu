@@ -9,8 +9,8 @@ if ! command -v pi >/dev/null 2>&1; then
 fi
 
 echo "What is reality?"
-for i in {1..5}; do
-  pi --thinking high -p "iterate on the problems in your @PRACTICE.md . Capture your thoughts in THOUGHTS.md"
+for i in {1..100}; do
+  pi --thinking high -p "iterate on the problems found in @PRACTICE.md."
   echo "mu!..."
   # Optionally stop if the command fails:
   # if [ $? -ne 0 ]; then exit 1; fi
