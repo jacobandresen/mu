@@ -715,7 +715,7 @@ def run(goal: str, model: str = '', target_dir: str = '',
                         else:
                             record_challenge(
                                 f"lint repair needed for {task.file_path}", lint_head)
-                            _run_repair_lint(model, lint_cmd, task.file_path, lint_head,
+                            _run_repair_lint(model, lint_cmd, task.file_path, lint_log, lint_head,
                                             auto_system, writer_timeout, goal)
                             if not _run_cmd(lint_cmd, lint_log):
                                 log("Lint still failing after repair for %s.", task.file_path)
@@ -958,13 +958,13 @@ def _repair_context(p: Plan) -> str:
     return '## Current project files (read these before editing)\n' + '\n'.join(blocks) + '\n\n'
 
 
-def _run_repair_lint(model: str, lint_cmd: str, file_path: str, lint_head: str,
+def _run_repair_lint(model: str, lint_cmd: str, file_path: str, lint_log: str, lint_head: str,
                      autonomous_system: str, writer_timeout: int, goal: str) -> None:
     file_content = ''
     try:
         data = Path(file_path).read_text()
         if len(data) < 3000:
-            file_content = f'\n\nCurrent file:\n```\n{data}\n```'
+            file_content = f'\n\nCurrent file `{file_path}`:\n```\n{data}\n```'
     except OSError:
         pass
     is_sq = ('missing closing quote in string literal' in lint_head or
@@ -985,17 +985,19 @@ def _run_repair_lint(model: str, lint_cmd: str, file_path: str, lint_head: str,
             hint = f"\n\nHINT: missing import – add `import {missing_name}` (or appropriate from‑module import) at the top of the file."
         else:
             hint = "\n\nHINT: missing import – add the required import at the top of the file."
-    fix_rules = (f"REPAIR PROTOCOL:\n"
-                 f"- Call Edit to make the smallest targeted change to fix {file_path}.\n"
-                 f"- Only modify {file_path}. Do not create new files or modify other files.\n"
-                 f"- Do not modify PLAN.md.")
-    prompt = (f"GOAL: {goal}\n\nLint failed for {file_path}. Fix it now.\n\n"
-              f"Lint errors:\n{lint_head}{hint}{file_content}{repair_history()}")
-    sess = Session(autonomous_system + '\n\n' + fix_rules)
+    # Iterative repair: re-run the linter after each edit and feed the new output
+    # back, with the file shown and syntax-breaking edits rolled back. Same loop
+    # the test gate uses — a one-shot pass couldn't converge on multi-step fixes.
+    context = (f"## Fix the lint/compile error in {file_path}. Only edit {file_path}; "
+               f"do not create files.{hint}{file_content}{repair_history()}\n\n")
+    sess = Session(autonomous_system + '\n\n' + _REPAIR_LOOP_RULES)
     sess.tool_set = tools.REPAIR
-    _, err = sess.run(model, prompt, 'Repairing', 4, '', float(writer_timeout))
-    if err:
-        log("Lint repair: %s", err)
+
+    def run_test() -> tuple[bool, str]:
+        return _run_cmd(lint_cmd, lint_log), _head_file(lint_log, 60)
+
+    sess.repair_loop(model, goal, _REPAIR_MAX_ITERS, float(writer_timeout),
+                     run_test, None, context, _syntax_check)
 
 
 def _run_mitigation_pass(model: str, p: Plan, challenges: str, goal: str) -> None:
@@ -1129,6 +1131,16 @@ def _build_write_prompt(goal: str, task, p: Plan, companion: str = '') -> str:
                      f"function prototypes) before writing the implementation.")
     if task.description:
         parts.append(f"\nPurpose: {task.description}")
+    if is_test_file(task.file_path):
+        parts.append("\n\nTEST ISOLATION: give each test its own fresh state. Construct the "
+                     "code under test with an in-memory or per-test temporary store (e.g. a "
+                     "`:memory:` database, or a tmp file/dir via a fixture), or reset state in "
+                     "setup/teardown. Never assert exact row counts or contents against a store "
+                     "that other tests in the file also write — they will accumulate and fail.")
+    if Path(task.file_path).name.lower() == 'makefile':
+        parts.append("\n\nMAKEFILE RULES: every name used as a prerequisite must have its own "
+                     "`target:` rule or be a real file — if you write `all: run`, you must also "
+                     "define a `run:` rule. Recipe lines are tab-indented.")
     if is_build_file(task.file_path):
         pending = pending_source_files(p, task.file_path)
         if pending:
