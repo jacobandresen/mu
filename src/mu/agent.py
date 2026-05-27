@@ -894,7 +894,35 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
         apply_go_sensors()  # resolve Go module deps before each build attempt
 
     return sess.repair_loop(model, goal, _REPAIR_MAX_ITERS, float(writer_timeout),
-                            run_test, reapply, _repair_context(p))
+                            run_test, reapply, _repair_context(p), _syntax_check)
+
+
+def _syntax_check(path: str) -> tuple[bool, str]:
+    """Cheap, dependency-free parse check of a single file for the repair loop's
+    rollback. Returns (ok, error_text).
+
+    Only languages with a pure-syntax parser are checked — Python (``ast.parse``)
+    and Go (``gofmt -e``) — because those parse one file without resolving
+    imports or cross-file symbols, so they never false-positive on a valid file
+    that references a sibling. Every other extension returns ``(True, '')`` (no
+    rollback); the lint and test gates remain the authority there. A parser is a
+    language oracle, not a problem-specific rule.
+    """
+    ext = Path(path).suffix.lower()
+    try:
+        if ext == '.py':
+            import ast
+            ast.parse(Path(path).read_text())
+            return True, ''
+        if ext == '.go' and shutil.which('gofmt'):
+            r = subprocess.run(['gofmt', '-e', path], capture_output=True,
+                               text=True, timeout=15)
+            return r.returncode == 0, (r.stderr or r.stdout)[:500]
+    except SyntaxError as e:
+        return False, f"{type(e).__name__}: {e}"
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return True, ''
+    return True, ''
 
 
 def _repair_context(p: Plan) -> str:

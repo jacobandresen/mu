@@ -70,7 +70,8 @@ class Session:
                     per_turn_timeout: float,
                     run_test: Callable[[], tuple[bool, str]],
                     reapply: Optional[Callable[[], None]],
-                    context: str = '') -> bool:
+                    context: str = '',
+                    syntax_check: Optional[Callable[[str], tuple[bool, str]]] = None) -> bool:
         tool_defs = self.tool_set if self.tool_set is not None else tools.REPAIR
         msgs: list[dict] = [{'role': 'system', 'content': self.system_prompt}]
         print("  Repairing...")
@@ -113,7 +114,29 @@ class Session:
                     break
                 for tc in msg['tool_calls']:
                     tools.log_call(tc)
-                    result = tools.dispatch(tc['function']['name'], tc['function']['arguments'])
+                    fn = tc['function']
+                    name, raw_args = fn['name'], fn['arguments']
+                    path = tools._as_dict(raw_args).get('path', '')
+                    snapshot, ok_before = None, True
+                    if (syntax_check and name in ('Write', 'Edit')
+                            and path and Path(path).exists()):
+                        try:
+                            snapshot = Path(path).read_text()
+                        except OSError:
+                            snapshot = None
+                        ok_before, _ = syntax_check(path)
+                    result = tools.dispatch(name, raw_args)
+                    if syntax_check and snapshot is not None and ok_before and path:
+                        ok_after, serr = syntax_check(path)
+                        if not ok_after:
+                            try:
+                                Path(path).write_text(snapshot)
+                                print(f"==> [mu-agent] Repair: reverted syntax-breaking edit to {path}")
+                                result = (f"{result}\nREVERTED: that edit left {path} with a syntax "
+                                          f"error, so it was undone. Make a different, complete edit "
+                                          f"that keeps the file valid. Error:\n{serr}")
+                            except OSError:
+                                pass
                     msgs.append({'role': 'tool', 'content': result,
                                  'tool_call_id': tc.get('id', '')})
                 edited = True
