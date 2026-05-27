@@ -69,7 +69,8 @@ class Session:
     def repair_loop(self, model: str, goal: str, max_iters: int,
                     per_turn_timeout: float,
                     run_test: Callable[[], tuple[bool, str]],
-                    reapply: Optional[Callable[[], None]]) -> bool:
+                    reapply: Optional[Callable[[], None]],
+                    context: str = '') -> bool:
         tool_defs = self.tool_set if self.tool_set is not None else tools.REPAIR
         msgs: list[dict] = [{'role': 'system', 'content': self.system_prompt}]
         print("  Repairing...")
@@ -84,7 +85,7 @@ class Session:
                 return True
 
             if i == 0:
-                content = (f"GOAL: {goal}\n\nThe project's tests are failing. Make ONE targeted "
+                content = (f"GOAL: {goal}\n\n{context}The project's tests are failing. Make ONE targeted "
                            f"change (call Edit, or Write to replace a whole file) to fix the "
                            f"underlying cause. Do not run any commands — the test is run for you "
                            f"and the new output is shown after each edit. Test output:\n\n{test_out}")

@@ -27,7 +27,7 @@ from mu.plan import (Plan, check_goal_alignment, clear_challenges,
                      write_sketches)
 from mu.sensors import (apply_go_sensors, apply_makefile_sensors,
                         fix_missing_close_paren, fix_multiline_single_quote,
-                        fix_test_import_module, ruff_autofix, _run_ast_fixers)
+                        fix_test_import_module, ruff_autofix)
 from mu.session import Session
 
 LOG_DIR = ".mu"
@@ -72,6 +72,30 @@ def _default_stub(ext: str, path: str) -> str:
         return "def main():\n    pass\n\nif __name__ == \"__main__\":\n    main()\n"
     # fallback: a simple comment indicating a stub
     return f"// {Path(path).name} stub\n"
+
+
+def _is_effectively_empty(path: str) -> bool:
+    """True when a written file contains no actual code — empty, all-whitespace,
+    or comment-only.
+
+    Replaces a raw byte-size threshold, which is the wrong tool: a valid minimal
+    program is tiny in every dojo language (C hello-world ~77 B, Go ~73 B,
+    Rust ~30 B, ``print("hi")`` 11 B), so a size cutoff destroys correct work.
+    A line counts as code unless it is blank or begins with a common comment
+    marker — language-class generic, never problem-specific.
+    """
+    try:
+        text = Path(path).read_text()
+    except OSError:
+        return False
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if line[0] in ('#', '*') or line.startswith(('//', '/*', '--', '<!--')):
+            continue
+        return False
+    return True
 
 
 def log(msg: str, *args) -> None:
@@ -646,21 +670,17 @@ def run(goal: str, model: str = '', target_dir: str = '',
                         exit_code = 3
                         return exit_code
 
-            # Near-empty check
+            # Empty-output check: only stub a file the model left with no code.
             try:
-                size = Path(task.file_path).stat().st_size
                 ext = Path(task.file_path).suffix.lower()
                 is_config = ext in ('.txt', '.toml', '.mod', '.sum', '.json',
                                     '.yaml', '.yml', '.lock')
-                if size < 100 and not is_build_file(task.file_path) and not is_config:
-                    log("Near-empty %s (%d bytes) — inserting minimal stub.", task.file_path, size)
-                    record_challenge(f"near-empty file written for {task.file_path} ({size} bytes)")
-                    # Delete the empty/near‑empty file
-                    Path(task.file_path).unlink(missing_ok=True)
-                    # Write a generic language‑specific stub so the file is no longer near‑empty
+                if (_is_effectively_empty(task.file_path) and
+                        not is_build_file(task.file_path) and not is_config):
+                    log("No code written to %s — inserting minimal stub.", task.file_path)
+                    record_challenge(f"no code written for {task.file_path}")
                     stub_content = _default_stub(ext, task.file_path)
                     Path(task.file_path).write_text(stub_content)
-                    # Optionally, give the model a chance to improve the file later via normal repair loop.
             except OSError:
                 pass
 
@@ -676,10 +696,6 @@ def run(goal: str, model: str = '', target_dir: str = '',
                     Path(task.file_path).name.lower() == 'makefile'):
                 apply_makefile_sensors(task.file_path)
                 log("Applied Makefile sensors to %s.", task.file_path)
-
-            # Run generic AST‑based fixers for any file type
-            if _run_ast_fixers(task.file_path):
-                log("AST fixers applied to %s", task.file_path)
 
             lint_cmd = _lint_command(task.file_path, p)
             if lint_cmd:
@@ -878,7 +894,40 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
         apply_go_sensors()  # resolve Go module deps before each build attempt
 
     return sess.repair_loop(model, goal, _REPAIR_MAX_ITERS, float(writer_timeout),
-                            run_test, reapply)
+                            run_test, reapply, _repair_context(p))
+
+
+def _repair_context(p: Plan) -> str:
+    """Show the repair model the project's actual files, bounded in size.
+
+    The repair loop otherwise sees only the test command's output. A small model
+    cannot fix a root cause it can never see — e.g. a test that shares on-disk
+    state, or a mismatch between a test's expectations and the source. Surfacing
+    the real files lets it diagnose instead of editing blind. General by design:
+    it dumps whatever files the plan names, with no problem-specific content.
+    Source files are shown before test files so the model reads the code under
+    test alongside the assertions that exercise it.
+    """
+    per_file, total_budget = 2500, 8000
+    blocks, used = [], 0
+    for t in sorted(p.tasks, key=lambda t: is_test_file(t.file_path)):
+        fp = t.file_path
+        if not Path(fp).exists():
+            continue
+        try:
+            body = Path(fp).read_text()
+        except OSError:
+            continue
+        if len(body) > per_file:
+            body = body[:per_file] + '\n... [truncated]'
+        block = f'### {fp}\n```\n{body}\n```\n'
+        if used + len(block) > total_budget:
+            break
+        blocks.append(block)
+        used += len(block)
+    if not blocks:
+        return ''
+    return '## Current project files (read these before editing)\n' + '\n'.join(blocks) + '\n\n'
 
 
 def _run_repair_lint(model: str, lint_cmd: str, file_path: str, lint_head: str,
