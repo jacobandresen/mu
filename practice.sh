@@ -10,7 +10,7 @@ fi
 
 echo "What is reality?"
 for i in {1..100}; do
-  pi --thinking high -p "iterate on the problems found in @PRACTICE.md."
+  ./sit.sh
   echo "mu!..."
   # Optionally stop if the command fails:
   # if [ $? -ne 0 ]; then exit 1; fi
