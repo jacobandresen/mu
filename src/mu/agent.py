@@ -509,6 +509,9 @@ def plan(goal: str, model: str = '', target_dir: str = '', force: bool = False) 
     if normalize_test_command('PLAN.md'):
         log("Normalized test command for portability.")
 
+    if os.environ.get('MU_ENRICH_LESSONS') == '1':
+        _inject_lessons_section('PLAN.md', goal)
+
     p = parse('PLAN.md')
 
     dropped = drop_runtime_artifacts('PLAN.md', p)
@@ -812,24 +815,44 @@ def _run_planner(goal: str, model: str, planner_timeout: int) -> None:
         "Implement a command-line tool in C that prints a greeting. "
         "Build with make and verify with a direct invocation.\n\n"
         "## Files\n"
-        "- [ ] main.c — C source\n"
-        "- [ ] Makefile — build rules\n\n"
+        "- [ ] main.c — C source defining `main` that prints the greeting\n"
+        "- [ ] Makefile — build rules producing the `main` binary\n\n"
         "## Test Command\nmake && ./main\n\n"
-        "## Dependencies\nclang, make"
+        "## Dependencies\nclang>=14, make>=4"
+    )
+    challenges_block = _load_challenges_for_planner()
+    rules = [
+        "- Start with a `## Summary` section: 2-4 sentences describing the approach, "
+        "key design decisions, and how correctness will be verified.",
+        "- Then list ONLY filenames with `- [ ] ` prefix under `## Files`. "
+        "Do NOT write file contents or code.",
+        "- Every file entry MUST include a short description after `— ` that names the "
+        "concrete entities (functions, classes, types) the file exposes or consumes.",
+        "- Entity names MUST be consistent across tasks: if file A's description says "
+        "it defines `TodoManager`, file B must not refer to `TodoStore` for the same thing.",
+        "- The `## Dependencies` section MUST list each tool/library with a concrete "
+        "minimum version (e.g. `clang>=14`, `flask>=3`, `sqlite>=3.40`). "
+        "Do NOT write bare names with no version.",
+        "- No code blocks. Allowed headers: ## Summary / ## Files / ## Test Command / ## Dependencies.",
+    ]
+    user_msg = (
+        f"Create a PLAN.md task list for this goal.\n\n"
+        f"GOAL: {goal}\nDIR: {project_dir}\n\n"
+        f"Rules:\n" + '\n'.join(rules) + "\n\n"
+    )
+    if challenges_block:
+        user_msg += (
+            "Known recurring failure modes in this project — read these before "
+            "drafting the plan and structure the plan so it does not trip them:\n\n"
+            f"{challenges_block}\n\n"
+        )
+    user_msg += (
+        f"Example output:\n{example}\n\n"
+        f"Now output the PLAN.md for the goal above. Start with ## Summary."
     )
     msgs = [
         {'role': 'system', 'content': system},
-        {'role': 'user', 'content': (
-            f"Create a PLAN.md task list for this goal.\n\n"
-            f"GOAL: {goal}\nDIR: {project_dir}\n\n"
-            f"Rules:\n"
-            f"- Start with a `## Summary` section: 2-4 sentences describing the approach, "
-            f"key design decisions, and how correctness will be verified.\n"
-            f"- Then list ONLY filenames with `- [ ] ` prefix under `## Files`. "
-            f"Do NOT write file contents or code.\n"
-            f"- No code blocks. Allowed headers: ## Summary / ## Files / ## Test Command / ## Dependencies.\n\n"
-            f"Example output:\n{example}\n\n"
-            f"Now output the PLAN.md for the goal above. Start with ## Summary.")},
+        {'role': 'user', 'content': user_msg},
     ]
     print("  Planning...", flush=True)
     t0 = time.time()
@@ -1290,6 +1313,52 @@ def _print_result(file_path: str, max_lines: int = 60) -> None:
     if truncated:
         print(f"... [{len(lines) - max_lines} more lines]", flush=True)
     print("---\n", flush=True)
+
+
+def _inject_lessons_section(plan_path: str, goal: str) -> None:
+    """Append a `## Lessons From Prior Runs` section to plan_path.
+
+    No-op if the enrich module declines (missing deps, sparse archive,
+    no matching lesson). Honours the corroboration and concentration
+    guards inside enrich.lessons_for.
+    """
+    try:
+        from mu.enrich import lessons_for, render_lessons_section
+    except ImportError:
+        return
+    try:
+        lessons = lessons_for(goal)
+    except Exception as e:
+        log("enrich: lessons_for raised %s", e)
+        return
+    section = render_lessons_section(lessons)
+    if not section:
+        return
+    try:
+        text = Path(plan_path).read_text(encoding='utf-8')
+    except OSError:
+        return
+    if '## Lessons From Prior Runs' in text:
+        return
+    new_text = text.rstrip('\n') + '\n\n' + section
+    try:
+        Path(plan_path).write_text(new_text, encoding='utf-8')
+        log("enrich: injected %d lesson(s) into PLAN.md", len(lessons))
+    except OSError:
+        pass
+
+
+def _load_challenges_for_planner() -> str:
+    """Return the Open section of project CHALLENGES.md, or '' if unavailable."""
+    try:
+        text = Path('CHALLENGES.md').read_text(encoding='utf-8')
+    except OSError:
+        return ''
+    if '## Open' not in text:
+        return ''
+    section = text.split('## Open', 1)[1]
+    section = section.split('## Resolved', 1)[0]
+    return section.strip()
 
 
 def _load_skill(name: str) -> str:

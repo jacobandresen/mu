@@ -61,6 +61,11 @@ class AgentSession:
                   flush=True)
         except OSError:
             pass
+        try:
+            from mu.enrich import index_session
+            index_session(self.archive_path)
+        except Exception:
+            pass
 
 
 def _copy_dir(src: str, dst: str) -> None:

@@ -54,6 +54,13 @@ get_goal() {
 # List of all known problem identifiers (used when no specific problem is given).
 PROBLEMS=(p1-helloworld p2-sqlite p3-sdl2 p4-fibonacci p5-gin p6-rust p7-flask)
 
+# Shuffle the order so practice rounds don't always prime the model on p1's
+# failure mode first. Skip when SIT_NO_SHUFFLE=1 (useful for reproducible
+# single-run debugging) or when `shuf` is unavailable.
+if [[ -z "${SIT_NO_SHUFFLE:-}" ]] && command -v shuf >/dev/null 2>&1; then
+  mapfile -t PROBLEMS < <(printf '%s\n' "${PROBLEMS[@]}" | shuf)
+fi
+
 # Determine which mu binary to invoke (prefer local bin/mu if available).
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ -x "${SCRIPT_DIR}/bin/mu" ]]; then
@@ -69,7 +76,10 @@ run_problem() {
   mkdir -p "${workdir}"
   pushd "${workdir}" >/dev/null
   echo "Running problem '${folder}'"
-  "${MU_CMD}" agent "${goal}" --dir .
+  # mu agent exits non-zero when tests fail. Swallow it so a single failing
+  # problem does not terminate the rest of the round; outcomes are
+  # recovered from the session archive by practice.sh.
+  "${MU_CMD}" agent "${goal}" --dir . || true
   popd >/dev/null
 }
 

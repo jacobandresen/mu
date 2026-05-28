@@ -39,6 +39,10 @@ dev = [
     "ruff>=0.6",
     "pytest>=8",
 ]
+enrich = [
+    "sentence-transformers>=2.7",
+    "numpy>=1.26",
+]
 
 [project.urls]
 Homepage = "https://github.com/jacobandresen/mu"

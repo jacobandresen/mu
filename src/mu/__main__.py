@@ -107,6 +107,15 @@ def main() -> int:
     iterate_p.add_argument('--model', default='',
                            help='LM Studio model ID (overrides MU_AGENT_MODEL)')
 
+    reflect_p = sub.add_parser('reflect',
+                               help='Distill recent failed sessions into CHALLENGES.md entries')
+    reflect_p.add_argument('-n', '--limit', type=int, default=10,
+                           help='Maximum failed sessions to process (default: 10)')
+    reflect_p.add_argument('--model', default='',
+                           help='LM Studio model ID (overrides MU_AGENT_MODEL)')
+    reflect_p.add_argument('--challenges', default='CHALLENGES.md',
+                           help='Path to CHALLENGES.md (default: ./CHALLENGES.md)')
+
     sub.add_parser('version', help='Print version')
 
     clean_p = sub.add_parser('clean', help='Scan for large files and suggest cleanup')
@@ -147,6 +156,7 @@ def main() -> int:
         'flow': _cmd_flow,
         'assess': _cmd_assess,
         'iterate': _cmd_iterate,
+        'reflect': _cmd_reflect,
         'version': _cmd_version,
         'clean': _cmd_clean,
         'extract': _cmd_extract,
@@ -571,6 +581,14 @@ def _cmd_assess(args) -> int:
 def _cmd_iterate(args) -> int:
     return agent.iterate(goal=args.goal, model=args.model,
                          target_dir=args.dir, max_iter=args.max_iter)
+
+
+# ── reflect ───────────────────────────────────────────────────────────────────
+
+def _cmd_reflect(args) -> int:
+    from mu import reflect
+    return reflect.reflect(model=args.model, limit=args.limit,
+                           challenges_path=args.challenges)
 
 
 # ── version ───────────────────────────────────────────────────────────────────
