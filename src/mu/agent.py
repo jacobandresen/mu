@@ -826,8 +826,11 @@ def _run_planner(goal: str, model: str, planner_timeout: int) -> None:
         "key design decisions, and how correctness will be verified.",
         "- Then list ONLY filenames with `- [ ] ` prefix under `## Files`. "
         "Do NOT write file contents or code.",
+        "- File paths must appear as bare tokens (e.g. `main.c`, `src/lib.rs`) "
+        "with NO surrounding backticks, quotes, or angle brackets.",
         "- Every file entry MUST include a short description after `— ` that names the "
-        "concrete entities (functions, classes, types) the file exposes or consumes.",
+        "concrete entities (functions, classes, types) the file exposes or consumes. "
+        "Backticks are fine around entity names in the description, just not around the path.",
         "- Entity names MUST be consistent across tasks: if file A's description says "
         "it defines `TodoManager`, file B must not refer to `TodoStore` for the same thing.",
         "- The `## Dependencies` section MUST list each tool/library with a concrete "

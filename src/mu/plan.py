@@ -70,6 +70,10 @@ def parse_content(content: str) -> Plan:
         if not m:
             continue
         status, fp, rest = m.group(1), m.group(2), m.group(3).strip()
+        # Planners sometimes wrap the filename in backticks because the prompt
+        # encourages backticks for entity names. Strip so the captured token is
+        # a real path the writer can open.
+        fp = fp.strip('`')
         desc = ''
         if '—' in rest:
             desc = rest[rest.index('—') + 1:].strip()
