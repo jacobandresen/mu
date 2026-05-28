@@ -37,6 +37,9 @@ Tracks the most frequent or significant challenges encountered while running the
 11. **Missing database import**
   - Ensure all necessary libraries are imported before use to avoid runtime errors.
 
+12. **Port already in use**
+  - Ensure the port specified for the HTTP server is not already occupied by another process. Check and free up the port before running the server again.
+
 ## Resolved
 
 - **Missing `fix_sqlite_in_memory` function** — obsolete. AST fixer pass and the orphaned sqlite sensor removed in commit `07717cc`.

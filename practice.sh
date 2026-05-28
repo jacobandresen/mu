@@ -156,6 +156,17 @@ for round in $(seq 1 "$ROUNDS"); do
   fi
   rm -f "$failed_ids"
 
+  # Commit any CHALLENGES.md updates reflect just made. Scoped commit
+  # (via `git commit -o`) so unrelated dirty paths stay untouched.
+  if [ -z "${SKIP_AUTOCOMMIT:-}" ] && git rev-parse --git-dir >/dev/null 2>&1; then
+    if [ -f CHALLENGES.md ] && ! git diff-index --quiet HEAD -- CHALLENGES.md 2>/dev/null; then
+      MU_VER=$(awk -F'"' '/__version__/ {print $2}' src/mu/__init__.py)
+      git commit -o CHALLENGES.md \
+        -m "dojo round $round: record CHALLENGES.md updates (mu $MU_VER)" \
+        >/dev/null || true
+    fi
+  fi
+
   # Empty rounds (zero sessions finalized at all) mean sit.sh aborted
   # before any problem completed — usually LM Studio went away mid-round
   # or `timeout` fired. Count them as barren; two in a row is a hard stop.

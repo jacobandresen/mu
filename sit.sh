@@ -109,21 +109,11 @@ fi
 # Commit any Git changes (if any) after all runs have completed.
 # This ensures that we only clean the dojo directory after the changes
 # have been recorded in version control.
-if git rev-parse --git-dir >/dev/null 2>&1; then
-  # Only auto-commit CHALLENGES.md so the dojo run can't sweep up the
-  # operator's unrelated in-progress edits. `git add .` previously did,
-  # producing commits like "Mu dojo run: record changes" that contained
-  # whatever happened to be dirty in the repo at the time.
-  if [ -f CHALLENGES.md ] && ! git diff-index --quiet HEAD -- CHALLENGES.md 2>/dev/null; then
-    echo "Committing CHALLENGES.md updates from this run..."
-    MU_VER=$(awk -F'"' '/__version__/ {print $2}' src/mu/__init__.py)
-    git commit -o CHALLENGES.md -m "dojo: record CHALLENGES.md updates (mu $MU_VER)"
-  else
-    echo "No CHALLENGES.md changes to commit."
-  fi
-else
-  echo "Not a git repository; skipping commit step."
-fi
+# sit.sh deliberately does NOT auto-commit. Auto-committing here ran
+# before practice.sh invoked `mu reflect`, so the lessons reflect
+# appended to CHALLENGES.md were never captured. practice.sh handles
+# the commit in the right place (after reflect). Operators running
+# sit.sh standalone are expected to commit themselves.
 
 # Clean the dojo directory after the run.
 # This ensures a fresh state for subsequent runs. It removes all files
