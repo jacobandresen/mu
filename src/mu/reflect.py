@@ -229,8 +229,15 @@ def _append_challenge(challenges_path: str, entry: str) -> bool:
 
 
 def reflect(model: str = '', limit: int = 10,
-            challenges_path: str = 'CHALLENGES.md') -> int:
-    """Process up to `limit` recent failed sessions; append generic lessons."""
+            challenges_path: str = 'CHALLENGES.md',
+            session_ids: Optional[list[str]] = None) -> int:
+    """Distill generic lessons from failed sessions.
+
+    If `session_ids` is given, process exactly those sessions (caller-scoped,
+    e.g. by practice.sh to focus on this round's failures). Otherwise process
+    the `limit` most recent non-success sessions that haven't already been
+    reflected on.
+    """
     if not model:
         model = os.environ.get('MU_AGENT_MODEL', '')
     if not model:
@@ -245,8 +252,20 @@ def reflect(model: str = '', limit: int = 10,
 
     state = _load_state()
     seen = set(state.get('reflected') or [])
-    candidates = _recent_failures(limit * 2)
-    candidates = [c for c in candidates if c.name not in seen][:limit]
+    root = Path(_archive_dir())
+    if session_ids:
+        candidates = []
+        for sid in session_ids:
+            if sid in seen:
+                continue
+            d = root / sid
+            if d.is_dir() and (d / 'meta.json').is_file():
+                candidates.append(d)
+            else:
+                print(f"mu-reflect: unknown session id {sid!r}", file=sys.stderr)
+    else:
+        candidates = _recent_failures(limit * 2)
+        candidates = [c for c in candidates if c.name not in seen][:limit]
     if not candidates:
         print("mu-reflect: no new failed sessions to reflect on.")
         return 0

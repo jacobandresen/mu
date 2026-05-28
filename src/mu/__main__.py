@@ -110,11 +110,14 @@ def main() -> int:
     reflect_p = sub.add_parser('reflect',
                                help='Distill recent failed sessions into CHALLENGES.md entries')
     reflect_p.add_argument('-n', '--limit', type=int, default=10,
-                           help='Maximum failed sessions to process (default: 10)')
+                           help='Maximum failed sessions to process when no IDs given (default: 10)')
     reflect_p.add_argument('--model', default='',
                            help='LM Studio model ID (overrides MU_AGENT_MODEL)')
     reflect_p.add_argument('--challenges', default='CHALLENGES.md',
                            help='Path to CHALLENGES.md (default: ./CHALLENGES.md)')
+    reflect_p.add_argument('session_ids', nargs='*', metavar='SESSION_ID',
+                           help='Specific session IDs to reflect on; '
+                                'overrides --limit when given')
 
     sub.add_parser('version', help='Print version')
 
@@ -588,7 +591,8 @@ def _cmd_iterate(args) -> int:
 def _cmd_reflect(args) -> int:
     from mu import reflect
     return reflect.reflect(model=args.model, limit=args.limit,
-                           challenges_path=args.challenges)
+                           challenges_path=args.challenges,
+                           session_ids=args.session_ids or None)
 
 
 # ── version ───────────────────────────────────────────────────────────────────

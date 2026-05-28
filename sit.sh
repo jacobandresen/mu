@@ -73,6 +73,12 @@ run_problem() {
   local folder="$1"
   local goal="$2"
   local workdir="./dojo/${folder}"
+  # Start each problem from a clean per-problem dir so leftover PLAN.md
+  # from an interrupted prior run doesn't trick `mu agent` into reusing
+  # a stale plan. SKIP_CLEAN preserves state for debugging.
+  if [ -z "${SKIP_CLEAN:-}" ]; then
+    rm -rf "${workdir}"
+  fi
   mkdir -p "${workdir}"
   pushd "${workdir}" >/dev/null
   echo "Running problem '${folder}'"

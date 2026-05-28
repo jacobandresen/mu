@@ -31,6 +31,12 @@ Tracks the most frequent or significant challenges encountered while running the
 9. **ModuleNotFoundError on importing 'app'**
   - Ensure the module name matches the file structure and is correctly referenced in imports.
 
+10. **Incorrect format string usage**
+  - Ensure that format strings in `println!` and similar macros use string literals for placeholders.
+
+11. **Missing database import**
+  - Ensure all necessary libraries are imported before use to avoid runtime errors.
+
 ## Resolved
 
 - **Missing `fix_sqlite_in_memory` function** — obsolete. AST fixer pass and the orphaned sqlite sensor removed in commit `07717cc`.
