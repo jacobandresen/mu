@@ -110,15 +110,16 @@ fi
 # This ensures that we only clean the dojo directory after the changes
 # have been recorded in version control.
 if git rev-parse --git-dir >/dev/null 2>&1; then
-  # Check for uncommitted changes (including staged and unstaged).
-  if ! git diff-index --quiet HEAD --; then
-    echo "Committing changes before cleaning..."
-    git add .
-    # Use a generic commit message; the user can amend later if needed.
+  # Only auto-commit CHALLENGES.md so the dojo run can't sweep up the
+  # operator's unrelated in-progress edits. `git add .` previously did,
+  # producing commits like "Mu dojo run: record changes" that contained
+  # whatever happened to be dirty in the repo at the time.
+  if [ -f CHALLENGES.md ] && ! git diff-index --quiet HEAD -- CHALLENGES.md 2>/dev/null; then
+    echo "Committing CHALLENGES.md updates from this run..."
     MU_VER=$(awk -F'"' '/__version__/ {print $2}' src/mu/__init__.py)
-    git commit -m "Mu dojo run: record changes (mu version $MU_VER)"
+    git commit -o CHALLENGES.md -m "dojo: record CHALLENGES.md updates (mu $MU_VER)"
   else
-    echo "No changes to commit."
+    echo "No CHALLENGES.md changes to commit."
   fi
 else
   echo "Not a git repository; skipping commit step."
@@ -134,7 +135,10 @@ if [ -z "${SKIP_CLEAN:-}" ]; then
   echo "Cleaning dojo directory..."
   # Use find to delete everything inside dojo, ignoring the dojo directory itself.
   if [ -d "dojo" ]; then
-    find dojo -mindepth 1 -exec rm -rf {} + || true
+    # Only delete top-level entries; rm -rf takes care of contents.
+    # -mindepth 1 -maxdepth 1 avoids `find` enumerating into a directory
+    # whose parent rm already removed, which spams "No such file" errors.
+    find dojo -mindepth 1 -maxdepth 1 -exec rm -rf {} + || true
   fi
 else
   echo "Skipping dojo cleanup (SKIP_CLEAN is set)."

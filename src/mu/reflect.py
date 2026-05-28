@@ -285,6 +285,7 @@ def reflect(model: str = '', limit: int = 10,
 
         if not result or result.strip().upper() == 'SKIP':
             skipped += 1
+            print(f"  = {session_dir.name}: model returned SKIP")
             seen.add(session_dir.name)
             continue
 
@@ -292,10 +293,12 @@ def reflect(model: str = '', limit: int = 10,
         title = title_match.group(1) if title_match else ''
         if not title:
             skipped += 1
+            print(f"  = {session_dir.name}: no title parsed from model output")
             seen.add(session_dir.name)
             continue
         if _is_duplicate(title, existing):
             skipped += 1
+            print(f"  = {session_dir.name}: duplicate of existing «{title}»")
             seen.add(session_dir.name)
             continue
         reason = _is_problem_specific(result)
