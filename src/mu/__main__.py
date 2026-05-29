@@ -504,7 +504,7 @@ def _model_picker() -> int:
             model = result.stdout.strip().split('\t')[-1].strip()
             if model:
                 print(f"Selected: {model}")
-                print(f"Load this model in LM Studio, then run: mu agent \"your goal\"")
+                client.load_model(model)
     except Exception as e:
         print(f"Error: {e}")
         return 1

@@ -11,7 +11,8 @@ from typing import Optional
 
 from mu import tools
 from mu.archive import AgentSession
-from mu.client import chat, list_models, load_model, recommended_model
+from mu.client import (chat, list_downloaded_llm_paths, list_models, load_catalog,
+                        load_model, recommended_model)
 from mu.plan import (Plan, check_goal_alignment, clear_challenges,
                      drop_minority_languages,
                      drop_runtime_artifacts,
@@ -129,6 +130,18 @@ def _select_model() -> str:
     if match:
         log("Using recommended model: %s", match)
         return match
+    # If another catalog model is already loaded, prefer it over loading a
+    # non-installed recommended model (avoids a confusing load error).
+    catalog_bare = {
+        spec['id'].split('/')[-1]
+        for spec in load_catalog()
+        if spec.get('id')
+    }
+    for m in loaded:
+        bare = m.split('/')[-1].split('@')[0]
+        if bare in catalog_bare:
+            log("Using loaded catalog model: %s", m)
+            return m
     if recommended:
         log("Recommended model %s not loaded — loading via LM Studio...", recommended)
         if load_model(recommended):
@@ -137,6 +150,18 @@ def _select_model() -> str:
             log("Using recommended model: %s", model)
             return model
         log("Could not load recommended model — falling back.")
+    # Try any downloaded catalog model before giving up.
+    catalog_ids = {spec['id'] for spec in load_catalog() if spec.get('id')}
+    catalog_bare = {cid.split('/')[-1] for cid in catalog_ids}
+    for path in list_downloaded_llm_paths():
+        bare = path.split('/')[-1].split('@')[0]
+        if path in catalog_ids or bare in catalog_bare:
+            log("Loading downloaded catalog model: %s", path)
+            if load_model(path):
+                loaded = list_models()
+                model = _match_loaded(loaded, path) or path
+                log("Using downloaded catalog model: %s", model)
+                return model
     if loaded:
         log("Using LM Studio model: %s", loaded[0])
         return loaded[0]

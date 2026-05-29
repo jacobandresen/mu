@@ -25,6 +25,12 @@
       "description": "32 GB tier. MoE 30B/3B active. Agentic tool use, 256K context."
     },
     {
+      "id": "google/gemma-4-e4b",
+      "contextWindow": 131072,
+      "input": ["text", "image"],
+      "description": "Efficient 4B model. Fits in GPU on 8 GB. Good for quick tasks; prefer a code-specialist for dojo."
+    },
+    {
       "id": "google/gemma-4-e2b",
       "contextWindow": 131072,
       "input": ["text", "image"],
