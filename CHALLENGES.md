@@ -17,7 +17,7 @@ Tracks the most frequent or significant challenges encountered while running the
    - The repair loop can still exhaust attempts without fixing the failing tests. Partially mitigated: `repair_loop` now receives the plan's source/test files as context (commit `07717cc`), and syntax‑breaking edits are rolled back (commit `e3fc108`). Further prompt/sensor improvements likely still needed.
 
 5. **Inconsistent handling of Makefile indentation**
-   - Models sometimes emit space‑indented recipes, which break `make`. `fix_makefile_space_indent` (`src/mu/sensors.py:136`) addresses this, but the issue recurs across problems.
+   - Every Makefile recipe line must begin with a literal TAB character. Spaces — even one — make `make` emit "missing separator" and abort. When a plan writes a Makefile, the description must state explicitly that recipe lines are tab-indented, and the writer must not convert tabs to spaces.
 
 6. **Missing positional argument in format string**
   - Ensure that the number of placeholders in a format string matches the number of arguments provided.
