@@ -97,6 +97,10 @@ def main() -> int:
     assess_p.add_argument('--model', default='',
                           help='LM Studio model ID (overrides MU_AGENT_MODEL)')
 
+    lint_p = sub.add_parser('lint', help='Report deterministic warnings for a PLAN.md (no LLM)')
+    lint_p.add_argument('plan', nargs='?', default='PLAN.md', metavar='PLAN',
+                        help='Path to the plan file (default: PLAN.md)')
+
     iterate_p = sub.add_parser('iterate', help='Continue executing an existing PLAN.md')
     iterate_p.add_argument('goal', nargs='?', default='', metavar='GOAL',
                            help='Optional goal hint (inferred from PLAN.md if omitted)')
@@ -158,6 +162,7 @@ def main() -> int:
         'split': _cmd_split,
         'flow': _cmd_flow,
         'assess': _cmd_assess,
+        'lint': _cmd_lint,
         'iterate': _cmd_iterate,
         'reflect': _cmd_reflect,
         'version': _cmd_version,
@@ -230,6 +235,20 @@ def _cmd_check(args) -> int:
             fail_count += 1
     print()
 
+    # Optional plan-lint extra (Option A). Informational only — never counted
+    # toward pass/fail, since the feature is opt-in behind MU_LINT_PLAN=1.
+    print("Plan lint (optional — MU_LINT_PLAN=1)")
+    try:
+        import spacy  # noqa: F401
+        try:
+            spacy.load('en_core_web_sm')
+            print("  [OK]  spaCy + en_core_web_sm")
+        except OSError:
+            print("  [--]  spaCy present, model missing   python3 -m spacy download en_core_web_sm")
+    except ImportError:
+        print("  [--]  spaCy not installed             pip3 install 'mu[lint]'")
+    print()
+
     if fail_count == 0:
         print(f"All {ok_count} dependencies present.")
         return 0
@@ -287,6 +306,19 @@ def _cmd_setup(args) -> int:
     print("Installing Python dependencies...")
     run_cmd('pip3', 'install', '--break-system-packages',
             'lmstudio', 'httpx', 'inquirerpy', 'pyflakes', 'autoflake')
+
+    # Optional plan-lint extra (Option A): only fetch the spaCy model if the
+    # user has installed `mu[lint]`. Never force the heavy dependency here.
+    try:
+        import spacy  # noqa: F401
+        try:
+            spacy.load('en_core_web_sm')
+        except OSError:
+            print()
+            print("Fetching spaCy model for plan lint (MU_LINT_PLAN)...")
+            run_cmd(sys.executable, '-m', 'spacy', 'download', 'en_core_web_sm')
+    except ImportError:
+        pass
 
     print()
     print("AI backend: LM Studio")
@@ -571,6 +603,23 @@ def _cmd_flow(args) -> int:
 
 def _cmd_assess(args) -> int:
     return agent.assess(goal=args.goal, model=args.model, target_dir=args.dir)
+
+
+# ── lint ──────────────────────────────────────────────────────────────────────
+
+def _cmd_lint(args) -> int:
+    from mu.lint import lint_plan
+    if not Path(args.plan).exists():
+        print(f"mu-lint: {args.plan} not found — run `mu plan` first", file=sys.stderr)
+        return 1
+    warnings = lint_plan(args.plan)
+    if not warnings:
+        print(f"{args.plan}: no warnings.")
+        return 0
+    for w in warnings:
+        print(f"- {w}")
+    print(f"\n{len(warnings)} warning(s).")
+    return 1
 
 
 # ── iterate ───────────────────────────────────────────────────────────────────

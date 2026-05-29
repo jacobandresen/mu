@@ -93,6 +93,10 @@ src/mu/skills/        skill prompts loaded by the planner (packaged data)
 `mu agent` is a deterministic control plane composing model sessions:
 
 - **Planner** (`_run_planner`) → LLM produces `PLAN.md` (Files, Test Command, Dependencies)
+- **Plan lint** (`mu/lint.py`, opt-in via `MU_LINT_PLAN=1`) → deterministic
+  warnings (entity consistency, vague verbs, pronouns, underspec) fed back to
+  the planner for one revision pass; spaCy optional, regex fallback. `mu lint`
+  runs the checks standalone with no LLM.
 - **Writer** (`_run_writer`) → one file per task; tools restricted to Write/Edit
 - **Sensors** (`mu/sensors.py`) → general deterministic fixes post-write
 - **Lint gate → Repair → Test gate → Final test gate** → `Session.repair_loop` injects test output between edits

@@ -535,6 +535,9 @@ def plan(goal: str, model: str = '', target_dir: str = '', force: bool = False) 
     if normalize_test_command('PLAN.md'):
         log("Normalized test command for portability.")
 
+    if os.environ.get('MU_LINT_PLAN') == '1':
+        _lint_critique_pass('PLAN.md', goal, model, planner_timeout)
+
     if os.environ.get('MU_ENRICH_LESSONS') == '1':
         _inject_lessons_section('PLAN.md', goal)
 
@@ -630,6 +633,9 @@ def run(goal: str, model: str = '', target_dir: str = '',
             log("Extracted embedded files: %s", ', '.join(extracted))
         if normalize_test_command('PLAN.md'):
             log("Normalized test command for portability.")
+
+        if os.environ.get('MU_LINT_PLAN') == '1':
+            _lint_critique_pass('PLAN.md', goal, model, planner_timeout)
 
         p = parse('PLAN.md')
         current_plan = p
@@ -1377,6 +1383,80 @@ def _inject_lessons_section(plan_path: str, goal: str) -> None:
         Path(plan_path).write_text(new_text, encoding='utf-8')
         log("enrich: injected %d lesson(s) into PLAN.md", len(lessons))
     except OSError:
+        pass
+
+
+def _lint_critique_pass(plan_path: str, goal: str, model: str,
+                        planner_timeout: int) -> None:
+    """Lint the plan and, on warnings, ask the planner to revise it once.
+
+    Option A from docs/plan-enrichment-report.md: run the deterministic
+    plan linter (`mu.lint`), feed any warnings back to the planner LLM as a
+    critique, and replace PLAN.md with the revised output. A single pass —
+    the revised plan is re-linted for diagnostics only, never re-prompted.
+
+    No-op if the lint module is unavailable or the plan trips no checks.
+    Gated by the caller via MU_LINT_PLAN, so the default planner path never
+    imports `mu.lint` or calls an extra LLM turn.
+    """
+    try:
+        from mu.lint import lint_plan, render_warnings
+    except ImportError:
+        return
+    try:
+        warnings = lint_plan(plan_path)
+    except Exception as e:
+        log("lint: lint_plan raised %s", e)
+        return
+    if not warnings:
+        return
+    log("lint: plan tripped %d check(s): %s", len(warnings), ' | '.join(warnings))
+
+    try:
+        original = Path(plan_path).read_text(encoding='utf-8')
+    except OSError:
+        return
+    project_dir = os.getcwd()
+    system = (f"You are a planning agent in: {project_dir}\n"
+              "Output ONLY the raw PLAN.md markdown. No preamble, no explanation, "
+              "no code blocks. Begin with ## Summary, then ## Files.")
+    skill = _load_skill('task-planner')
+    if skill:
+        system += '\n\n' + skill
+    user_msg = (f"GOAL: {goal}\n\nCurrent PLAN.md:\n\n{original}\n\n"
+                f"{render_warnings(warnings)}")
+    msgs = [{'role': 'system', 'content': system},
+            {'role': 'user', 'content': user_msg}]
+    try:
+        msg, _ = chat(model, msgs, None, float(planner_timeout))
+    except Exception as e:
+        log("lint: critique chat failed: %s", e)
+        return
+    content = extract_plan_content(msg['content'])
+    if not content or not re.search(r'(?m)^- \[[ x~]\]', content):
+        log("lint: critique response had no valid checklist — keeping original plan")
+        return
+    try:
+        Path(plan_path).write_text(content)
+    except OSError as e:
+        log("lint: could not write revised PLAN.md: %s", e)
+        return
+    log("lint: plan revised after critique")
+
+    # The critique output bypasses the generation-phase normalizers, so re-run
+    # them on the revision before it is parsed downstream.
+    if strip_thinking_artifacts(plan_path):
+        log("WARNING: thinking artifact tokens stripped from revised PLAN.md")
+    if normalize_embedded_files(plan_path):
+        log("Extracted embedded files from revised PLAN.md")
+    if normalize_test_command(plan_path):
+        log("Normalized test command in revised PLAN.md")
+
+    try:
+        remaining = lint_plan(plan_path)
+        if remaining:
+            log("lint: %d warning(s) remain after revision", len(remaining))
+    except Exception:
         pass
 
 

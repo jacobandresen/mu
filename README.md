@@ -28,6 +28,7 @@ mu agent "write a Flask REST API with SQLite and pytest tests" --dir myproject
 | `mu model load <id>` | Load a model via the LM Studio SDK |
 | `mu setup` | Install system dependencies |
 | `mu extract <log>` | Salvage files from an agent session log |
+| `mu lint [PLAN.md]` | Report deterministic plan warnings (no LLM) |
 | `mu version` | Print mu version |
 
 ## System dependencies
@@ -52,6 +53,17 @@ pip3 install lmstudio httpx inquirerpy pyflakes autoflake    # or: make deps
 ```
 
 mu uses the [LM Studio Python SDK](https://lmstudio.ai/docs/sdk) for model management (listing and loading models) and `httpx` for the OpenAI-compatible chat API. The model/theme pickers use `InquirerPy` (a pure-Python `fzf` replacement), and Python linting/autofix use `pyflakes` + `autoflake` instead of shelling out to `ruff`.
+
+### Optional: plan lint (spaCy)
+
+An opt-in planning aid (Option A from [docs/plan-enrichment-report.md](docs/plan-enrichment-report.md)). `mu lint` runs deterministic checks over a `PLAN.md` — cross-task entity inconsistency, vague verbs, dangling pronouns, underspecified tasks — and prints warnings; no LLM is involved. When `MU_LINT_PLAN=1` is set, the planner feeds these warnings back to the model for one revision pass before writing files.
+
+```sh
+pip3 install 'mu[lint]'                  # installs spaCy
+python3 -m spacy download en_core_web_sm # one-time model download
+```
+
+spaCy is **optional** and lazy-imported: the entity, pronoun, and length checks run without it; only the vague-verb check uses spaCy's dependency parser (falling back to a regex heuristic when the model is absent). With `MU_LINT_PLAN` unset, the planner path never imports it.
 
 ## Recommended models
 
