@@ -64,6 +64,12 @@ if [ -z "$SKIP_PREFLIGHT" ]; then
   fi
 fi
 
+# Warm the model once before the long rounds loop so the first round's first
+# heavy request isn't cold. sit.sh also warms per round (cheap when already
+# hot, and re-warms if the model was evicted between rounds). Best-effort.
+echo "Warming up the model…"
+"${MU_CMD}" model warm || echo "  (warm-up skipped — continuing)"
+
 echo "What is reality?"
 
 # Marker file used to find sessions finalized within the current round.
