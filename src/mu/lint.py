@@ -1,11 +1,11 @@
-"""Rule-based PLAN.md linter (option A from docs/plan-enrichment-report.md).
+"""Rule-based PLAN.md linter (the spaCy plan-lint arm).
 
 `lint_plan` returns a list of human-readable warnings that the planner
 critique loop feeds back to the LLM for a second pass. Warnings are
 *generic*: they describe shapes of underspecification, never per-problem
-fixes — see report §"Design constraint".
+fixes.
 
-Checks (in order of report-stated value):
+Checks (in descending order of value):
 
   1. Cross-task entity inconsistency. If task A names `TodoManager` and
      task B names `TodoStore`, the writer often hallucinates the wrong
@@ -41,8 +41,8 @@ _CAMEL_SPLIT = re.compile(r'[A-Z][a-z0-9]*|[a-z0-9]+')
 # Tail words that mean "the thing that owns/holds/handles the domain
 # object". Two identifiers that share a head and have tails from this
 # set are almost certainly the same concept named two different ways —
-# the failure mode the report's TodoManager/TodoStore example calls
-# out. Unrelated entities like UserAuth/UserProfile have tails that
+# the classic failure mode this check targets (e.g. TodoManager vs
+# TodoStore). Unrelated entities like UserAuth/UserProfile have tails that
 # aren't in this set, so they're left alone. Keep the vocabulary small
 # and language-generic; growing it problem-by-problem violates the
 # honesty principle.
@@ -99,8 +99,8 @@ def _check_entity_consistency(tasks: list[Task]) -> list[str]:
 
     `TodoManager` (head=todo, tail=manager) and `TodoStore` (head=todo,
     tail=store) cross tasks → the writer model picks one name on each
-    side and the import never resolves. The check is the strongest
-    signal per report §A. Identifiers in the same task are ignored:
+    side and the import never resolves. This is the strongest
+    signal of the four checks. Identifiers in the same task are ignored:
     re-using related names within one file is normal.
     """
     by_task: list[tuple[str, set[str]]] = [

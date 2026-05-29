@@ -72,8 +72,8 @@ AIMA specifies any agent by **P**erformance / **E**nvironment / **A**ctuators /
 what it can touch:
 
 - **Performance measure:** `pass` (final test exits 0), `first_try_pass` (no
-  repair needed), `repair_iters`, `wall_seconds`, `tokens`. (Already the metric
-  set in `plan-enrichment-report.md` §"How to measure".)
+  repair needed), `repair_iters`, `wall_seconds`, `tokens`. (Already recorded
+  per run in the session `meta.json`.)
 - **Environment:** the project working directory + the host toolchains
   (compilers, `pytest`, `cargo`, `dotnet`, …) + LM Studio. Classification:
   *partially observable* (the agent sees only what it reads/runs),
@@ -347,7 +347,7 @@ them permanent.)
 **Learner guards — `reflect.py` / `enrich.py`** (deterministic, no embeddings if
 you stub `_embed`).
 - `reflect`: `_is_duplicate` blocks a near-identical title; `_is_problem_specific` rejects a hardcoded-to-one-problem lesson (the honesty boundary).
-- `enrich`: the **≥3-corroboration** rule and the **<40 % concentration cap** from the enrichment report — feed a synthetic archive and assert a lesson backed by 2 runs is withheld, and a lesson that would land in >40 % of plans is dropped.
+- `enrich`: the **≥3-corroboration** rule and the **<40 % concentration cap** (the retriever's honesty guards) — feed a synthetic archive and assert a lesson backed by 2 runs is withheld, and a lesson that would land in >40 % of plans is dropped.
 
 **Performance element / orchestration — `agent.plan`** (uses `FakeOracle`).
 - Flag-off invariant: with `MU_LINT_PLAN` unset, `mu.lint` is never imported and the oracle is called exactly once (the planner). *(Already verified manually this session — make it a regression test.)*

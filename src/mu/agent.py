@@ -1406,7 +1406,7 @@ def _lint_critique_pass(plan_path: str, goal: str, model: str,
                         planner_timeout: int) -> None:
     """Lint the plan and, on warnings, ask the planner to revise it once.
 
-    Option A from docs/plan-enrichment-report.md: run the deterministic
+    The spaCy plan-lint arm: run the deterministic
     plan linter (`mu.lint`), feed any warnings back to the planner LLM as a
     critique, and replace PLAN.md with the revised output. A single pass —
     the revised plan is re-linted for diagnostics only, never re-prompted.

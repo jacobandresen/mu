@@ -56,7 +56,7 @@ mu uses the [LM Studio Python SDK](https://lmstudio.ai/docs/sdk) for model manag
 
 ### Optional: plan lint (spaCy)
 
-An opt-in planning aid (Option A from [docs/plan-enrichment-report.md](docs/plan-enrichment-report.md)). `mu lint` runs deterministic checks over a `PLAN.md` — cross-task entity inconsistency, vague verbs, dangling pronouns, underspecified tasks — and prints warnings; no LLM is involved. When `MU_LINT_PLAN=1` is set, the planner feeds these warnings back to the model for one revision pass before writing files.
+An opt-in planning aid. `mu lint` runs deterministic checks over a `PLAN.md` — cross-task entity inconsistency, vague verbs, dangling pronouns, underspecified tasks — and prints warnings; no LLM is involved. When `MU_LINT_PLAN=1` is set, the planner feeds these warnings back to the model for one revision pass before writing files.
 
 ```sh
 pip3 install 'mu[lint]'                  # installs spaCy
