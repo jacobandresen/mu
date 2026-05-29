@@ -41,6 +41,23 @@ def _lms_client():
     return lmstudio.Client(host)
 
 
+def list_downloaded_llm_paths() -> list[str]:
+    """Paths of LLM models downloaded to LM Studio (not necessarily loaded).
+
+    Returns paths in the same format as catalog IDs (e.g. ``google/gemma-4-e4b``).
+    Returns [] on error or if the SDK is unavailable.
+    """
+    try:
+        c = _lms_client()
+        return [
+            m.path
+            for m in c.list_downloaded_models()
+            if getattr(m, 'type', '') != 'embedding' and getattr(m, 'path', '')
+        ]
+    except Exception:
+        return []
+
+
 def load_catalog() -> list[dict]:
     """Curated model specs shipped alongside the package."""
     import os
@@ -121,10 +138,102 @@ def recommended_model() -> str:
     return catalog[0].get('id', '')
 
 
-def load_model(model_id: str) -> bool:
-    """Load a model via the LM Studio Python SDK."""
+def _fuzzy_match_model(query: str, candidates: list[str]) -> str | None:
+    """Return the best candidate whose path contains `query` as a substring (case-insensitive)."""
+    q = query.lower()
+    matches = [c for c in candidates if q in c.lower()]
+    if not matches:
+        return None
+    # Prefer exact basename match, then shortest path (most specific without a quant suffix)
+    def _score(c: str) -> tuple:
+        base = c.split('/')[-1].split('@')[0].lower()
+        return (base != q, len(c))
+    return sorted(matches, key=_score)[0]
+
+
+def _extract_available_paths(err_str: str) -> list[str]:
+    """Parse `availablePathsSample` from an LM Studio error string."""
+    import re
+    # The SDK embeds JSON-like data in the exception message; find the first [...] after the key
+    m = re.search(r'"availablePathsSample"\s*:\s*(\[.*?\])', err_str, re.DOTALL)
+    if not m:
+        return []
     try:
-        handle = _lms_client().llm.model(model_id)
+        return json.loads(m.group(1))
+    except Exception:
+        return []
+
+
+def _loaded_llm_handles():
+    """Return (client, list_of_handles) for all currently loaded LLMs via SDK.
+
+    Returns (None, []) on any error so callers can safely ignore failures.
+    """
+    try:
+        c = _lms_client()
+        handles = list(c.llm.list_loaded())
+        return c, handles
+    except Exception:
+        return None, []
+
+
+def _unload_others(client, handles, keep_identifier: str) -> None:
+    """Unload every loaded LLM whose identifier doesn't match *keep_identifier*."""
+    for h in handles:
+        ident = getattr(h, 'identifier', None)
+        if ident and ident != keep_identifier:
+            try:
+                print(f"Unloading {ident} …")
+                client.llm.unload(ident)
+            except Exception as e:
+                print(f"  Warning: could not unload {ident}: {e}")
+
+
+def load_model(model_id: str, _retry: bool = True) -> bool:
+    """Load a model persistently via the LM Studio Python SDK, with progress.
+
+    Before loading, checks whether the requested model is already the sole
+    loaded model (skips load if so) and unloads any other models that are
+    currently loaded.
+
+    If the exact ``model_id`` is not found, the error response from LM Studio
+    often includes ``availablePathsSample``.  We fuzzy-match against that list
+    and retry once with the best candidate.
+    """
+    try:
+        client, handles = _loaded_llm_handles()
+
+        if client is not None:
+            # Check if the desired model is already loaded (bare-name match).
+            bare_target = model_id.split('/')[-1].split('@')[0].lower()
+            already = next(
+                (h for h in handles
+                 if getattr(h, 'identifier', '').split('/')[-1].split('@')[0].lower() == bare_target),
+                None,
+            )
+            if already:
+                ident = getattr(already, 'identifier', model_id)
+                print(f"Model already loaded: {ident}")
+                # Unload any other models that snuck in alongside it.
+                _unload_others(client, handles, ident)
+                return True
+
+            # Unload all currently loaded models before loading the new one.
+            _unload_others(client, handles, '')
+
+        def _on_progress(prog):
+            pct = getattr(prog, 'progress', None)
+            if pct is not None:
+                bar_len = 30
+                filled = int(bar_len * pct)
+                bar = '█' * filled + '░' * (bar_len - filled)
+                print(f"\r  [{bar}] {pct:.0%}", end='', flush=True)
+
+        print(f"Loading {model_id} …")
+        handle = _lms_client().llm.load_new_instance(
+            model_id, ttl=None, on_load_progress=_on_progress
+        )
+        print()  # newline after progress bar
         info = handle.get_info()
         print(f"Loaded: {getattr(info, 'identifier', model_id)}")
         return True
@@ -132,7 +241,20 @@ def load_model(model_id: str) -> bool:
         print("lmstudio SDK not installed — run: pip3 install lmstudio --break-system-packages")
         return False
     except Exception as e:
-        print(f"Error loading model: {e}")
+        err_str = str(e)
+        if _retry:
+            candidates = _extract_available_paths(err_str)
+            matched = _fuzzy_match_model(model_id, candidates) if candidates else None
+            if matched:
+                print(f"\n  '{model_id}' not found — trying '{matched}' …")
+                return load_model(matched, _retry=False)
+            # Model not downloaded yet — try to fetch it from the hub first.
+            if 'pathNotFound' in err_str or 'not found' in err_str.lower():
+                print(f"\n  '{model_id}' not downloaded — fetching from LM Studio hub …")
+                downloaded_key = download_model(model_id)
+                if downloaded_key:
+                    return load_model(downloaded_key, _retry=False)
+        print(f"\nError loading model: {e}")
         return False
 
 

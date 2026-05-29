@@ -127,7 +127,7 @@ src/mu/skills/        skill prompts loaded by the planner (packaged data)
 
 ```sh
 make deps          # pip install -e . (installs lmstudio and httpx)
-make install       # symlink bin/mu to ~/.local/bin/mu
+make install       # pip install -e .
 python3 -m mu check
 ```
 
