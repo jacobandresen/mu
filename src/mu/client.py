@@ -297,6 +297,10 @@ def chat(model: str, messages: list[dict], tools: Optional[list[dict]],
         'messages': messages,
         'temperature': 0.1,
         'stream': False,
+        # llama.cpp/LM Studio: reuse the KV cache for the longest common prompt
+        # prefix across requests (default-on upstream; sent explicitly here, and
+        # ignored harmlessly by endpoints that don't recognize it).
+        'cache_prompt': True,
     }
     if tools:
         body['tools'] = tools

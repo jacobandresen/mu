@@ -415,6 +415,15 @@ def _model_warm(model_id: str = '') -> int:
     reply = (msg.get('content') or '').strip().replace('\n', ' ')[:40]
     print(f"Warm in {dt:.1f}s ({stats.generated_tokens} tok): {reply!r}")
     print("Resident (ttl=None) — stays loaded for later runs until LM Studio restarts.")
+    # Single-slot check: one KV-cache slot means no eviction/contention, so the
+    # prompt-prefix cache survives between calls. load_model already unloaded
+    # others; warn if anything snuck back in.
+    others = sorted(_active_model_ids() - {target})
+    if others:
+        print(f"Note: other models resident ({', '.join(others)}); run "
+              "`mu model ensure-single` for a single KV-cache slot.")
+    else:
+        print("Single non-embedding model resident — one KV-cache slot.")
     return 0
 
 
