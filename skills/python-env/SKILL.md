@@ -33,7 +33,7 @@ A venv created from the *system* interpreter only sees the *system* site
 (`/usr/lib/...`), not the tools installed in some other project venv. So either
 install the full toolset (pytest + libs) into the sandbox, or build it from the
 interpreter whose packages you actually want. Compilers and CLIs found via
-`shutil.which` (clang, go, cargo, dotnet, ruff) are on `PATH` regardless and
+`shutil.which` (clang, go, cargo, dotnet) are on `PATH` regardless and
 need no reinstall.
 
 ## 2. The test runner must match the host Python

@@ -124,7 +124,7 @@ Sensors divide into two operational classes:
 | `*.py` | `fix_multiline_single_quote` | `invalid-syntax` + single-quoted `.execute(` spanning lines |
 | `*.py` | `fix_missing_close_paren` | `invalid-syntax` + unclosed `.execute("""` |
 | `*.py` | `fix_test_import_module` | Test imports a module name not present on disk |
-| `*.py` | `ruff_autofix` | Any lint failure (runs `ruff check --fix`) |
+| `*.py` | `py_autofix` | Any lint failure (runs autoflake) |
 
 ### 4.2 Design Properties
 

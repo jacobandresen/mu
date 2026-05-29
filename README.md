@@ -2,7 +2,7 @@
 
 Local AI coding toolkit. Drives an autonomous coding loop from a plain-English goal using a local LLM via [LM Studio](https://lmstudio.ai).
 
-**Requires:** Python 3.11+, `nvim`, `fzf`, LM Studio running at `localhost:1234`
+**Requires:** Python 3.11+, LM Studio running at `localhost:1234`
 
 ## Quick start
 
@@ -32,19 +32,15 @@ mu agent "write a Flask REST API with SQLite and pytest tests" --dir myproject
 
 ## System dependencies
 
-`mu setup` installs the following packages (via `brew` on macOS, `pacman` on Arch, `apt` on Debian/Ubuntu):
+`mu setup` installs the compiler toolchains the agent needs to build and test the code it generates (via `brew` on macOS, `pacman` on Arch, `apt` on Debian/Ubuntu). mu's own tooling — the model/theme pickers and the Python linter — is pure-Python and installed with the package itself.
 
 | Tool | Purpose |
 |------|---------|
-| `neovim` | Editor |
 | `make`, `gcc`, `llvm`/`clang` | C/C++ compilation and linting (`clang-tidy`) |
 | `node`, `npm` | JavaScript/TypeScript runtime |
 | `python3` | Python runtime |
-| `jq` | JSON processing |
-| `fzf` | Fuzzy finder (model picker) |
-| `ripgrep`, `fd` | Fast search tools |
+| `git` | Version control / theme schemes |
 | `SDL2` | Graphics library |
-| `ruff` | Python linter |
 | `fpc` | Free Pascal compiler |
 
 **LM Studio** is not installed by `mu setup` — download it from [lmstudio.ai](https://lmstudio.ai), load a model, and start the local server. mu connects to `http://localhost:1234` by default (override with `MU_LMSTUDIO_HOST`).
@@ -52,10 +48,10 @@ mu agent "write a Flask REST API with SQLite and pytest tests" --dir myproject
 ## Python dependencies
 
 ```sh
-pip3 install lmstudio httpx          # or: make deps
+pip3 install lmstudio httpx inquirerpy pyflakes autoflake    # or: make deps
 ```
 
-mu uses the [LM Studio Python SDK](https://lmstudio.ai/docs/sdk) for model management (listing and loading models) and `httpx` for the OpenAI-compatible chat API.
+mu uses the [LM Studio Python SDK](https://lmstudio.ai/docs/sdk) for model management (listing and loading models) and `httpx` for the OpenAI-compatible chat API. The model/theme pickers use `InquirerPy` (a pure-Python `fzf` replacement), and Python linting/autofix use `pyflakes` + `autoflake` instead of shelling out to `ruff`.
 
 ## Recommended models
 

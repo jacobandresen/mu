@@ -31,6 +31,9 @@ classifiers = [
 dependencies = [
     "httpx>=0.27",
     "lmstudio>=1.5",
+    "inquirerpy>=0.3",
+    "pyflakes>=3.0",
+    "autoflake>=2.0",
 ]
 
 [project.optional-dependencies]

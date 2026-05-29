@@ -44,7 +44,7 @@ is written. Before adding or keeping one, apply this test:
 | Makefile | `fix_orphan_top_level_commands`, `fix_no_targets`, `fix_inline_recipe`, `fix_duplicate_var` | General Makefile syntax repair |
 | Python | `fix_multiline_single_quote`, `fix_missing_close_paren` | General Python syntax errors |
 | Python | `fix_test_import_module` | Test imports a module name not on disk — general |
-| Python | `ruff_autofix` | Runs `ruff --fix`; a general linter |
+| Python | `py_autofix` | Strips unused imports/variables via autoflake; a general linter |
 
 **Removed (problem-specific) — do NOT reintroduce:**
 SDL2 include/API fixers, C# `.csproj` fixers, Go `go.mod` fixers, pytest path

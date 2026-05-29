@@ -173,7 +173,6 @@ def main() -> int:
 def _cmd_check(args) -> int:
     deps = [
         ("Core", [
-            ("neovim", "nvim", "mu setup"),
             ("git", "git", "mu setup"),
             ("make", "make", "mu setup"),
             ("gcc", "gcc", "mu setup"),
@@ -181,20 +180,13 @@ def _cmd_check(args) -> int:
         ("Language runtimes", [
             ("python3", "python3", "mu setup"),
             ("pytest", "pytest", "pip3 install pytest"),
-        ]),
-        ("Tools", [
-            ("fzf", "fzf", "mu setup"),
-            ("ripgrep (rg)", "rg", "mu setup"),
-            ("fd", "fd", "mu setup"),
-            ("jq", "jq", "mu setup"),
-            ("fpc", "fpc", "mu setup"),
+            ("fpc (Pascal)", "fpc", "mu setup"),
         ]),
         ("Libraries", [
             ("SDL2", "sdl2-config", "mu setup"),
         ]),
         ("Static analysis", [
             ("clang-tidy", "clang-tidy", "mu setup"),
-            ("ruff", "ruff", "mu setup"),
             ("tsc (TypeScript)", "tsc", "mu setup"),
             ("cargo clippy (Rust)", "cargo", "rustup toolchain install stable"),
         ]),
@@ -220,21 +212,22 @@ def _cmd_check(args) -> int:
         fail_count += 1
     print()
 
-    print("Python SDK")
-    try:
-        import lmstudio  # noqa: F401
-        print("  [OK]  lmstudio")
-        ok_count += 1
-    except ImportError:
-        print("  [!!]  lmstudio                     pip3 install lmstudio --break-system-packages")
-        fail_count += 1
-    try:
-        import httpx  # noqa: F401
-        print("  [OK]  httpx")
-        ok_count += 1
-    except ImportError:
-        print("  [!!]  httpx                        pip3 install httpx --break-system-packages")
-        fail_count += 1
+    print("Python packages")
+    py_pkgs = [
+        ("lmstudio", "lmstudio"),
+        ("httpx", "httpx"),
+        ("InquirerPy", "InquirerPy"),
+        ("pyflakes", "pyflakes"),
+        ("autoflake", "autoflake"),
+    ]
+    for label, module in py_pkgs:
+        try:
+            __import__(module)
+            print(f"  [OK]  {label}")
+            ok_count += 1
+        except ImportError:
+            print(f"  [!!]  {label:<28} pip3 install {label.lower()} --break-system-packages")
+            fail_count += 1
     print()
 
     if fail_count == 0:
@@ -267,35 +260,22 @@ def _cmd_setup(args) -> int:
 
     system = platform.system()
     if system == 'Darwin':
-        pkgs = ['neovim', 'make', 'gcc', 'llvm', 'node', 'python', 'jq', 'git',
-                'fpc', 'fzf', 'ripgrep', 'fd', 'SDL2', 'ruff']
+        pkgs = ['make', 'gcc', 'llvm', 'node', 'python', 'git', 'fpc', 'SDL2']
         if not run_cmd('brew', 'install', *pkgs):
             return 1
-        run_cmd('brew', 'install', '--cask', 'font-terminess-ttf-nerd-font')
     elif system == 'Linux':
         if Path('/etc/arch-release').exists():
-            pkgs = ['--needed', 'neovim', 'ttf-terminus-nerd', 'base-devel', 'make',
-                    'gcc', 'clang', 'nodejs', 'npm', 'python', 'jq', 'git', 'fpc',
-                    'fzf', 'wl-clipboard', 'ripgrep', 'fd', 'unzip', 'ruff']
+            pkgs = ['--needed', 'base-devel', 'make', 'gcc', 'clang', 'nodejs',
+                    'npm', 'python', 'git', 'fpc', 'wl-clipboard', 'unzip']
             if not run_cmd('sudo', 'pacman', '-S', *pkgs):
                 return 1
         elif Path('/etc/debian_version').exists():
-            for cmd in [['sudo', 'apt-get', 'update'],
-                        ['sudo', 'apt-get', 'install', '-y', 'software-properties-common'],
-                        ['sudo', 'add-apt-repository', '-y', 'ppa:neovim-ppa/stable'],
-                        ['sudo', 'apt-get', 'update']]:
-                if not run_cmd(*cmd):
-                    return 1
-            pkgs = ['-y', 'neovim', 'build-essential', 'make', 'gcc', 'clang',
-                    'clang-tidy', 'nodejs', 'npm', 'python3', 'python3-pip', 'jq',
-                    'git', 'fpc', 'fzf', 'ripgrep', 'fd-find', 'unzip']
+            if not run_cmd('sudo', 'apt-get', 'update'):
+                return 1
+            pkgs = ['-y', 'build-essential', 'make', 'gcc', 'clang', 'clang-tidy',
+                    'nodejs', 'npm', 'python3', 'python3-pip', 'git', 'fpc', 'unzip']
             if not run_cmd('sudo', 'apt-get', 'install', *pkgs):
                 return 1
-            run_cmd('pip3', 'install', '--user', 'ruff')
-            fdfind = shutil.which('fdfind')
-            if fdfind and not Path('/usr/local/bin/fd').exists():
-                run_cmd('sudo', 'ln', '-sf', fdfind, '/usr/local/bin/fd')
-            print("Note: install Terminess Nerd Font from https://www.nerdfonts.com/font-downloads")
         else:
             print("Unsupported Linux distribution", file=sys.stderr)
             return 1
@@ -305,7 +285,8 @@ def _cmd_setup(args) -> int:
 
     print()
     print("Installing Python dependencies...")
-    run_cmd('pip3', 'install', '--break-system-packages', 'lmstudio')
+    run_cmd('pip3', 'install', '--break-system-packages',
+            'lmstudio', 'httpx', 'inquirerpy', 'pyflakes', 'autoflake')
 
     print()
     print("AI backend: LM Studio")
@@ -476,15 +457,35 @@ def _model_list() -> int:
     return 0
 
 
+def _fuzzy_pick(rows: list[tuple[str, object]], prompt: str):
+    """Fuzzy-select one row (pure-Python fzf replacement).
+
+    ``rows`` is a list of ``(display, value)`` pairs. Returns the chosen value,
+    or None if the user cancelled or InquirerPy is unavailable.
+    """
+    try:
+        from InquirerPy import inquirer
+        from InquirerPy.base.control import Choice
+    except ImportError:
+        print("InquirerPy not installed — run: pip3 install inquirerpy", file=sys.stderr)
+        return None
+    if not rows:
+        return None
+    choices = [Choice(value=value, name=display) for display, value in rows]
+    try:
+        return inquirer.fuzzy(
+            message=prompt, choices=choices, max_height="70%", mandatory=False,
+        ).execute()
+    except KeyboardInterrupt:
+        return None
+
+
 def _model_picker() -> int:
-    if not shutil.which('fzf'):
-        print("fzf not found — install it first (mu setup)")
-        return 1
     catalog = _load_catalog()
     active = _active_model_ids()
     recommended = client.recommended_model()
     if catalog:
-        lines = []
+        rows = []
         for spec in catalog:
             mid = spec.get('id', '')
             ctx = f"{spec.get('contextWindow', 0) // 1024}k"
@@ -494,20 +495,13 @@ def _model_picker() -> int:
             if mid == recommended:
                 tags.append('recommended')
             suffix = f"  [{', '.join(tags)}]" if tags else ''
-            lines.append(f"{mid:<48} {ctx:>5}  {spec.get('description', '')}{suffix}\t{mid}")
+            rows.append((f"{mid:<48} {ctx:>5}  {spec.get('description', '')}{suffix}", mid))
     else:
-        lines = [f"{m}\t{m}" for m in loaded]
-    try:
-        result = subprocess.run(['fzf', '--delimiter=\t', '--with-nth=1'],
-                                input='\n'.join(lines), capture_output=True, text=True)
-        if result.returncode == 0 and result.stdout.strip():
-            model = result.stdout.strip().split('\t')[-1].strip()
-            if model:
-                print(f"Selected: {model}")
-                client.load_model(model)
-    except Exception as e:
-        print(f"Error: {e}")
-        return 1
+        rows = [(m, m) for m in sorted(active)]
+    model = _fuzzy_pick(rows, "model> ")
+    if model:
+        print(f"Selected: {model}")
+        client.load_model(model)
     return 0
 
 
@@ -713,10 +707,6 @@ def _cmd_theme(args) -> int:
 
 
 def _theme_picker() -> int:
-    if not shutil.which('fzf'):
-        print("fzf not found — install it first (mu setup)")
-        return 1
-
     home = Path.home()
     xdg_data = os.environ.get('XDG_DATA_HOME', str(home / '.local' / 'share'))
     schemes_dir = Path(os.environ.get('SCHEMES_DIR',
@@ -732,27 +722,23 @@ def _theme_picker() -> int:
         print("No base16 schemes found.")
         return 1
 
-    mu_bin = shutil.which('mu') or sys.argv[0]
-    lines = '\n'.join(f"{name}\t{path}" for name, path in items)
-
-    try:
-        result = subprocess.run(
-            ['fzf', '--delimiter=\t', '--with-nth=1', '--prompt=theme> ',
-             f'--preview={mu_bin} theme preview {{2}}', '--preview-window=right:45%'],
-            input=lines, capture_output=False, text=True,
-            stdout=subprocess.PIPE, stderr=None,
-        )
-    except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
-
-    if result.returncode != 0 or not result.stdout.strip():
-        return 0  # user cancelled
-
-    line = result.stdout.strip()
-    parts = line.split('\t', 1)
-    scheme_name = parts[0]
-    yaml_path = parts[1] if len(parts) == 2 else ''
+    # Pick → preview the swatch → confirm, looping until the user accepts or quits.
+    rows = [(name, (name, path)) for name, path in items]
+    scheme_name = yaml_path = ''
+    while True:
+        chosen = _fuzzy_pick(rows, "theme> ")
+        if not chosen:
+            return 0  # user cancelled
+        scheme_name, yaml_path = chosen
+        s = _theme.parse_scheme(yaml_path)
+        if s:
+            _theme.preview(s)
+        try:
+            answer = input(f"Apply {scheme_name}? [Y/n] ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            return 0
+        if answer in ('', 'y', 'yes'):
+            break
 
     wezterm_cfg = home / '.wezterm.lua'
     if not wezterm_cfg.exists():

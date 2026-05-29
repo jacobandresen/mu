@@ -1,5 +1,6 @@
 """Autonomous coding agent orchestration."""
 
+import importlib.util
 import os
 import re
 import shutil
@@ -28,7 +29,7 @@ from mu.plan import (Plan, check_goal_alignment, clear_challenges,
                      write_sketches)
 from mu.sensors import (apply_go_sensors, apply_makefile_sensors,
                         fix_missing_close_paren, fix_multiline_single_quote,
-                        fix_test_import_module, ruff_autofix)
+                        fix_test_import_module, py_autofix)
 from mu.session import Session
 
 LOG_DIR = ".mu"
@@ -729,8 +730,8 @@ def run(goal: str, model: str = '', target_dir: str = '',
             if lint_cmd:
                 lint_log = os.path.join(LOG_DIR, f"lint-iter-{i:02d}.log")
                 if not _run_cmd(lint_cmd, lint_log):
-                    if ruff_autofix(task.file_path) and _run_cmd(lint_cmd, lint_log):
-                        log("Lint auto-fixed (ruff --fix): %s", task.file_path)
+                    if py_autofix(task.file_path) and _run_cmd(lint_cmd, lint_log):
+                        log("Lint auto-fixed (autoflake): %s", task.file_path)
                     else:
                         lint_head = _head_file(lint_log, 60)
                         det_fixed = (
@@ -1214,8 +1215,11 @@ def _lint_command(file_path: str, p: Plan) -> str:
     has_cargo = any(Path(t.file_path).name.lower() == 'cargo.toml' for t in p.tasks)
     has_tsconfig = any(Path(t.file_path).name.lower().startswith('tsconfig') for t in p.tasks)
     if ext == '.py':
-        return (f"ruff check --select=E9,F {file_path}" if shutil.which('ruff')
-                else f"python3 -m py_compile {file_path}")
+        # pyflakes (pure-Python) covers F-codes and syntax errors; run it with
+        # mu's own interpreter so the target venv needn't have it installed.
+        if importlib.util.find_spec('pyflakes'):
+            return f"{sys.executable} -m pyflakes {file_path}"
+        return f"python3 -m py_compile {file_path}"
     if ext == '.go':
         if has_makefile:
             return ''

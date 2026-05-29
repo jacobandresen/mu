@@ -8,7 +8,7 @@ Tracks the most frequent or significant challenges encountered while running the
    - Generated Python test files often omit the import of the module under test (e.g. `TodoManager`), causing `NameError`. `fix_test_import_module` (`src/mu/sensors.py:88`, invoked from `agent.py:688`) patches the common case, but the model still frequently forgets required imports.
 
 2. **Spurious imports and unused symbols**
-   - Generated Python files sometimes contain nonsensical imports such as `import __name__`, `import db_path`, `import self`. No dedicated sensor; cleanup relies on `ruff_autofix`.
+   - Generated Python files sometimes contain nonsensical imports such as `import __name__`, `import db_path`, `import self`. No dedicated sensor; cleanup relies on `py_autofix` (autoflake).
 
 3. **Sensor over‑fitting risk**
    - Added sensors must remain generic and not tied to a specific dojo problem, per the prime directive of honesty. Easy to violate when a single problem keeps failing.
