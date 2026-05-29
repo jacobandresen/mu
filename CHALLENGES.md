@@ -40,6 +40,9 @@ Tracks the most frequent or significant challenges encountered while running the
 12. **Port already in use**
   - Ensure the port specified for the HTTP server is not already occupied by another process. Check and free up the port before running the server again.
 
+13. **Syntax error in SQL query**
+  - Ensure proper indentation and correct use of the backslash for line continuations in SQL queries.
+
 ## Resolved
 
 - **Missing `fix_sqlite_in_memory` function** — obsolete. AST fixer pass and the orphaned sqlite sensor removed in commit `07717cc`.
