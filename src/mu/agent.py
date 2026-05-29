@@ -836,12 +836,7 @@ def _run_planning_phase(goal: str, model: str, planner_timeout: int, complexity:
 def _run_planner(goal: str, model: str, planner_timeout: int) -> None:
     import time
     project_dir = os.getcwd()
-    system = (f"You are a planning agent in: {project_dir}\n"
-              "Output ONLY the raw PLAN.md markdown. No preamble, no explanation, no code blocks. "
-              "Begin with ## Summary, then ## Files.")
     skill = _load_skill('task-planner')
-    if skill:
-        system += '\n\n' + skill
     example = (
         "## Summary\n"
         "Implement a command-line tool in C that prints a greeting. "
@@ -870,21 +865,42 @@ def _run_planner(goal: str, model: str, planner_timeout: int) -> None:
         "Do NOT write bare names with no version.",
         "- No code blocks. Allowed headers: ## Summary / ## Files / ## Test Command / ## Dependencies.",
     ]
-    user_msg = (
-        f"Create a PLAN.md task list for this goal.\n\n"
-        f"GOAL: {goal}\nDIR: {project_dir}\n\n"
-        f"Rules:\n" + '\n'.join(rules) + "\n\n"
-    )
-    if challenges_block:
-        user_msg += (
-            "Known recurring failure modes in this project — read these before "
-            "drafting the plan and structure the plan so it does not trip them:\n\n"
-            f"{challenges_block}\n\n"
+    challenges_text = (
+        "Known recurring failure modes in this project — read these before "
+        "drafting the plan and structure the plan so it does not trip them:\n\n"
+        f"{challenges_block}\n\n"
+    ) if challenges_block else ""
+
+    if os.environ.get('MU_PROMPT_CACHE') == '1':
+        # Cache-friendly layout: all stable content (instructions, skill, rules,
+        # challenges, example) goes in the system message as a byte-identical
+        # prefix across problems, so LM Studio reuses its KV cache instead of
+        # re-prefilling ~1k tokens each plan. Only the volatile DIR/GOAL trails.
+        system = ("You are a planning agent.\n"
+                  "Output ONLY the raw PLAN.md markdown. No preamble, no explanation, "
+                  "no code blocks. Begin with ## Summary, then ## Files.")
+        if skill:
+            system += '\n\n' + skill
+        system += "\n\nRules:\n" + '\n'.join(rules)
+        if challenges_text:
+            system += "\n\n" + challenges_text.rstrip()
+        system += f"\n\nExample output:\n{example}"
+        user_msg = (f"DIR: {project_dir}\nGOAL: {goal}\n\n"
+                    "Now output the PLAN.md for the goal above. Start with ## Summary.")
+    else:
+        system = (f"You are a planning agent in: {project_dir}\n"
+                  "Output ONLY the raw PLAN.md markdown. No preamble, no explanation, "
+                  "no code blocks. Begin with ## Summary, then ## Files.")
+        if skill:
+            system += '\n\n' + skill
+        user_msg = (
+            f"Create a PLAN.md task list for this goal.\n\n"
+            f"GOAL: {goal}\nDIR: {project_dir}\n\n"
+            f"Rules:\n" + '\n'.join(rules) + "\n\n"
+            + challenges_text
+            + f"Example output:\n{example}\n\n"
+            + "Now output the PLAN.md for the goal above. Start with ## Summary."
         )
-    user_msg += (
-        f"Example output:\n{example}\n\n"
-        f"Now output the PLAN.md for the goal above. Start with ## Summary."
-    )
     msgs = [
         {'role': 'system', 'content': system},
         {'role': 'user', 'content': user_msg},

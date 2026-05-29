@@ -83,6 +83,13 @@ run_problem() {
   popd >/dev/null
 }
 
+# Warm the model once before the round so the first heavy generation isn't
+# cold. (The cold-start that stalled p6-rust: the short planner call warms up,
+# but the first long writer call times out.) Best-effort under `set -e`: a
+# warm-up failure (e.g. LM Studio not up yet) must not abort the round.
+echo "Warming up the model…"
+"${MU_CMD}" model warm || echo "  (warm-up skipped — continuing cold)"
+
 if [[ -n "${PROBLEM_ID}" ]]; then
   # Run a single specified problem.
   if ! GOAL=$(get_goal "${PROBLEM_ID}"); then

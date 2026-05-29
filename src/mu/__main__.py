@@ -33,6 +33,10 @@ def main() -> int:
     model_sub.add_parser('list', help='List curated models')
     load_p = model_sub.add_parser('load', help='Load a model via the lmstudio SDK')
     load_p.add_argument('model_id', help='Model ID to load')
+    warm_p = model_sub.add_parser(
+        'warm', help='Load a model persistently and run a warm-up generation')
+    warm_p.add_argument('model_id', nargs='?', default='',
+                        help='Model ID to warm (default: recommended)')
     unload_p = model_sub.add_parser('unload', help='Unload a model via the lmstudio SDK')
     unload_p.add_argument('model_id', help='Model ID to unload')
     model_sub.add_parser('ensure-single',
@@ -366,6 +370,8 @@ def _cmd_model(args) -> int:
         return _model_status()
     if sub == 'load':
         return 0 if client.load_model(args.model_id) else 1
+    if sub == 'warm':
+        return _model_warm(args.model_id)
     if sub == 'unload':
         return _model_unload(args.model_id)
     if sub == 'ensure-single':
@@ -373,6 +379,52 @@ def _cmd_model(args) -> int:
     if sub == 'list':
         return _model_list()
     return _model_picker()
+
+
+def _model_warm(model_id: str = '') -> int:
+    """Load a model persistently and run one warm-up generation.
+
+    `client.load_model` loads with ttl=None (no idle-unload), so the model
+    stays resident across later runs until LM Studio restarts. The cold-start
+    that stalls a dojo's first heavy request is the inference pipeline warming
+    up, not the load — so we also fire one real generation here to heat it.
+    """
+    import time
+    if not client.is_running():
+        print(f"LM Studio not running at {client.LMS_HOST}", file=sys.stderr)
+        return 1
+    model = model_id or client.recommended_model()
+    if not model:
+        print("No model given and no recommended model found.", file=sys.stderr)
+        return 1
+    if not client.load_model(model):
+        return 1
+    # Resolve to the identifier LM Studio actually serves it under.
+    active = _active_model_ids()
+    target = next((a for a in active if _model_active(model, {a})), model)
+    print(f"Warming up {target} …", flush=True)
+    t0 = time.time()
+    try:
+        msg, stats = client.chat(
+            target, [{'role': 'user', 'content': 'Reply with one word: ready'}],
+            None, 120.0)
+    except Exception as e:
+        print(f"Warm-up generation failed: {e}", file=sys.stderr)
+        return 1
+    dt = time.time() - t0
+    reply = (msg.get('content') or '').strip().replace('\n', ' ')[:40]
+    print(f"Warm in {dt:.1f}s ({stats.generated_tokens} tok): {reply!r}")
+    print("Resident (ttl=None) — stays loaded for later runs until LM Studio restarts.")
+    # Single-slot check: one KV-cache slot means no eviction/contention, so the
+    # prompt-prefix cache survives between calls. load_model already unloaded
+    # others; warn if anything snuck back in.
+    others = sorted(_active_model_ids() - {target})
+    if others:
+        print(f"Note: other models resident ({', '.join(others)}); run "
+              "`mu model ensure-single` for a single KV-cache slot.")
+    else:
+        print("Single non-embedding model resident — one KV-cache slot.")
+    return 0
 
 
 def _active_model_ids() -> set[str]:
