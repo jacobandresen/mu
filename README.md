@@ -154,4 +154,4 @@ The honest-harness rule applies to both: a sensor or skill that pattern-matches 
 
 ## How it works
 
-mu implements *harness engineering* — designing the scaffolding around an LLM that turns it into a reliable autonomous agent. This covers the orchestration loop, the `sensors` module (deterministic code fixers), the planning pipeline, and the lint/test verification gates. See [docs/HARNESS_ENGINEERING.md](docs/HARNESS_ENGINEERING.md) for a detailed explanation.
+mu implements *harness engineering* — designing the scaffolding around an LLM that turns it into a reliable autonomous agent. This covers the orchestration loop, the `sensors` module (deterministic code fixers), the planning pipeline, and the lint/test verification gates.

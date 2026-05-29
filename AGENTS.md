@@ -5,7 +5,7 @@ mu is a local AI coding toolkit: `mu agent "<goal>"` drives an autonomous
 plan → write → verify loop on top of a local LLM via LM Studio.
 
 This file is the source of truth for *how to work on mu*. If it conflicts with
-older docs (e.g. `docs/HARNESS_ENGINEERING.md`, `README.md`), this file wins.
+older docs (e.g. `README.md`), this file wins.
 
 ---
 

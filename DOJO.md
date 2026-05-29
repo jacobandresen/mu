@@ -3,8 +3,7 @@
 The dojo stress-tests **mu** by driving a guest model through a fixed problem set
 (P1–P7) and recording where the autonomous loop breaks. Problem prompts live in
 [PRACTICE.md](docs/PRACTICE.md); model selection and tuning in [MODELS.md](docs/MODELS.md)
-and [TUNING.md](docs/TUNING.md); the design rationale in
-[HARNESS_ENGINEERING.md](docs/HARNESS_ENGINEERING.md).
+and [TUNING.md](docs/TUNING.md).
 
 > **Honest-harness principle.** Fixes must be *language-class generic*, never
 > pattern-matched to one dojo problem. A sensor that rewrites "SDL3→SDL2" or
