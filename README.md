@@ -10,7 +10,7 @@ Local AI coding toolkit. Drives an autonomous coding loop from a plain-English g
 git clone https://github.com/jacobandresen/mu
 cd mu
 make deps     # pip install lmstudio httpx
-make install  # symlink bin/mu to ~/.local/bin/mu
+make install  # install the `mu` command
 
 # Start LM Studio, load a model (e.g. qwen/qwen2.5-coder-7b-instruct), start the server
 mu check                          # verify dependencies
@@ -103,7 +103,7 @@ To add a skill, create `skills/<name>/SKILL.md` with a YAML frontmatter block (`
 git clone https://github.com/jacobandresen/mu
 cd mu
 make deps     # install Python dependencies
-make install  # symlink bin/mu into PATH
+make install  # install the `mu` command
 ```
 
 Or install as an editable Python package:
@@ -125,7 +125,6 @@ src/mu/                Python package
   sensors.py           deterministic code fixers
   session.py           writer loop and repair loop
   tools.py             tool definitions (Write/Edit/Bash/Read)
-bin/mu                 executable entry point
 models-catalog.json    curated model specs (read by mu model picker)
 skills/                skill prompts injected into the planner
   python-env/SKILL.md  Python venv + pytest rules

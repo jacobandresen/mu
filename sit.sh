@@ -61,13 +61,7 @@ if [[ -z "${SIT_NO_SHUFFLE:-}" ]] && command -v shuf >/dev/null 2>&1; then
   mapfile -t PROBLEMS < <(printf '%s\n' "${PROBLEMS[@]}" | shuf)
 fi
 
-# Determine which mu binary to invoke (prefer local bin/mu if available).
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [[ -x "${SCRIPT_DIR}/bin/mu" ]]; then
-  MU_CMD="${SCRIPT_DIR}/bin/mu"
-else
-  MU_CMD="mu"
-fi
+MU_CMD="mu"
 
 run_problem() {
   local folder="$1"

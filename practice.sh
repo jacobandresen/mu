@@ -31,13 +31,7 @@ LMSTUDIO_HOST=${MU_LMSTUDIO_HOST:-http://localhost:1234}
 
 export MU_ENRICH_LESSONS=1
 
-# Determine which mu binary to invoke (same precedence as sit.sh).
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [[ -x "${SCRIPT_DIR}/bin/mu" ]]; then
-  MU_CMD="${SCRIPT_DIR}/bin/mu"
-else
-  MU_CMD="mu"
-fi
+MU_CMD="mu"
 
 if ! command -v pi >/dev/null 2>&1; then
   echo "What is reality? look at pi.dev and return back"
