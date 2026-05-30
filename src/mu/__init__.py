@@ -1,4 +1,4 @@
-__version__ = "0.10.2"
+__version__ = "0.10.3"
 
 # ── AIMA role aliases (Stage 2) ───────────────────────────────────────────────
 # Thin import-time aliases so contributors can use AIMA vocabulary alongside the
