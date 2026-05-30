@@ -52,6 +52,9 @@ Tracks the most frequent or significant challenges encountered while running the
 16. **Syntax error in Rust code**
   - Unexpected closing delimiters like `{` and `}` require matching opening delimiters. Ensure all brackets are properly opened and closed.
 
+17. **Top-level statements must precede namespace and type declarations**
+  - Top-level statements in C# must appear before any namespaces or types; ensure they are placed correctly to avoid syntax errors.
+
 ## Resolved
 
 - **Missing `fix_sqlite_in_memory` function** — obsolete. AST fixer pass and the orphaned sqlite sensor removed in commit `07717cc`.
