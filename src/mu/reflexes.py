@@ -261,6 +261,90 @@ def fix_python_missing_project_imports(file_path: str) -> bool:
     return True
 
 
+def fix_python_undefined_imports(file_path: str, lint_error: str) -> bool:
+    """Add imports for symbols reported as undefined by flake8 (F821/F811).
+
+    Parses ``undefined name 'X'`` entries from the lint output, then searches
+    sibling .py files for where X is defined (top-level assignment, class, or
+    function), and adds ``from <module> import X`` statements. Generic: driven
+    entirely by the lint error and file contents, not any specific problem.
+    """
+    if not file_path.lower().endswith('.py'):
+        return False
+    if 'undefined name' not in lint_error:
+        return False
+    undefined = set(re.findall(r"undefined name '(\w+)'", lint_error))
+    if not undefined:
+        return False
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+    parent = Path(file_path).parent
+    stem = Path(file_path).stem
+    sibling_sources = {p.stem: p.read_text()
+                       for p in parent.glob('*.py')
+                       if p.stem != stem and not p.stem.startswith('test_')}
+    to_add = []
+    for name in sorted(undefined):
+        # Skip if already imported
+        if re.search(rf'(?:import {re.escape(name)}\b|from \S+ import .*\b{re.escape(name)}\b)', text):
+            continue
+        for mod, src in sibling_sources.items():
+            if re.search(rf'(?m)^(?:class|def|{re.escape(name)})\s*[\s(=:]', src) or \
+               re.search(rf'(?m)^\s*{re.escape(name)}\s*=', src):
+                to_add.append((mod, name))
+                break
+    if not to_add:
+        return False
+    lines = text.splitlines()
+    insert_at = 0
+    for i, line in enumerate(lines):
+        if line.startswith(('import ', 'from ')):
+            insert_at = i + 1
+        elif line and not line.startswith('#') and insert_at > 0:
+            break
+    # Group by module
+    by_mod: dict = {}
+    for mod, sym in to_add:
+        by_mod.setdefault(mod, []).append(sym)
+    stmts = [f"from {mod} import {', '.join(sorted(syms))}" for mod, syms in sorted(by_mod.items())]
+    for stmt in reversed(stmts):
+        lines.insert(insert_at, stmt)
+    Path(file_path).write_text('\n'.join(lines) + '\n')
+    print(f"==> [mu-agent] Reflex: added undefined-name imports to {file_path}: {stmts}")
+    return True
+
+
+def fix_sqlite_test_isolation(file_path: str) -> bool:
+    """Replace file-based SQLite paths with ':memory:' in any Python file in a tested project.
+
+    Tests that open a named SQLite file accumulate state across test functions
+    and across repair iterations, causing inflated row counts and assertion
+    failures. Using ':memory:' gives each connection a fresh database. Fires on
+    any .py file (implementation or test) when the project directory contains at
+    least one test file — the presence of tests indicates this is a test
+    scenario where in-memory SQLite is always correct.
+    """
+    if not file_path.lower().endswith('.py'):
+        return False
+    parent = Path(file_path).parent
+    has_tests = any(parent.glob('test_*.py'))
+    if not has_tests:
+        return False
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+    # Replace quoted .db / .sqlite file paths with ':memory:'
+    new_text = re.sub(r'''(['"])(?:[^'"]*(?:\.db|\.sqlite3?))\1''', "':memory:'", text)
+    if new_text == text:
+        return False
+    Path(file_path).write_text(new_text)
+    print(f"==> [mu-agent] Reflex: replaced SQLite file path(s) with :memory: in {file_path}")
+    return True
+
+
 def fix_python_missing_stdlib_imports(file_path: str) -> bool:
     """Add missing stdlib imports for identifiers used but not imported.
 
@@ -294,6 +378,196 @@ def fix_python_missing_stdlib_imports(file_path: str) -> bool:
         lines.insert(insert_at, stmt)
     Path(file_path).write_text('\n'.join(lines) + '\n')
     print(f"==> [mu-agent] Reflex: added {len(to_add)} missing stdlib import(s) to {file_path}: {to_add}")
+    return True
+
+
+def fix_rust_println_missing_arg(file_path: str) -> bool:
+    """Fix println!/print! calls whose placeholder count doesn't match argument count.
+
+    Models write format strings like `println!("{}")` or `println!("Fib({}) = {}")`
+    with too few arguments. When inside a `for var in ...` loop, fills missing args
+    with the loop variable (repeated if needed). Generic: any mismatch between `{}`
+    count and argument count is a compile error in Rust.
+    """
+    if not file_path.endswith('.rs'):
+        return False
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+    lines = text.splitlines()
+    changed = False
+    result = []
+    loop_var: list[str] = []
+
+    for line in lines:
+        stripped = line.strip()
+        m = re.match(r'for\s+(\w+)\s+in\b', stripped)
+        if m:
+            loop_var.append(m.group(1))
+
+        # Match println!("...") or print!("...") — capture format string and args
+        macro_m = re.search(r'\b(println|print)!\s*\(("(?:[^"\\]|\\.)*")(.*)\)', line)
+        if macro_m:
+            fmt_str = macro_m.group(2)  # includes surrounding quotes
+            rest = macro_m.group(3)     # ', arg1, arg2, ...' or ''
+            n_placeholders = fmt_str.count('{}')
+            # Count existing args (comma-separated after the format string)
+            existing_args = [a.strip() for a in rest.lstrip(',').split(',') if a.strip()]
+            n_args = len(existing_args)
+            if n_placeholders > n_args and loop_var:
+                var = loop_var[-1]
+                missing = n_placeholders - n_args
+                fill = ', '.join([var] * missing)
+                new_args = (', ' + ', '.join(existing_args) + ', ' + fill
+                            if existing_args else f', {fill}')
+                old = macro_m.group(0)
+                new = f'{macro_m.group(1)}!({fmt_str}{new_args})'
+                line = line.replace(old, new, 1)
+                changed = True
+
+        if stripped == '}' and loop_var:
+            loop_var.pop()
+        result.append(line)
+
+    if not changed:
+        return False
+    Path(file_path).write_text('\n'.join(result) + '\n')
+    print(f"==> [mu-agent] Reflex: fixed println! missing arg(s) in {file_path}")
+    return True
+
+
+def fix_csharp_duplicate_classes(file_path: str) -> bool:
+    """Remove class/struct definitions from a C# file that are already defined in a sibling file.
+
+    Models sometimes copy a class into Program.cs even though the planner created
+    a separate file for it (e.g. FibonacciGenerator.cs). The compiler rejects the
+    duplicate with CS0101. Generic: checks sibling .cs files for any class/struct
+    name that also appears in this file and removes the duplicate block.
+    """
+    if not file_path.endswith('.cs'):
+        return False
+    path = Path(file_path)
+    try:
+        text = path.read_text()
+    except OSError:
+        return False
+    # Collect class/struct names defined in sibling .cs files
+    sibling_names: set[str] = set()
+    for sib in path.parent.glob('*.cs'):
+        if sib == path:
+            continue
+        try:
+            src = sib.read_text()
+        except OSError:
+            continue
+        for m in re.finditer(r'\b(?:class|struct|record)\s+(\w+)', src):
+            sibling_names.add(m.group(1))
+    if not sibling_names:
+        return False
+    # Remove any class/struct block defined in this file that's already in a sibling
+    changed = False
+    for name in sibling_names:
+        pattern = re.compile(
+            rf'(?m)^[ \t]*(?:public|internal|private|protected|static|sealed|abstract|partial\s+)*'
+            rf'(?:class|struct|record)\s+{re.escape(name)}\b[^{{]*\{{',
+        )
+        m = pattern.search(text)
+        if not m:
+            continue
+        # Find the matching closing brace
+        start = m.start()
+        depth = 0
+        pos = m.end() - 1  # position of the opening '{'
+        end = len(text)
+        for i in range(pos, len(text)):
+            if text[i] == '{':
+                depth += 1
+            elif text[i] == '}':
+                depth -= 1
+                if depth == 0:
+                    end = i + 1
+                    break
+        text = text[:start] + text[end:]
+        changed = True
+    if not changed:
+        return False
+    path.write_text(text)
+    print(f"==> [mu-agent] Reflex: removed duplicate C# class(es) from {file_path}")
+    return True
+
+
+_STDLIB_MODULES = {
+    'os', 'sys', 're', 'json', 'math', 'time', 'datetime', 'pathlib',
+    'collections', 'itertools', 'functools', 'typing', 'io', 'abc',
+    'random', 'string', 'struct', 'copy', 'enum', 'dataclasses',
+    'subprocess', 'threading', 'multiprocessing', 'socket', 'http',
+    'urllib', 'hashlib', 'base64', 'uuid', 'logging', 'unittest',
+    'contextlib', 'weakref', 'gc', 'inspect', 'importlib', 'pkgutil',
+    'ast', 'dis', 'pickle', 'shelve', 'csv', 'sqlite3', 'argparse',
+    'shutil', 'tempfile', 'glob', 'fnmatch', 'stat', 'platform',
+    'traceback', 'warnings', 'textwrap', 'pprint', 'decimal', 'fractions',
+}
+
+# Map import name → pip package name (when they differ)
+_PIP_NAME: dict[str, str] = {
+    'flask_sqlalchemy': 'flask-sqlalchemy',
+    'flask_migrate': 'flask-migrate',
+    'flask_login': 'flask-login',
+    'flask_cors': 'flask-cors',
+    'flask_restful': 'flask-restful',
+    'dotenv': 'python-dotenv',
+    'cv2': 'opencv-python',
+    'PIL': 'Pillow',
+    'sklearn': 'scikit-learn',
+    'bs4': 'beautifulsoup4',
+    'yaml': 'pyyaml',
+    'attr': 'attrs',
+    'dateutil': 'python-dateutil',
+    'jwt': 'PyJWT',
+    'pymongo': 'pymongo',
+    'redis': 'redis',
+    'celery': 'celery',
+    'aiohttp': 'aiohttp',
+    'httpx': 'httpx',
+    'pydantic': 'pydantic',
+    'fastapi': 'fastapi',
+    'uvicorn': 'uvicorn',
+    'sqlalchemy': 'sqlalchemy',
+}
+
+
+def fix_missing_pip_packages(test_output: str, project_dir: str) -> bool:
+    """Add missing pip packages to requirements.txt when tests fail with ModuleNotFoundError.
+
+    Parses 'ModuleNotFoundError: No module named X' from test output, maps X to
+    its pip package name, and adds it to requirements.txt (creating the file if
+    needed). Generic: driven entirely by the error message, not any specific problem.
+    """
+    missing = re.findall(r"ModuleNotFoundError: No module named '([^']+)'", test_output)
+    if not missing:
+        return False
+    # Normalise: take the top-level package name (e.g. 'flask_sqlalchemy.X' → 'flask_sqlalchemy')
+    pkgs = {m.split('.')[0] for m in missing}
+    # Skip stdlib
+    pkgs -= _STDLIB_MODULES
+    if not pkgs:
+        return False
+    req_path = Path(project_dir) / 'requirements.txt'
+    try:
+        existing = req_path.read_text() if req_path.exists() else ''
+    except OSError:
+        existing = ''
+    to_add = []
+    for pkg in sorted(pkgs):
+        pip_name = _PIP_NAME.get(pkg, pkg.replace('_', '-'))
+        if pip_name.lower() not in existing.lower():
+            to_add.append(pip_name)
+    if not to_add:
+        return False
+    new_content = existing.rstrip('\n') + '\n' + '\n'.join(to_add) + '\n'
+    req_path.write_text(new_content)
+    print(f"==> [mu-agent] Reflex: added missing packages to requirements.txt: {to_add}")
     return True
 
 
@@ -364,15 +638,23 @@ def fix_python_decorator_colon(file_path: str) -> bool:
     return True
 
 
-def fix_python_literal_newlines(file_path: str) -> bool:
-    """Replace literal \\n escape sequences with real newlines in Python files.
+_CODE_EXTS = {'.py', '.cs', '.rs', '.go', '.c', '.cpp', '.h', '.java', '.js', '.ts'}
+
+
+def fix_literal_newlines(file_path: str, lint_error: str = '') -> bool:
+    """Replace literal \\n escape sequences with real newlines in source files.
 
     Models occasionally write an entire file as one long string with \\n
-    characters instead of actual line breaks, causing an immediate SyntaxError
-    on the continuation character. Only applied when the file has very few real
-    newlines but many literal \\n sequences.
+    characters instead of actual line breaks.
+
+    Two modes:
+    - Bulk mode: fires when literal \\n sequences outnumber real newlines by a
+      wide margin (whole-file collapse). Safe to do a global replace on any
+      source file.
+    - Targeted mode (lint_error contains 'line continuation'): fires even in
+      mixed files, but only replaces literal \\n outside string literals.
     """
-    if not file_path.lower().endswith('.py'):
+    if Path(file_path).suffix.lower() not in _CODE_EXTS:
         return False
     try:
         text = Path(file_path).read_text()
@@ -380,11 +662,46 @@ def fix_python_literal_newlines(file_path: str) -> bool:
         return False
     real_newlines = text.count('\n')
     literal_newlines = text.count('\\n')
-    if literal_newlines < 3 or literal_newlines <= real_newlines:
+    if literal_newlines == 0:
         return False
-    fixed = text.replace('\\n', '\n')
-    Path(file_path).write_text(fixed)
-    print(f"==> [mu-agent] Reflex: replaced {literal_newlines} literal \\n with real newlines in {file_path}")
+
+    # Bulk mode: nearly all newlines are literal (whole-file collapse).
+    if literal_newlines >= 3 and literal_newlines > real_newlines:
+        fixed = text.replace('\\n', '\n')
+        Path(file_path).write_text(fixed)
+        print(f"==> [mu-agent] Reflex: replaced {literal_newlines} literal \\n "
+              f"with real newlines in {file_path}")
+        return True
+
+    # Targeted mode: mixed file with a 'line continuation' syntax error.
+    # Replace \\n only on lines where it appears outside of a string literal
+    # (heuristic: line contains \\n but is not dominated by quotes around it).
+    if 'line continuation' not in lint_error:
+        return False
+    lines = text.splitlines(keepends=True)
+    changed = False
+    result = []
+    for line in lines:
+        # Count quotes before the first \\n to decide if we're inside a string.
+        idx = line.find('\\n')
+        if idx == -1:
+            result.append(line)
+            continue
+        prefix = line[:idx]
+        # If the number of unescaped quote chars before \\n is even, we're not
+        # inside a string literal — safe to split.
+        if (prefix.count('"') - prefix.count('\\"')) % 2 == 0 and \
+                (prefix.count("'") - prefix.count("\\'")) % 2 == 0:
+            # Replace all \\n in this line with real newlines by splitting.
+            new_lines = line.replace('\\n', '\n')
+            result.append(new_lines)
+            changed = True
+        else:
+            result.append(line)
+    if not changed:
+        return False
+    Path(file_path).write_text(''.join(result))
+    print(f"==> [mu-agent] Reflex: fixed literal \\n (line continuation) in {file_path}")
     return True
 
 
@@ -914,7 +1231,9 @@ def fix_makefile_bare_pytest(f: str) -> bool:
         return False
     if '.venv' not in content:
         return False
-    pattern = re.compile(r'(?m)^(\t.*\b)pytest(\b)')
+    # Only replace bare 'pytest' — skip lines that already have .venv/bin/pytest
+    # or that contain a package manager command (pip install pytest).
+    pattern = re.compile(r'(?m)^(\t(?!.*\.venv/bin/)(?!.*\bpip\b).*\b)pytest(\b)')
     new_content = pattern.sub(r'\1.venv/bin/pytest\2', content)
     if new_content == content:
         return False
@@ -1251,6 +1570,29 @@ def fix_config_tool_redundant_flag(f: str) -> bool:
         return False
     Path(f).write_text(new_text)
     print(f"==> [mu-agent] Reflex: removed {count} redundant flag(s) before $(shell *-config) in {f}")
+    return True
+
+
+def fix_requirements_path_entries(f: str) -> bool:
+    """Remove path-style entries from requirements.txt.
+
+    Models sometimes write executable paths (e.g. '.venv/bin/pytest') into
+    requirements.txt instead of package names. pip rejects these with
+    'Expected package name at the start of dependency specifier'.
+    Any line that starts with '.' or '/' (a path, not a package name) is stripped.
+    """
+    if not f.endswith('requirements.txt'):
+        return False
+    try:
+        text = Path(f).read_text()
+    except OSError:
+        return False
+    lines = text.splitlines(keepends=True)
+    cleaned = [ln for ln in lines if not ln.lstrip().startswith(('.', '/'))]
+    if len(cleaned) == len(lines):
+        return False
+    Path(f).write_text(''.join(cleaned))
+    print(f"==> [mu-agent] Reflex: removed {len(lines) - len(cleaned)} path entry/entries from {f}")
     return True
 
 

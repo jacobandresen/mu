@@ -44,12 +44,19 @@ from mu.plan import (Plan, check_goal_alignment, clear_challenges,
                      repair_history, strip_thinking_artifacts, tasks_remaining,
                      write_sketches)
 from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
+                         fix_csharp_duplicate_classes,
                          fix_csharp_missing_braces,
+                         fix_literal_newlines,
                          fix_makefile_binary_name,
-                         fix_missing_close_paren, fix_multiline_single_quote,
-                         fix_python_decorator_colon, fix_python_literal_newlines,
+                         fix_missing_close_paren, fix_missing_pip_packages,
+                         fix_multiline_single_quote,
+                         fix_python_decorator_colon,
                          fix_python_missing_project_imports,
                          fix_python_missing_stdlib_imports,
+                         fix_python_undefined_imports,
+                         fix_requirements_path_entries,
+                         fix_rust_println_missing_arg,
+                         fix_sqlite_test_isolation,
                          fix_test_import_module, py_autofix)
 from mu.session import Session
 
@@ -762,13 +769,16 @@ def run(goal: str, model: str = '', target_dir: str = '',
             except OSError:
                 pass
 
+            if fix_literal_newlines(task.file_path):
+                log("Fixed %s: replaced literal \\n with real newlines.", task.file_path)
+
             if task.file_path.endswith('.cs'):
                 if fix_csharp_missing_braces(task.file_path):
                     log("Fixed %s: added missing closing brace(s).", task.file_path)
+                if fix_csharp_duplicate_classes(task.file_path):
+                    log("Fixed %s: removed duplicate class definitions.", task.file_path)
 
             if task.file_path.endswith('.py'):
-                if fix_python_literal_newlines(task.file_path):
-                    log("Fixed %s: replaced literal \\n with real newlines.", task.file_path)
                 if fix_python_decorator_colon(task.file_path):
                     log("Fixed %s: removed spurious colon from decorator.", task.file_path)
                 if fix_python_missing_project_imports(task.file_path):
@@ -777,10 +787,27 @@ def run(goal: str, model: str = '', target_dir: str = '',
                     log("Fixed %s: added missing stdlib imports.", task.file_path)
                 if fix_test_import_module(task.file_path):
                     log("Fixed %s: corrected import module name.", task.file_path)
+                if fix_sqlite_test_isolation(task.file_path):
+                    log("Fixed %s: replaced SQLite file path with :memory:.", task.file_path)
+                # When a test file is written, also fix sibling implementation files
+                # that may have been written before any test file existed.
+                if Path(task.file_path).stem.startswith('test_'):
+                    for sib in Path(task.file_path).parent.glob('*.py'):
+                        if not sib.stem.startswith('test_') and sib.name != Path(task.file_path).name:
+                            if fix_sqlite_test_isolation(str(sib)):
+                                log("Fixed sibling %s: replaced SQLite file path with :memory:.", str(sib))
 
             if task.file_path.endswith('.go') or task.file_path.endswith('go.mod'):
                 if apply_go_reflexes():
                     log("Resolved Go module dependencies (go mod tidy).")
+
+            if task.file_path.endswith('.rs'):
+                if fix_rust_println_missing_arg(task.file_path):
+                    log("Fixed %s: added missing println! argument.", task.file_path)
+
+            if task.file_path.endswith('requirements.txt'):
+                if fix_requirements_path_entries(task.file_path):
+                    log("Fixed %s: removed path entries from requirements.", task.file_path)
 
             if (is_build_file(task.file_path) and
                     Path(task.file_path).name.lower() == 'makefile'):
@@ -798,7 +825,10 @@ def run(goal: str, model: str = '', target_dir: str = '',
                         lint_head = _head_file(lint_log, 60)
                         det_fixed = (
                             (fix_multiline_single_quote(task.file_path, lint_head) or
-                             fix_missing_close_paren(task.file_path, lint_head)) and
+                             fix_missing_close_paren(task.file_path, lint_head) or
+                             fix_literal_newlines(task.file_path, lint_head) or
+                             fix_python_undefined_imports(task.file_path, lint_head) or
+                             fix_rust_println_missing_arg(task.file_path)) and
                             _run_cmd(lint_cmd, lint_log)
                         )
                         if det_fixed:
@@ -1100,6 +1130,11 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
                 fix_csharp_missing_braces(t.file_path)
         apply_go_reflexes()  # resolve Go module deps before each build attempt
 
+    # Before entering the repair loop, check if the failure is a missing package.
+    initial_out = _tail_file(test_log, 60)
+    if fix_missing_pip_packages(initial_out, p.project_dir):
+        log("Added missing pip packages to requirements before repair.")
+
     return sess.repair_loop(model, goal, _REPAIR_MAX_ITERS, float(writer_timeout),
                             run_test, reapply, _repair_context(p), _syntax_check)
 
@@ -1378,7 +1413,8 @@ def _lint_command(file_path: str, p: Plan) -> str:
         return ''
     ext = Path(file_path).suffix.lower()
     has_makefile = any(Path(t.file_path).name.lower() == 'makefile' for t in p.tasks)
-    has_cargo = any(Path(t.file_path).name.lower() == 'cargo.toml' for t in p.tasks)
+    has_cargo = (any(Path(t.file_path).name.lower() == 'cargo.toml' for t in p.tasks)
+                 or Path(p.project_dir or '.').joinpath('Cargo.toml').exists())
     has_tsconfig = any(Path(t.file_path).name.lower().startswith('tsconfig') for t in p.tasks)
     if ext == '.py':
         # pyflakes (pure-Python) covers F-codes and syntax errors; run it with

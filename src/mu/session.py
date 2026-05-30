@@ -13,6 +13,8 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
+from mu.reflexes import fix_requirements_path_entries
+
 from mu import tools
 from mu.client import chat_or_retry
 
@@ -148,6 +150,9 @@ class Session:
                         except OSError:
                             pass
                     result = tools.dispatch(name, raw_args)
+                    if name == 'Write' and path and path.endswith('requirements.txt'):
+                        if fix_requirements_path_entries(path):
+                            result += "\nNOTE: path-style entries removed from requirements.txt"
                     if name in ('Write', 'Edit') and path and Path(path).exists():
                         try:
                             digest = hashlib.sha1(Path(path).read_bytes()).hexdigest()
