@@ -74,6 +74,9 @@ Tracks the most frequent or significant challenges encountered while running the
 23. **String literal not terminated**
   - Ensure all string literals in Go are properly terminated with a closing quote.
 
+24. **Invalid requirement**
+  - A package name is expected at the start of a dependency specifier; avoid using paths directly in requirements.
+
 ## Resolved
 
 - **Missing `fix_sqlite_in_memory` function** — obsolete. AST fixer pass and the orphaned sqlite sensor removed in commit `07717cc`.
