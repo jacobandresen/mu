@@ -61,7 +61,8 @@ _REPAIR_LOOP_RULES = """REPAIR RULES — follow exactly:
 1. You are fixing failing tests. Each turn, make ONE targeted change: call Edit, or Write to replace a whole file.
 2. Do NOT run any commands. The test is run for you after each edit and the new output is shown to you.
 3. Only modify files that already exist. Do not create new files. Do not touch PLAN.md.
-4. Call the tool immediately — no prose, no explanation. Stop after one tool call."""
+4. Never modify files inside generated directories: .venv/, node_modules/, __pycache__/, target/, .cargo/, dist/, build/. These are managed by package managers, not by you.
+5. Call the tool immediately — no prose, no explanation. Stop after one tool call."""
 
 
 def detect_complexity(goal: str) -> str:

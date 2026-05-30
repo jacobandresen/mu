@@ -131,7 +131,19 @@ def log_call(tc: dict) -> None:
 
 # ── Actuator implementations ──────────────────────────────────────────────────
 
+_GENERATED_DIRS = frozenset(['.venv', 'node_modules', '__pycache__', 'target',
+                             '.cargo', 'dist', 'build', '.git'])
+
+
+def _is_generated_path(path: str) -> bool:
+    return any(f'/{d}/' in path or path.startswith(f'{d}/') or
+               f'/{d}' == path[-len(d) - 1:]
+               for d in _GENERATED_DIRS)
+
+
 def _write(path: str, content: str) -> str:
+    if _is_generated_path(path):
+        return f"refused: {path} is inside a generated directory — do not modify package manager files"
     try:
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -142,6 +154,8 @@ def _write(path: str, content: str) -> str:
 
 
 def _edit(path: str, old_str: str, new_str: str) -> str:
+    if _is_generated_path(path):
+        return f"refused: {path} is inside a generated directory — do not modify package manager files"
     try:
         data = Path(path).read_text()
     except Exception as e:

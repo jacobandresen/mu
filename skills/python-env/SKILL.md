@@ -20,13 +20,14 @@ ImportError: cannot import name 'url_quote' from 'werkzeug.urls'
 Always sandbox the install + test in a throwaway venv that owns its own tools:
 
 ```sh
-python -m venv .venv
+python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt pytest   # tools live IN the sandbox
 .venv/bin/pytest
 ```
 
-A Makefile `test:` target for a pip-based project should create and use a local
-`.venv`, not assume the caller's environment.
+Use `python3` (not `python`) — on macOS and many Linux systems, `python` is absent
+or points to Python 2. A Makefile `test:` target for a pip-based project should
+create and use a local `.venv`, not assume the caller's environment.
 
 **Caveat — `--system-site-packages` does not inherit another venv's packages.**
 A venv created from the *system* interpreter only sees the *system* site
