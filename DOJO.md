@@ -15,6 +15,7 @@ Stress-tests mu by driving a guest model through 7 fixed problems and recording 
 | p5 | Go HTTP server with Gin, GET /ping returns JSON | moderate |
 | p6 | Rust CLI printing first 10 Fibonacci numbers via cargo | moderate |
 | p7 | Flask REST API with SQLite, POST/GET /todos, pytest, Makefile | hard |
+| p8 | Node.js todo list CLI with JSON storage, Jest tests, Makefile | simple |
 
 ## Running
 

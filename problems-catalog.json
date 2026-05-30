@@ -41,6 +41,12 @@
       "goal": "write a Python REST API using Flask with a SQLite backend. Support POST /todos (body: JSON with a \"task\" field) and GET /todos (returns list of todos). Include a pytest test file that tests both endpoints. Provide a Makefile that installs dependencies with pip and runs pytest.",
       "toolchains": ["python3"],
       "difficulty": "hard"
+    },
+    {
+      "id": "p8-node-todo",
+      "goal": "write a Node.js todo list manager that stores todos in a JSON file. Support add, list, and delete operations via a CLI. Include a test file using Jest. Provide a Makefile that installs dependencies with npm and runs the tests.",
+      "toolchains": ["node"],
+      "difficulty": "simple"
     }
   ]
 }
