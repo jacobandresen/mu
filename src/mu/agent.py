@@ -684,10 +684,11 @@ def run(goal: str, model: str = '', target_dir: str = '',
         project_dir = os.getcwd()
         auto_system = _build_autonomous_system(project_dir)
         if _python_relevant(goal, p):
-            skill = _load_skill('python-env')
-            if skill:
-                auto_system += '\n\n' + skill
-                log("Loaded python-env skill (Python task).")
+            for _skill_name in ('python-env', 'python-writer'):
+                _skill = _load_skill(_skill_name)
+                if _skill:
+                    auto_system += '\n\n' + _skill
+                    log("Loaded %s skill (Python task).", _skill_name)
 
         for i in range(1, max_iter + 1):
             task = next_task(p)
