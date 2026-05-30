@@ -1,10 +1,15 @@
-.PHONY: install deps
+.PHONY: install deps venv check
 
-# Editable install: generates the `mu` console script on PATH and pulls the
-# runtime dependencies declared in pyproject.toml (httpx, lmstudio, inquirerpy,
-# pyflakes, autoflake).
+# Editable install into the active venv (run after `python3 -m venv .venv && source .venv/bin/activate`).
+# Never installs into the system Python — use a venv or pipx.
 install:
-	pip3 install --break-system-packages -e .
+	pip install -e '.[dev]'
 
-# Back-compat alias — the editable install above already installs deps.
+# Create a local .venv and install mu in editable mode with dev extras.
+venv:
+	python3 -m venv .venv
+	.venv/bin/pip install -e '.[dev]'
+	@echo "Activate with: source .venv/bin/activate"
+
+# Back-compat alias.
 deps: install

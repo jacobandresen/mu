@@ -7,10 +7,16 @@ Local AI coding toolkit. Drives an autonomous coding loop from a plain-English g
 ## Quick start
 
 ```sh
+# Install mu in an isolated venv (recommended)
+python3 -m venv ~/.mu-venv
+~/.mu-venv/bin/pip install mu
+# Or: pipx install mu   (pipx manages the venv for you)
+
+# From source
 git clone https://github.com/jacobandresen/mu
 cd mu
-make deps     # pip install lmstudio httpx
-make install  # install the `mu` command
+python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
+source .venv/bin/activate
 
 # Start LM Studio, load a model (e.g. qwen/qwen2.5-coder-7b-instruct), start the server
 mu check                          # verify dependencies
@@ -33,24 +39,36 @@ mu agent "write a Flask REST API with SQLite and pytest tests" --dir myproject
 
 ## System dependencies
 
-`mu setup` installs the compiler toolchains the agent needs to build and test the code it generates (via `brew` on macOS, `pacman` on Arch, `apt` on Debian/Ubuntu). mu's own tooling — the model/theme pickers and the Python linter — is pure-Python and installed with the package itself.
+`mu setup` installs the compiler toolchains the agent needs to build and test the code it generates (via `brew` on macOS, `pacman` on Arch, `apt` on Debian/Ubuntu). mu's own Python dependencies are declared in `pyproject.toml` and installed inside the mu venv — nothing is written to the system Python.
 
-| Tool | Purpose |
-|------|---------|
-| `make`, `gcc`, `llvm`/`clang` | C/C++ compilation and linting (`clang-tidy`) |
-| `node`, `npm` | JavaScript/TypeScript runtime |
-| `python3` | Python runtime |
-| `git` | Version control / theme schemes |
-| `SDL2` | Graphics library |
-| `fpc` | Free Pascal compiler |
+### Compiler toolchains (installed by `mu setup`)
+
+| Tool | Language | macOS | Linux (apt) |
+|------|----------|-------|-------------|
+| `clang` | C / C++ | `brew install llvm` | `apt install clang clang-tidy` |
+| `go` | Go | `brew install go` | `apt install golang` |
+| `cargo` / `rustc` | Rust | `brew install rustup && rustup toolchain install stable` | `apt install cargo` |
+| `dotnet` | C# | `brew install dotnet` | `apt install dotnet-sdk-8.0` |
+| `python3` | Python 3 | pre-installed on macOS 12+ | `apt install python3` |
+| `node` / `npm` | JavaScript / TypeScript | `brew install node` | `apt install nodejs npm` |
+| `make` | Build system | `brew install make` | `apt install build-essential` |
+| `sdl2-config` | SDL2 graphics | `brew install SDL2` | `apt install libsdl2-dev` |
+
+Run `mu check` to verify which tools are installed before running the agent.
 
 **LM Studio** is not installed by `mu setup` — download it from [lmstudio.ai](https://lmstudio.ai), load a model, and start the local server. mu connects to `http://localhost:1234` by default (override with `MU_LMSTUDIO_HOST`).
 
 ## Python dependencies
 
+All Python dependencies are declared in `pyproject.toml` and installed into the mu venv — **never into the system Python**. When installed via pip or pipx, the dependencies resolve automatically:
+
 ```sh
-pip3 install lmstudio httpx inquirerpy pyflakes autoflake    # or: make deps
+pip install mu           # installs all deps into the active venv
+# or
+pipx install mu          # pipx creates an isolated venv automatically
 ```
+
+Dependencies: `lmstudio`, `httpx`, `inquirerpy`, `pyflakes`, `autoflake`. All are pure-Python; no compiler is needed for the Python layer.
 
 mu uses the [LM Studio Python SDK](https://lmstudio.ai/docs/sdk) for model management (listing and loading models) and `httpx` for the OpenAI-compatible chat API. The model/theme pickers use `InquirerPy` (a pure-Python `fzf` replacement), and Python linting/autofix use `pyflakes` + `autoflake` instead of shelling out to `ruff`.
 

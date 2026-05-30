@@ -184,12 +184,13 @@ def _cmd_check(args) -> int:
         ("Core", [
             ("git", "git", "mu setup"),
             ("make", "make", "mu setup"),
-            ("gcc", "gcc", "mu setup"),
         ]),
-        ("Language runtimes", [
+        ("Compiler toolchains", [
             ("python3", "python3", "mu setup"),
-            ("pytest", "pytest", "pip3 install pytest"),
-            ("fpc (Pascal)", "fpc", "mu setup"),
+            ("clang (C/C++)", "clang", "mu setup"),
+            ("go (Go)", "go", "mu setup  # brew install go / apt install golang"),
+            ("cargo (Rust)", "cargo", "rustup toolchain install stable"),
+            ("dotnet (C#)", "dotnet", "mu setup  # brew install dotnet / apt install dotnet-sdk"),
         ]),
         ("Libraries", [
             ("SDL2", "sdl2-config", "mu setup"),
@@ -197,7 +198,6 @@ def _cmd_check(args) -> int:
         ("Static analysis", [
             ("clang-tidy", "clang-tidy", "mu setup"),
             ("tsc (TypeScript)", "tsc", "mu setup"),
-            ("cargo clippy (Rust)", "cargo", "rustup toolchain install stable"),
         ]),
     ]
     ok_count = fail_count = 0
@@ -283,20 +283,24 @@ def _cmd_setup(args) -> int:
 
     system = platform.system()
     if system == 'Darwin':
-        pkgs = ['make', 'gcc', 'llvm', 'node', 'python', 'git', 'fpc', 'SDL2']
+        pkgs = ['make', 'llvm', 'node', 'git', 'fpc', 'SDL2', 'go', 'dotnet', 'rustup']
         if not run_cmd('brew', 'install', *pkgs):
             return 1
+        if shutil.which('rustup'):
+            run_cmd('rustup', 'toolchain', 'install', 'stable')
     elif system == 'Linux':
         if Path('/etc/arch-release').exists():
-            pkgs = ['--needed', 'base-devel', 'make', 'gcc', 'clang', 'nodejs',
-                    'npm', 'python', 'git', 'fpc', 'wl-clipboard', 'unzip']
+            pkgs = ['--needed', 'base-devel', 'make', 'gcc', 'clang', 'go', 'rust',
+                    'nodejs', 'npm', 'python', 'git', 'fpc', 'dotnet-sdk',
+                    'wl-clipboard', 'unzip']
             if not run_cmd('sudo', 'pacman', '-S', *pkgs):
                 return 1
         elif Path('/etc/debian_version').exists():
             if not run_cmd('sudo', 'apt-get', 'update'):
                 return 1
             pkgs = ['-y', 'build-essential', 'make', 'gcc', 'clang', 'clang-tidy',
-                    'nodejs', 'npm', 'python3', 'python3-pip', 'git', 'fpc', 'unzip']
+                    'golang', 'cargo', 'nodejs', 'npm', 'python3', 'python3-pip',
+                    'dotnet-sdk-8.0', 'git', 'fpc', 'unzip']
             if not run_cmd('sudo', 'apt-get', 'install', *pkgs):
                 return 1
         else:
@@ -305,11 +309,6 @@ def _cmd_setup(args) -> int:
     else:
         print(f"Unsupported OS: {system}", file=sys.stderr)
         return 1
-
-    print()
-    print("Installing Python dependencies...")
-    run_cmd('pip3', 'install', '--break-system-packages',
-            'lmstudio', 'httpx', 'inquirerpy', 'pyflakes', 'autoflake')
 
     # Optional plan-lint extra (Option A): only fetch the spaCy model if the
     # user has installed `mu[lint]`. Never force the heavy dependency here.
