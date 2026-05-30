@@ -694,6 +694,11 @@ def run(goal: str, model: str = '', target_dir: str = '',
             if _skill:
                 auto_system += '\n\n' + _skill
                 log("Loaded makefile-writer skill.")
+        if any(t.file_path.endswith('.go') for t in p.tasks):
+            _skill = _load_skill('go-writer')
+            if _skill:
+                auto_system += '\n\n' + _skill
+                log("Loaded go-writer skill.")
 
         for i in range(1, max_iter + 1):
             task = next_task(p)
@@ -977,11 +982,37 @@ def _run_writer(model: str, target_file: str, prompt: str,
 
 # ── Repair ────────────────────────────────────────────────────────────────────
 
+_LANG_REPAIR_SKILL: dict[str, str] = {
+    'Python': 'repair-python',
+    'C': 'repair-c',
+    'C++': 'repair-c',
+    'Go': 'repair-go',
+    'Rust': 'repair-rust',
+}
+
+
+def _load_repair_skills(p: Plan) -> str:
+    """Return concatenated repair skills for all languages present in the plan."""
+    langs = plan_languages(p)
+    seen: set[str] = set()
+    parts: list[str] = []
+    for lang in langs:
+        skill_name = _LANG_REPAIR_SKILL.get(lang, '')
+        if skill_name and skill_name not in seen:
+            seen.add(skill_name)
+            content = _load_skill(skill_name)
+            if content:
+                parts.append(content)
+    return '\n\n'.join(parts)
+
+
 def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
                           autonomous_system: str, writer_timeout: int, goal: str,
                           ) -> tuple[bool, int]:
     """Run the repair loop against the test gate; return (passed, repair_iters)."""
-    sess = Session(autonomous_system + '\n\n' + _REPAIR_LOOP_RULES)
+    repair_skills = _load_repair_skills(p)
+    system = autonomous_system + ('\n\n' + repair_skills if repair_skills else '')
+    sess = Session(system + '\n\n' + _REPAIR_LOOP_RULES)
     sess.tool_set = tools.REPAIR
 
     def run_test() -> tuple[bool, str]:
