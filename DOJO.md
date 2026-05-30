@@ -17,6 +17,7 @@ Stress-tests mu by driving a guest model through 7 fixed problems and recording 
 | p7 | Flask REST API with SQLite, POST/GET /todos, pytest, Makefile | hard |
 | p8 | Node.js todo list CLI with JSON storage, Jest tests, Makefile | simple |
 | p9 | Vue 3 TypeScript todo webapp, Vite, Vitest, @vue/test-utils, Makefile | hard |
+| p10 | ASP.NET Core + Vue 3 blog app, EF Core SQLite, xUnit, Vitest, seeded example post | hard |
 
 ## Running
 
@@ -29,7 +30,12 @@ Results are written to `~/.mu/sessions/` and cleaned from `dojo/` after each run
 
 ## Current baseline
 
-**7/7** — qwen2.5-coder-7b-instruct, num_ctx=6000 (2026-05-30)
+**7/7** — qwen2.5-coder-7b-instruct, num_ctx=6000 (2026-05-30), p1–p7 only
+
+**6/10** — qwen2.5-coder-7b-instruct, num_ctx=6000 (2026-05-31), all 10 problems
+
+p9 newly passing (Vue 3 Vitest). p8 (Node todo) intermittent due to Jest testRegex.
+p7 (Flask) and p10 (dotnet+Vue blog) model-limited — see CHALLENGES.md items 29–30.
 
 Open challenges tracked in [CHALLENGES.md](CHALLENGES.md).
 

@@ -392,9 +392,58 @@ def ground_plan(plan_path: str, p: Plan) -> list[str]:
         text = _set_test_command(text, 'dotnet run')
         changes.append("rewrote Test Command to canonical 'dotnet run'")
 
+    # Level 2c — dotnet + Vue fullstack: test command, Makefile, and frontend files.
+    has_vue = any(t.file_path.endswith('.vue') for t in p.tasks)
+    has_cs = '.cs' in exts
+    if has_cs and has_vue:
+        if p.test_command and p.test_command.strip() != 'make test':
+            text = _set_test_command(text, 'make test')
+            p = parse_content(text)
+            changes.append("corrected test command to 'make test' (dotnet+vue fullstack)")
+
+        # Ensure frontend/package.json and frontend/vite.config.ts are in the plan.
+        existing_paths = {t.file_path for t in p.tasks}
+        for fp, desc in [
+            ('frontend/package.json', 'Vue 3 + Vite devDependencies'),
+            ('frontend/vite.config.ts', 'Vite configuration with jsdom + globals'),
+        ]:
+            if fp not in existing_paths:
+                text = text.replace('## Files\n', f'## Files\n- [ ] {fp} — {desc}\n', 1)
+                changes.append(f"added missing {fp} (dotnet+vue fullstack)")
+        p = parse_content(text)
+
+        has_makefile_now = any(Path(t.file_path).name.lower() == 'makefile' for t in p.tasks)
+        if not has_makefile_now:
+            test_dirs = [Path(t.file_path).parent.name
+                         for t in p.tasks if t.file_path.endswith('.csproj')
+                         and 'test' in t.file_path.lower()]
+            tests_dir = test_dirs[0] if test_dirs else 'backend-tests'
+            frontend_dirs = [str(Path(t.file_path).parent)
+                             for t in p.tasks if t.file_path.endswith('package.json')]
+            frontend_dir = frontend_dirs[0] if frontend_dirs else 'frontend'
+            makefile_content = (
+                '.PHONY: install test\n\n'
+                'install:\n'
+                f'\tcd {frontend_dir} && npm install\n\n'
+                'test: install\n'
+                f'\tdotnet test {tests_dir}/\n'
+                f'\tcd {frontend_dir} && npx vitest run\n'
+            )
+            try:
+                if not Path('Makefile').exists():
+                    Path('Makefile').write_text(makefile_content)
+                if '- [ ] Makefile' not in text and '- [x] Makefile' not in text:
+                    text = text.replace(
+                        '## Files\n',
+                        '## Files\n- [x] Makefile — auto-grounded (dotnet+vue fullstack)\n', 1)
+                changes.append("added Makefile for dotnet+vue fullstack")
+            except OSError:
+                pass
+
     # Level 2b — if test command uses 'make' but no Makefile is in the plan, add one.
     has_makefile = any(Path(t.file_path).name.lower() == 'makefile' for t in p.tasks)
-    if not has_makefile and 'make' in p.test_command:
+    if not has_makefile and 'make' in p.test_command and not has_cs:
+        # C# projects must not get a C Makefile — their Makefile is written by the model.
         # Infer binary name from test command (e.g. 'make && ./hello_world' → 'hello_world')
         bin_match = re.search(r'&&\s+\.?/?([\w.-]+)\s*$', p.test_command)
         binary = bin_match.group(1) if bin_match else 'main'

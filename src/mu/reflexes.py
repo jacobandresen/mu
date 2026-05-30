@@ -424,6 +424,115 @@ def fix_rust_println_missing_arg(file_path: str) -> bool:
     return True
 
 
+def fix_csharp_undefined_types(file_path: str, test_output: str) -> bool:
+    """Replace undefined C# type names with ones defined in sibling .cs files.
+
+    CS0246 'type not found' means the file references a class/struct that doesn't
+    exist in the project. This often happens when the model uses placeholder names
+    from example code (e.g. `Item` instead of `Post`). The reflex looks for types
+    named in CS0246 errors, finds the actual type names in sibling .cs files, and
+    renames them. General: applies to any C# project with a type naming mismatch.
+    """
+    if not file_path.endswith('.cs'):
+        return False
+    if 'CS0246' not in test_output and 'type or namespace name' not in test_output:
+        return False
+    undefined = re.findall(r"error CS0246: The type or namespace name '(\w+)'", test_output)
+    if not undefined:
+        return False
+    path = Path(file_path)
+    try:
+        text = path.read_text()
+    except OSError:
+        return False
+    # Collect class/struct/record names from sibling .cs files
+    sibling_types: set[str] = set()
+    for sib in path.parent.glob('*.cs'):
+        if sib == path:
+            continue
+        try:
+            src = sib.read_text()
+        except OSError:
+            continue
+        for m in re.finditer(r'\b(?:class|struct|record)\s+(\w+)', src):
+            sibling_types.add(m.group(1))
+    if not sibling_types:
+        return False
+    changed = False
+    for undef in undefined:
+        if undef in sibling_types:
+            continue  # type IS defined — not our problem
+        # Find a sibling type whose name is similar (heuristic: contains or starts with similar chars)
+        candidates = [t for t in sibling_types if (
+            undef.lower() in t.lower() or t.lower() in undef.lower() or
+            undef[:3].lower() == t[:3].lower()
+        )]
+        if not candidates:
+            continue
+        # Pick the shortest candidate (most likely to be the base model type)
+        replacement = min(candidates, key=len)
+        new_text = re.sub(rf'\b{re.escape(undef)}\b', replacement, text)
+        if new_text != text:
+            text = new_text
+            changed = True
+            print(f"==> [mu-agent] Reflex: renamed undefined type '{undef}' → '{replacement}' in {file_path}")
+    if not changed:
+        return False
+    path.write_text(text)
+    return True
+
+
+def fix_csharp_app_used_before_declared(file_path: str, test_output: str = '') -> bool:
+    """Fix C# Program.cs where `app` is used before `var app = builder.Build()`.
+
+    CS0841 'Cannot use local variable before it is declared' on `app` means the
+    model called `app.MapGet(...)` or `app.Run()` before `builder.Build()`. The
+    fix: move `var app = builder.Build();` to immediately before the first `app.`
+    usage. General: applies to any ASP.NET Core minimal API file with this ordering
+    bug, not specific to any dojo task.
+    """
+    if not file_path.endswith('.cs'):
+        return False
+    if test_output and 'CS0841' not in test_output and 'before it is declared' not in test_output:
+        return False
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+
+    build_pattern = re.compile(r'^(var\s+app\s*=\s*builder\.Build\(\)\s*;)\s*$', re.MULTILINE)
+    app_use_pattern = re.compile(r'^\s*app\.', re.MULTILINE)
+
+    build_match = build_pattern.search(text)
+    if not build_match:
+        return False
+
+    # Find position of first `app.` usage
+    first_use = app_use_pattern.search(text)
+    if not first_use:
+        return False
+
+    build_pos = build_match.start()
+    if build_pos < first_use.start():
+        return False  # already in correct order
+
+    # Remove the build line from its current position
+    build_line = build_match.group(0)
+    new_text = text[:build_match.start()] + text[build_match.end():]
+    # Re-find the first app. usage in the modified text
+    first_use2 = app_use_pattern.search(new_text)
+    if not first_use2:
+        return False
+    # Insert build line before the first app. usage
+    insert_at = first_use2.start()
+    # Find the start of that line
+    line_start = new_text.rfind('\n', 0, insert_at) + 1
+    new_text = new_text[:line_start] + build_line + '\n' + new_text[line_start:]
+    Path(file_path).write_text(new_text)
+    print(f"==> [mu-agent] Reflex: moved 'var app = builder.Build()' before first app. usage in {file_path}")
+    return True
+
+
 def fix_csharp_duplicate_classes(file_path: str) -> bool:
     """Remove class/struct definitions from a C# file that are already defined in a sibling file.
 
@@ -560,6 +669,176 @@ def fix_missing_pip_packages(test_output: str, project_dir: str) -> bool:
     return True
 
 
+def fix_vitest_globals(project_dir: str, test_output: str) -> bool:
+    """Enable Vitest globals when test output reports 'test is not defined'.
+
+    Vitest does not expose test/expect/describe as globals by default. Without
+    `globals: true` in vite.config.ts, calling test(...) raises ReferenceError.
+    This reflex adds globals: true to the test config block. General: any Vitest
+    project that uses bare test() calls needs globals enabled.
+    """
+    if 'is not defined' not in test_output and 'ReferenceError' not in test_output:
+        return False
+    if not any(name in test_output for name in ('test', 'expect', 'describe', 'beforeEach', 'it')):
+        return False
+    config_path = Path(project_dir) / 'vite.config.ts'
+    if not config_path.exists():
+        config_path = Path(project_dir) / 'vite.config.js'
+    if not config_path.exists():
+        return False
+    try:
+        text = config_path.read_text()
+    except OSError:
+        return False
+    if 'globals: true' in text or "globals:true" in text:
+        return False
+    # Add globals: true inside the test: { ... } block
+    new_text = re.sub(
+        r'(test\s*:\s*\{)',
+        r'\1\n    globals: true,',
+        text,
+        count=1,
+    )
+    if new_text == text:
+        # No test block found — append a minimal one
+        if 'test:' not in text:
+            new_text = re.sub(
+                r'(export default defineConfig\(\{)',
+                r'\1\n  test: { environment: "jsdom", globals: true },',
+                text,
+                count=1,
+            )
+    if new_text == text:
+        return False
+    config_path.write_text(new_text)
+    print(f"==> [mu-agent] Reflex: added Vitest globals:true to {config_path}")
+    return True
+
+
+def fix_js_extra_closing_brace(file_path: str, test_output: str = '') -> bool:
+    """Fix unbalanced braces in JS/TS files when the parser reports a mismatch.
+
+    esbuild / Vitest reports `Unexpected "}"` when a .ts/.js file has more `}`
+    than `{`, or `Expected "}" but found ")"` when the reverse is true. This
+    reflex counts braces (ignoring strings, template literals, and comments)
+    and either removes trailing `}` lines (extra braces) or appends missing
+    `}` characters (missing braces). General: applies to any JS/TS file.
+    """
+    ext = Path(file_path).suffix.lower()
+    if ext not in ('.ts', '.tsx', '.js', '.jsx'):
+        return False
+    if test_output and not any(s in test_output for s in
+                               ('Unexpected', 'SyntaxError', 'Expected "}"', 'Transform failed')):
+        return False
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+
+    # Count braces AND parens outside strings/comments
+    depth = 0  # { vs }
+    paren_depth = 0  # ( vs )
+    i = 0
+    while i < len(text):
+        c = text[i]
+        # Skip single-line comment
+        if c == '/' and i + 1 < len(text) and text[i + 1] == '/':
+            while i < len(text) and text[i] != '\n':
+                i += 1
+            continue
+        # Skip block comment
+        if c == '/' and i + 1 < len(text) and text[i + 1] == '*':
+            i += 2
+            while i + 1 < len(text) and not (text[i] == '*' and text[i + 1] == '/'):
+                i += 1
+            i += 2
+            continue
+        # Skip single-quoted string
+        if c == "'":
+            i += 1
+            while i < len(text) and text[i] != "'":
+                if text[i] == '\\':
+                    i += 1
+                i += 1
+        # Skip double-quoted string
+        elif c == '"':
+            i += 1
+            while i < len(text) and text[i] != '"':
+                if text[i] == '\\':
+                    i += 1
+                i += 1
+        # Skip template literal (backtick) — simplified, ignores ${...}
+        elif c == '`':
+            i += 1
+            while i < len(text) and text[i] != '`':
+                if text[i] == '\\':
+                    i += 1
+                i += 1
+        elif c == '{':
+            depth += 1
+        elif c == '}':
+            depth -= 1
+        elif c == '(':
+            paren_depth += 1
+        elif c == ')':
+            paren_depth -= 1
+        i += 1
+
+    if depth == 0 and paren_depth == 0:
+        return False  # already balanced
+
+    # Prefer fixing paren imbalance first (simpler — just remove trailing `)`)
+    if paren_depth < 0 and depth == 0:
+        # Too many `)`: remove trailing `)` or `))` from the last line
+        lines = text.rstrip().splitlines()
+        new_lines = list(lines)
+        removed = 0
+        for idx in range(len(lines) - 1, -1, -1):
+            if removed >= abs(paren_depth):
+                break
+            stripped = new_lines[idx].rstrip()
+            if stripped.endswith(')') or stripped.endswith('))'):
+                count = min(abs(paren_depth) - removed, stripped.count(')') - stripped.count('('))
+                if count > 0:
+                    new_lines[idx] = stripped[:-count]
+                    removed += count
+        if removed:
+            Path(file_path).write_text('\n'.join(new_lines) + '\n')
+            print(f"==> [mu-agent] Reflex: removed {removed} extra ')' from {file_path}")
+            return True
+
+    if depth < 0:
+        # Too many `}`: remove or trim trailing `}` lines
+        lines = text.rstrip().splitlines()
+        removed = 0
+        new_lines = list(lines)
+        for idx in range(len(lines) - 1, -1, -1):
+            if removed >= abs(depth):
+                break
+            stripped = new_lines[idx].strip()
+            # Handle single `}` or `};` lines
+            if stripped in ('}', '};'):
+                del new_lines[idx]
+                removed += 1
+            # Handle `}}` or `}};` — remove one `}` at a time from the right
+            elif re.match(r'^[}]+;?$', stripped) and len(stripped.rstrip(';')) > 1:
+                extra = len(stripped.rstrip(';')) - 1
+                to_remove = min(extra, abs(depth) - removed)
+                new_stripped = stripped[to_remove:]
+                new_lines[idx] = new_stripped
+                removed += to_remove
+        if not removed:
+            return False
+        Path(file_path).write_text('\n'.join(new_lines) + '\n')
+        print(f"==> [mu-agent] Reflex: removed {removed} extra closing brace(s) from {file_path}")
+        return True
+    else:
+        # Too many `{`: append `depth` closing braces
+        Path(file_path).write_text(text.rstrip() + '\n' + '}\n' * depth)
+        print(f"==> [mu-agent] Reflex: added {depth} missing closing brace(s) to {file_path}")
+        return True
+
+
 def fix_csharp_missing_braces(file_path: str) -> bool:
     """Append missing closing braces to C# files with unbalanced brace counts.
 
@@ -597,10 +876,27 @@ def fix_csharp_missing_braces(file_path: str) -> bool:
         elif c == '}':
             depth -= 1
         i += 1
-    if depth <= 0:
+    if depth == 0:
         return False
-    Path(file_path).write_text(text.rstrip() + '\n' + '}\n' * depth)
-    print(f"==> [mu-agent] Reflex: added {depth} missing closing brace(s) to {file_path}")
+    if depth > 0:
+        Path(file_path).write_text(text.rstrip() + '\n' + '}\n' * depth)
+        print(f"==> [mu-agent] Reflex: added {depth} missing closing brace(s) to {file_path}")
+        return True
+    # depth < 0: too many `}` — remove trailing standalone `}` lines
+    lines = text.rstrip().splitlines()
+    new_lines = list(lines)
+    removed = 0
+    for idx in range(len(lines) - 1, -1, -1):
+        if removed >= abs(depth):
+            break
+        stripped = new_lines[idx].strip()
+        if stripped == '}':
+            del new_lines[idx]
+            removed += 1
+    if not removed:
+        return False
+    Path(file_path).write_text('\n'.join(new_lines) + '\n')
+    print(f"==> [mu-agent] Reflex: removed {removed} extra closing brace(s) from {file_path}")
     return True
 
 
@@ -628,6 +924,29 @@ def fix_python_decorator_colon(file_path: str) -> bool:
 
 
 _CODE_EXTS = {'.py', '.cs', '.rs', '.go', '.c', '.cpp', '.h', '.java', '.js', '.ts'}
+
+
+def fix_tool_call_artifacts(file_path: str) -> bool:
+    """Strip lines containing model tool-call JSON leaked into source files.
+
+    Models occasionally embed their own tool-calling syntax (e.g. lines starting
+    with backtick sequences followed by [TOOL_REQUEST]) directly into file content,
+    producing immediate syntax errors. Generic: any such line in any source file
+    is wrong.
+    """
+    if Path(file_path).suffix.lower() not in _CODE_EXTS:
+        return False
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+    lines = text.splitlines(keepends=True)
+    cleaned = [ln for ln in lines if '[TOOL_REQUEST]' not in ln and '[TOOL_RESULT]' not in ln]
+    if len(cleaned) == len(lines):
+        return False
+    Path(file_path).write_text(''.join(cleaned))
+    print(f"==> [mu-agent] Reflex: stripped tool-call artifact line(s) from {file_path}")
+    return True
 
 
 def fix_literal_newlines(file_path: str, lint_error: str = '') -> bool:
@@ -1205,6 +1524,80 @@ def fix_python_venv_cmd(f: str) -> bool:
     return True
 
 
+def fix_jest_no_tests_found(test_output: str, project_dir: str) -> bool:
+    """Add testRegex to package.json when Jest reports 'No tests found'.
+
+    Jest's default testMatch pattern requires `.test.js` / `.spec.js` suffixes.
+    When a project uses `_test.js` (Python-style) or another convention, Jest
+    exits 1 with 'No tests found'. This reflex broadens the testRegex in
+    package.json to match `_test.js` / `_spec.js` in addition to the defaults.
+    General: driven entirely by Jest's error message, not any specific project.
+    """
+    if 'No tests found' not in test_output:
+        return False
+    pkg_path = Path(project_dir) / 'package.json'
+    if not pkg_path.exists():
+        return False
+    try:
+        import json as _json
+        data = _json.loads(pkg_path.read_text())
+    except Exception:
+        return False
+    all_deps = {**data.get('dependencies', {}), **data.get('devDependencies', {})}
+    if 'jest' not in all_deps:
+        return False
+    # Already has testRegex or testMatch configured — don't override.
+    jest_cfg = data.get('jest', {})
+    if jest_cfg.get('testRegex') or jest_cfg.get('testMatch'):
+        return False
+    # Find actual test files in the project dir to figure out their naming.
+    existing = [
+        p.name for p in Path(project_dir).iterdir()
+        if p.is_file() and re.search(r'[._](test|spec)\.[jt]sx?$', p.name)
+    ]
+    if not existing:
+        return False
+    # Match both dot-separated (.test.js, .spec.js) and underscore-separated
+    # (_test.js, _spec.js) conventions. `[._]` covers both separators.
+    data.setdefault('jest', {})['testRegex'] = r'.*[._](test|spec)\.[jt]sx?$'
+    pkg_path.write_text(_json.dumps(data, indent=2) + '\n')
+    print(f"==> [mu-agent] Reflex: added Jest testRegex to {pkg_path} (No tests found)")
+    return True
+
+
+def fix_makefile_npm_test_jest(f: str) -> bool:
+    """Replace `npm test` with `npx jest --forceExit` when jest is a devDependency.
+
+    Models write `npm test` in Makefile recipes which delegates to the
+    package.json test script (`"test": "jest"`). Bare `jest` in a shell
+    script is not on PATH; only the npx-resolved binary in node_modules/.bin
+    works. Generic: applies to any Node.js project with jest as a dep.
+    """
+    if not Path(f).name.lower() == 'makefile':
+        return False
+    pkg = Path(f).parent / 'package.json'
+    if not pkg.exists():
+        return False
+    try:
+        import json as _json
+        deps = _json.loads(pkg.read_text())
+        all_deps = {**deps.get('dependencies', {}), **deps.get('devDependencies', {})}
+    except Exception:
+        return False
+    if 'jest' not in all_deps:
+        return False
+    try:
+        content = Path(f).read_text()
+    except OSError:
+        return False
+    new_content = re.sub(r'(?m)^(\t.*)npm test\b', r'\1npx jest --forceExit', content)
+    if new_content == content:
+        return False
+    Path(f).write_text(new_content)
+    print(f"==> [mu-agent] Reflex: replaced npm test with npx jest in {f}")
+    return True
+
+
 def fix_makefile_bare_pytest(f: str) -> bool:
     """Replace bare 'pytest' with '.venv/bin/pytest' in Makefile recipes that use a venv.
 
@@ -1593,6 +1986,7 @@ def apply_makefile_reflexes(f: str) -> None:
                fix_inline_recipe, fix_binary_target_runs_itself,
                fix_makefile_missing_compile_rule,
                fix_duplicate_var, fix_python_venv_cmd, fix_makefile_pip_no_venv,
-               fix_makefile_bare_pytest, fix_missing_venv_rule,
+               fix_makefile_bare_pytest, fix_makefile_npm_test_jest,
+               fix_missing_venv_rule,
                fix_config_tool_redundant_flag]:
         fn(f)

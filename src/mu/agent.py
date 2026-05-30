@@ -46,6 +46,9 @@ from mu.plan import (Plan, check_goal_alignment, clear_challenges,
 from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
                          fix_csharp_duplicate_classes,
                          fix_csharp_missing_braces,
+                         fix_jest_no_tests_found,
+                         fix_js_extra_closing_brace,
+                         fix_vitest_globals,
                          fix_literal_newlines,
                          fix_makefile_binary_name,
                          fix_missing_close_paren, fix_missing_pip_packages,
@@ -57,7 +60,9 @@ from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
                          fix_requirements_path_entries,
                          fix_rust_println_missing_arg,
                          fix_sqlite_test_isolation,
-                         fix_test_import_module, py_autofix)
+                         fix_test_import_module,
+                         fix_tool_call_artifacts,
+                         py_autofix)
 from mu.session import Session
 
 LOG_DIR = ".mu"
@@ -701,32 +706,9 @@ def run(goal: str, model: str = '', target_dir: str = '',
 
         project_dir = os.getcwd()
         auto_system = _build_autonomous_system(project_dir)
-        if _python_relevant(goal, p):
-            for _skill_name in ('python-env', 'python-writer'):
-                _skill = _load_skill(_skill_name)
-                if _skill:
-                    auto_system += '\n\n' + _skill
-                    log("Loaded %s skill (Python task).", _skill_name)
-        if _makefile_relevant(goal, p):
-            _skill = _load_skill('makefile-writer')
-            if _skill:
-                auto_system += '\n\n' + _skill
-                log("Loaded makefile-writer skill.")
-        if any(t.file_path.endswith('.go') for t in p.tasks):
-            _skill = _load_skill('go-writer')
-            if _skill:
-                auto_system += '\n\n' + _skill
-                log("Loaded go-writer skill.")
-        if re.search(r'(?i)\bSDL2?\b', goal):
-            _skill = _load_skill('sdl2-writer')
-            if _skill:
-                auto_system += '\n\n' + _skill
-                log("Loaded sdl2-writer skill.")
-        if _vue_relevant(goal, p):
-            _skill = _load_skill('vue-ts-env')
-            if _skill:
-                auto_system += '\n\n' + _skill
-                log("Loaded vue-ts-env skill.")
+        for _skill_name, _skill_content in _contextual_skills(goal, p):
+            auto_system += '\n\n' + _skill_content
+            log("Loaded %s skill.", _skill_name)
 
         for i in range(1, max_iter + 1):
             task = next_task(p)
@@ -774,12 +756,14 @@ def run(goal: str, model: str = '', target_dir: str = '',
             except OSError:
                 pass
 
+            if fix_tool_call_artifacts(task.file_path):
+                log("Fixed %s: stripped tool-call artifact lines.", task.file_path)
             if fix_literal_newlines(task.file_path):
                 log("Fixed %s: replaced literal \\n with real newlines.", task.file_path)
 
             if task.file_path.endswith('.cs'):
                 if fix_csharp_missing_braces(task.file_path):
-                    log("Fixed %s: added missing closing brace(s).", task.file_path)
+                    log("Fixed %s: fixed unbalanced brace(s).", task.file_path)
                 if fix_csharp_duplicate_classes(task.file_path):
                     log("Fixed %s: removed duplicate class definitions.", task.file_path)
 
@@ -998,6 +982,26 @@ def _run_planner(goal: str, model: str, planner_timeout: int) -> None:
         gs = _load_skill('go-writer')
         if gs:
             extra_skills.append(gs)
+    # Inject layout/env skills at plan time so the planner emits the right file
+    # list and test command before locking them in.
+    has_dotnet = any(k in goal_lower for k in ('asp.net', 'dotnet', 'c#', 'csharp', 'xunit', 'ef core'))
+    has_vue = any(k in goal_lower for k in ('vue', 'vite', 'vitest'))
+    if has_dotnet and has_vue:
+        # dotnet-vue-blog: flat backend/frontend layout, Makefile with npm install
+        dvb = _load_skill('dotnet-vue-blog')
+        if dvb:
+            extra_skills.append(dvb)
+    elif has_dotnet:
+        for sname in ('dotnet-minimal-api', 'dotnet-xunit'):
+            ds = _load_skill(sname)
+            if ds:
+                extra_skills.append(ds)
+    elif has_vue and not has_dotnet:
+        # vue-ts-env: ensures planner includes package.json, vite.config.ts,
+        # Makefile, and uses `npx vitest run` not bare `vitest`.
+        vs = _load_skill('vue-ts-env')
+        if vs:
+            extra_skills.append(vs)
 
     if os.environ.get('MU_PROMPT_CACHE') == '1':
         # Cache-friendly layout: all stable content (instructions, skill, rules,
@@ -1094,8 +1098,55 @@ _LANG_REPAIR_SKILL: dict[str, str] = {
 }
 
 
+def _contextual_skills(goal: str, p: Plan) -> list[tuple[str, str]]:
+    """Return (name, content) pairs for all context-sensitive skills that apply.
+
+    These are skills driven by what the goal and plan describe — language
+    domain, test patterns, server type — as opposed to per-language repair
+    skills which are driven by the file extensions present in the plan.
+    """
+    is_dotnet_vue = _dotnet_vue_relevant(goal, p)
+    is_dotnet = _dotnet_relevant(goal, p)
+    is_python = _python_relevant(goal, p)
+    # For dotnet+vue fullstack: dotnet-vue-blog already covers layout, Makefile,
+    # and frontend structure. Skip redundant skills to stay within context limits.
+    candidates: list[tuple[str, bool]] = [
+        ('makefile-writer',    _makefile_relevant(goal, p) and not is_dotnet_vue),
+        ('python-env',         is_python),
+        ('python-writer',      is_python),
+        ('node-env',           _node_relevant(goal, p)),
+        ('go-writer',          any(t.file_path.endswith('.go') for t in p.tasks)),
+        ('sdl2-writer',        bool(re.search(r'(?i)\bSDL2?\b', goal))),
+        # For dotnet+vue, dotnet-vue-blog covers the frontend; skip standalone vue-ts-env.
+        ('vue-ts-env',         _vue_relevant(goal, p) and not is_dotnet_vue),
+        ('dotnet-minimal-api', is_dotnet),
+        ('dotnet-xunit',       is_dotnet),
+        ('dotnet-vue-blog',    is_dotnet_vue),
+        # For dotnet+vue, dotnet-xunit covers test isolation and no-server patterns.
+        ('test-isolation',     _test_isolation_relevant(goal, p) and not is_python and not is_dotnet),
+        ('no-server-in-tests', _no_server_relevant(goal, p) and not is_python and not is_dotnet),
+    ]
+    seen: set[str] = set()
+    result: list[tuple[str, str]] = []
+    for name, relevant in candidates:
+        if relevant and name not in seen:
+            seen.add(name)
+            content = _load_skill(name)
+            if content:
+                result.append((name, content))
+    return result
+
+
 def _load_repair_skills(p: Plan, goal: str = '') -> str:
-    """Return concatenated repair skills for all languages present in the plan."""
+    """Return language-specific repair skills for all languages in the plan.
+
+    Contextual skills (vue-ts-env, node-env, python-env, etc.) are already
+    present in ``autonomous_system`` from the write phase, so they are NOT
+    re-added here. Re-adding them doubles the system prompt size and can push
+    the total context past the model's limit, causing 400 errors in the repair
+    loop. Only per-language repair guides (repair-python, repair-go, etc.) are
+    appended — they are small and repair-specific.
+    """
     langs = plan_languages(p)
     seen: set[str] = set()
     parts: list[str] = []
@@ -1106,14 +1157,6 @@ def _load_repair_skills(p: Plan, goal: str = '') -> str:
             content = _load_skill(skill_name)
             if content:
                 parts.append(content)
-    if re.search(r'(?i)\bSDL2?\b', goal) and 'sdl2-writer' not in seen:
-        content = _load_skill('sdl2-writer')
-        if content:
-            parts.append(content)
-    if _vue_relevant(goal, p) and 'vue-ts-env' not in seen:
-        content = _load_skill('vue-ts-env')
-        if content:
-            parts.append(content)
     return '\n\n'.join(parts)
 
 
@@ -1121,8 +1164,15 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
                           autonomous_system: str, writer_timeout: int, goal: str,
                           ) -> tuple[bool, int]:
     """Run the repair loop against the test gate; return (passed, repair_iters)."""
+    # Use a LEAN repair system: only the base protocol + language repair skills.
+    # The full autonomous_system (with all contextual skills like vue-ts-env,
+    # node-env, dotnet-minimal-api) is too large to combine with the project
+    # files and test output without overflowing the model's context window.
+    # The repair loop reads current files directly — it doesn't need write-time
+    # guidance on how to structure a new Vue project.
     repair_skills = _load_repair_skills(p, goal)
-    system = autonomous_system + ('\n\n' + repair_skills if repair_skills else '')
+    lean_system = _build_autonomous_system(os.getcwd())
+    system = lean_system + ('\n\n' + repair_skills if repair_skills else '')
     sess = Session(system + '\n\n' + _REPAIR_LOOP_RULES)
     sess.tool_set = tools.REPAIR
 
@@ -1139,11 +1189,39 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
             elif t.file_path.endswith('.cs'):
                 fix_csharp_missing_braces(t.file_path)
         apply_go_reflexes()  # resolve Go module deps before each build attempt
+        # If any package.json exists but its node_modules is absent, run npm install.
+        # The repair loop may rewrite package.json but never re-runs install.
+        for t in p.tasks:
+            if t.file_path.endswith('package.json') and Path(t.file_path).exists():
+                pkg_dir = Path(t.file_path).parent
+                if not (pkg_dir / 'node_modules').exists():
+                    subprocess.run(['npm', 'install'], cwd=str(pkg_dir),
+                                   capture_output=True, timeout=120)
 
-    # Before entering the repair loop, check if the failure is a missing package.
+    # Run the test once before pre-flight reflexes so the log exists and is current.
+    # _final_test_gate creates a fresh log path; without this first run the log
+    # would be empty or stale, causing all error-pattern reflexes to be skipped.
+    # First, ensure npm dependencies are installed so the test command can reach
+    # jest/vitest — otherwise the pre-flight fails with "command not found" instead
+    # of a meaningful test failure, and the error-pattern reflexes never fire.
+    for t in p.tasks:
+        if t.file_path.endswith('package.json') and Path(t.file_path).exists():
+            pkg_dir = Path(t.file_path).parent
+            if not (pkg_dir / 'node_modules').exists():
+                subprocess.run(['npm', 'install'], cwd=str(pkg_dir),
+                               capture_output=True, timeout=120)
+    _run_cmd(test_cmd, test_log)
     initial_out = _tail_file(test_log, 60)
     if fix_missing_pip_packages(initial_out, os.getcwd()):
         log("Added missing pip packages to requirements before repair.")
+    if fix_jest_no_tests_found(initial_out, os.getcwd()):
+        log("Broadened Jest testRegex in package.json (No tests found).")
+    if fix_vitest_globals(os.getcwd(), initial_out):
+        log("Enabled Vitest globals in vite.config.ts.")
+    for t in p.tasks:
+        if Path(t.file_path).exists():
+            if fix_js_extra_closing_brace(t.file_path, initial_out):
+                log("Fixed %s: fixed unbalanced brace/paren.", t.file_path)
 
     return sess.repair_loop(model, goal, _REPAIR_MAX_ITERS, float(writer_timeout),
                             run_test, reapply, _repair_context(p), _syntax_check)
@@ -1359,19 +1437,58 @@ OFF-LIMITS:
 - Never read from stdin unless the goal explicitly says "interactive"."""
 
 
+def _node_relevant(goal: str, p: Plan) -> bool:
+    """True when the task is a Node.js project that installs packages or runs tests."""
+    if any(t.file_path in ('package.json', 'package-lock.json') for t in p.tasks):
+        return True
+    blob = _goal_blob(goal, p) if p.test_command else goal.lower()
+    return any(k in blob for k in ('node.js', 'nodejs', 'npm', 'jest', 'node '))
+
+
+def _goal_blob(goal: str, p: Plan) -> str:
+    """Lowercase concatenation of goal and test command — used by all _relevant checks."""
+    return f"{goal}\n{p.test_command}".lower()
+
+
+def _test_isolation_relevant(goal: str, p: Plan) -> bool:
+    blob = _goal_blob(goal, p)
+    has_db = any(k in blob for k in ('sqlite', 'database', ' db ', 'json file', 'storage'))
+    has_tests = bool(re.search(r'\b(?:test|pytest|jest|vitest|xunit)\b', blob))
+    return has_db and has_tests
+
+
+def _no_server_relevant(goal: str, p: Plan) -> bool:
+    blob = _goal_blob(goal, p)
+    has_server = any(k in blob for k in ('http', 'server', 'api', 'flask',
+                                          'gin', 'express', 'fastapi', 'asp.net', 'dotnet'))
+    has_tests = bool(re.search(r'\b(?:test|pytest|jest|vitest|xunit)\b', blob))
+    return has_server and has_tests
+
+
 def _vue_relevant(goal: str, p: Plan) -> bool:
-    """True when the task involves Vue 3, so the vue-ts-env skill applies."""
     if any(t.file_path.endswith('.vue') for t in p.tasks):
         return True
-    blob = f"{goal}\n{p.test_command}".lower()
-    return 'vue' in blob
+    return 'vue' in _goal_blob(goal, p)
+
+
+def _dotnet_relevant(goal: str, p: Plan) -> bool:
+    """True when the task involves an ASP.NET Core web API (not just a CLI dotnet app)."""
+    blob = _goal_blob(goal, p)
+    has_dotnet = any(t.file_path.endswith('.csproj') for t in p.tasks) or 'dotnet' in blob
+    has_api = any(k in blob for k in ('api', 'endpoint', 'http', 'ef core', 'entityframework',
+                                       'sqlite', 'database', 'web'))
+    return has_dotnet and has_api
+
+
+def _dotnet_vue_relevant(goal: str, p: Plan) -> bool:
+    """True when the task is a .NET + Vue fullstack app."""
+    return _dotnet_relevant(goal, p) and _vue_relevant(goal, p)
 
 
 def _makefile_relevant(goal: str, p: Plan) -> bool:
-    """True when the plan includes a Makefile or the test command invokes make."""
     if any(Path(t.file_path).name == 'Makefile' for t in p.tasks):
         return True
-    blob = f"{goal}\n{p.test_command}".lower()
+    blob = _goal_blob(goal, p)
     return 'make ' in blob or blob.strip().startswith('make')
 
 
@@ -1432,7 +1549,7 @@ def _lint_command(file_path: str, p: Plan) -> str:
     ext = Path(file_path).suffix.lower()
     has_makefile = any(Path(t.file_path).name.lower() == 'makefile' for t in p.tasks)
     has_cargo = (any(Path(t.file_path).name.lower() == 'cargo.toml' for t in p.tasks)
-                 or Path(p.project_dir or '.').joinpath('Cargo.toml').exists())
+                 or Path('Cargo.toml').exists())
     has_tsconfig = any(Path(t.file_path).name.lower().startswith('tsconfig') for t in p.tasks)
     if ext == '.py':
         # pyflakes (pure-Python) covers F-codes and syntax errors; run it with
@@ -1453,6 +1570,24 @@ def _lint_command(file_path: str, p: Plan) -> str:
                 f"-o /tmp/mu_lint_{stem} && rm -f /tmp/mu_lint_{stem}")
     if ext in ('.ts', '.tsx'):
         if not shutil.which('tsc'):
+            return ''
+        # tsc resolves npm type declarations from node_modules. Running it
+        # before `npm install` always fails with "Cannot find module" errors
+        # that look like code bugs but are actually missing node_modules.
+        # Skip the lint gate and let the test gate (which runs make/npm) be
+        # the authority once deps are installed.
+        test_cmd_lower = (p.test_command or '').lower()
+        has_pkg_json = any(t.file_path.endswith('package.json') for t in p.tasks)
+        # Vitest handles its own type-checking during test runs; tsc standalone
+        # is not useful and would fail before npm install runs.
+        uses_vitest = 'vitest' in test_cmd_lower
+        # Check if node_modules is absent in the file's directory or any parent.
+        file_dir = Path(file_path).parent
+        node_modules_missing = not any(
+            (d / 'node_modules').exists()
+            for d in [file_dir] + list(file_dir.parents)[:3]
+        )
+        if (has_pkg_json or uses_vitest) and node_modules_missing:
             return ''
         return 'tsc --noEmit' if has_tsconfig else \
                f"tsc --noEmit --strict --target ES2020 --module commonjs {file_path}"
@@ -1478,20 +1613,31 @@ def _run_cmd(cmd: str, log_file: str, env: dict | None = None) -> bool:
     except (subprocess.TimeoutExpired, OSError):
         return False
 
-def _tail_file(path: str, n: int) -> str:
+_ANSI_RE = re.compile(r'\x1b\[[0-9;]*[mGKHF]|\x1b\].*?\x1b\\|\x1b[A-Za-z]')
+
+
+def _strip_ansi(text: str) -> str:
+    """Remove ANSI escape codes from text (terminal color, cursor sequences)."""
+    return _ANSI_RE.sub('', text)
+
+
+def _read_file_lines(path: str, n: int, *, tail: bool = False) -> str:
     try:
-        lines = Path(path).read_text().splitlines()
-        return '\n'.join(lines[-n:]) if len(lines) > n else '\n'.join(lines)
+        raw = Path(path).read_text()
+        text = _strip_ansi(raw)
+        lines = text.splitlines()
+        subset = lines[-n:] if tail else lines[:n]
+        return '\n'.join(subset)
     except OSError:
         return ''
+
+
+def _tail_file(path: str, n: int) -> str:
+    return _read_file_lines(path, n, tail=True)
 
 
 def _head_file(path: str, n: int) -> str:
-    try:
-        lines = Path(path).read_text().splitlines()
-        return '\n'.join(lines[:n]) if len(lines) > n else '\n'.join(lines)
-    except OSError:
-        return ''
+    return _read_file_lines(path, n, tail=False)
 
 
 _IMPL_EXTS = frozenset({'.c', '.cpp', '.cc', '.cxx'})

@@ -77,6 +77,27 @@ Tracks the most frequent or significant challenges encountered while running the
 24. **Invalid requirement**
   - A package name is expected at the start of a dependency specifier; avoid using paths directly in requirements.
 
+25. **Context overflow in repair loop (400 errors)**
+   - When the writer system prompt includes many large skills (vue-ts-env + node-env + test-isolation + no-server + dotnet skills), the combined system + repair context + test output exceeds the model's 6000-token context. Fixed by: (a) using a lean repair system (base + lang-repair only), (b) not re-adding contextual skills already in auto_system, (c) trimming skills loaded for combined stacks. See `_load_repair_skills` and `_contextual_skills`.
+
+26. **tsc lint before npm install**
+   - TypeScript files are linted with `tsc --noEmit` immediately after writing, before `npm install` runs. Without `node_modules`, tsc fails with "Cannot find module" which looks like a code bug but is a tooling gap. Fixed by skipping tsc lint when no `node_modules` is found in the file's parent chain. See `_lint_command` in `agent.py`.
+
+27. **Jest "No tests found" with `_test.js` naming**
+   - Jest's default `testMatch` requires `.test.js` or `.spec.js` suffixes. The model uses Python-style `_test.js` naming, causing "No tests found." Fixed by: node-env skill guidance on `.test.js` naming + `fix_jest_no_tests_found` reflex that broadens `testRegex` in `package.json`. Fires on "No tests found" in test output.
+
+28. **Vitest globals not enabled**
+   - Without `globals: true` in vite.config.ts, calling `test(...)` / `expect(...)` raises `ReferenceError: test is not defined`. Fixed by vue-ts-env skill showing `globals: true` + `fix_vitest_globals` reflex that detects the ReferenceError and adds the config. See `fix_vitest_globals` in `reflexes.py`.
+
+29. **p7 (Flask) model-limited: uses flask_sqlalchemy**
+   - The model reaches for Flask-SQLAlchemy ORM even for simple SQLite tasks. flask_sqlalchemy is not installed in the venv, causing `ModuleNotFoundError`. Added guidance to python-writer skill: "Use plain sqlite3, not Flask-SQLAlchemy." Partially mitigated but model still oscillates in test repair.
+
+30. **p10 (dotnet+Vue blog) model-limited**
+   - qwen2.5-coder-7b cannot reliably produce a compiling multi-file ASP.NET Core + EF Core app. Each repair iteration reveals a new compile error (CS0841, CS0246, CS1513, CS1022). The repair loop oscillates and exhausts. Hard constraint: encoding the correct Program.cs structure in grounding violates the honesty rule. Verdict: model-limited for this task complexity. A larger model or higher context is needed.
+
+31. **ANSI escape codes inflate repair context**
+   - Test runners like Vitest emit ANSI color codes that dramatically inflate the token count of test output passed to the repair model (e.g., 2KB of actual content → 20KB with ANSI). Fixed by stripping ANSI codes in `_read_file_lines` before feeding to model. See `_strip_ansi` in `agent.py`.
+
 ## Resolved
 
 - **Missing `fix_sqlite_in_memory` function** — obsolete. AST fixer pass and the orphaned sqlite sensor removed in commit `07717cc`.
@@ -84,5 +105,7 @@ Tracks the most frequent or significant challenges encountered while running the
 - **Git commit command failing on BSD grep** — `sit.sh` no longer uses `grep -Po`; switched to `awk`.
 - **Version extraction brittleness** — `sit.sh:102` uses `awk -F'"' '/__version__/ {print $2}' src/mu/__init__.py`.
 - **Duplicate dojo cleaning logic** — `sit.sh` now has a single cleanup block guarded by `SKIP_CLEAN`.
+- **p8 (Node todo) "No tests found"** — model uses `_test.js` naming; fixed by `fix_jest_no_tests_found` reflex + node-env skill guidance.
+- **p9 (Vue todo) TypeScript lint before npm install** — tsc ran before deps installed; fixed by skipping tsc when node_modules absent + `fix_vitest_globals` reflex.
 
 *This file is intended to be updated continuously as new challenges arise.*
