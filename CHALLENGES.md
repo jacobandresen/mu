@@ -67,6 +67,10 @@ Tracks the most frequent or significant challenges encountered while running the
 21. **Indentation issues**
   - Ensure consistent indentation in Python files to avoid syntax errors.
 
+22. **Unused imports**
+  - One sentence describing the generic failure mode and what to watch for.
+    - Unused imports in Rust can cause build failures; ensure all imports are used or remove them.
+
 ## Resolved
 
 - **Missing `fix_sqlite_in_memory` function** — obsolete. AST fixer pass and the orphaned sqlite sensor removed in commit `07717cc`.
