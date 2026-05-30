@@ -791,9 +791,10 @@ def run(goal: str, model: str = '', target_dir: str = '',
                     log("Fixed %s: replaced SQLite file path with :memory:.", task.file_path)
                 # When a test file is written, also fix sibling implementation files
                 # that may have been written before any test file existed.
-                if Path(task.file_path).stem.startswith('test_'):
-                    for sib in Path(task.file_path).parent.glob('*.py'):
-                        if not sib.stem.startswith('test_') and sib.name != Path(task.file_path).name:
+                fp = Path(task.file_path)
+                if fp.stem.startswith('test_'):
+                    for sib in fp.parent.glob('*.py'):
+                        if not sib.stem.startswith('test_') and sib.name != fp.name:
                             if fix_sqlite_test_isolation(str(sib)):
                                 log("Fixed sibling %s: replaced SQLite file path with :memory:.", str(sib))
 

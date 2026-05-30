@@ -211,6 +211,28 @@ def fix_c_sdl_header(file_path: str) -> bool:
     return True
 
 
+def _sibling_py_sources(file_path: str) -> dict[str, str]:
+    """Return {stem: source} for non-test .py siblings of file_path."""
+    fp = Path(file_path)
+    return {p.stem: p.read_text()
+            for p in fp.parent.glob('*.py')
+            if p.stem != fp.stem and not p.stem.startswith('test_')}
+
+
+def _insert_py_imports(file_path: str, stmts: list[str]) -> None:
+    """Insert import statements after the last existing import line."""
+    lines = Path(file_path).read_text().splitlines()
+    insert_at = 0
+    for i, line in enumerate(lines):
+        if line.startswith(('import ', 'from ')):
+            insert_at = i + 1
+        elif line and not line.startswith('#') and insert_at > 0:
+            break
+    for stmt in reversed(stmts):
+        lines.insert(insert_at, stmt)
+    Path(file_path).write_text('\n'.join(lines) + '\n')
+
+
 def fix_python_missing_project_imports(file_path: str) -> bool:
     """Add missing imports for project-local names used but not imported in test files.
 
@@ -222,41 +244,26 @@ def fix_python_missing_project_imports(file_path: str) -> bool:
     """
     if not file_path.lower().endswith('.py'):
         return False
+    fp = Path(file_path)
+    if not fp.stem.startswith('test_'):
+        return False
     try:
-        text = Path(file_path).read_text()
+        text = fp.read_text()
     except OSError:
         return False
-    # Only act on test files
-    name = Path(file_path).stem
-    if not name.startswith('test_'):
-        return False
-    # Find sibling .py files (same directory)
-    parent = Path(file_path).parent
-    sibling_modules = [p.stem for p in parent.glob('*.py')
-                       if p.stem != name and not p.stem.startswith('test_')]
+    sibling_modules = list(_sibling_py_sources(file_path))
     if not sibling_modules:
         return False
-    # Look for bare names used that aren't imported and exist as sibling module names
-    # Common pattern: `app.test_client()` or `with app.app_context()` → needs `from app import app`
-    to_add = []
-    for mod in sibling_modules:
-        # Check if mod name is used as identifier but not imported from anywhere
-        used = bool(re.search(rf'\b{re.escape(mod)}\b', text))
-        imported = bool(re.search(rf'(?:import {re.escape(mod)}\b|from {re.escape(mod)}\b)', text))
-        if used and not imported:
-            to_add.append(f'from {mod} import {mod}')
+    # `from mod import mod` for each sibling module name used but not yet imported.
+    to_add = [
+        f'from {mod} import {mod}'
+        for mod in sibling_modules
+        if re.search(rf'\b{re.escape(mod)}\b', text)
+        and not re.search(rf'(?:import {re.escape(mod)}\b|from {re.escape(mod)}\b)', text)
+    ]
     if not to_add:
         return False
-    lines = text.splitlines()
-    insert_at = 0
-    for i, line in enumerate(lines):
-        if line.startswith(('import ', 'from ')):
-            insert_at = i + 1
-        elif line and not line.startswith('#') and insert_at > 0:
-            break
-    for stmt in reversed(to_add):
-        lines.insert(insert_at, stmt)
-    Path(file_path).write_text('\n'.join(lines) + '\n')
+    _insert_py_imports(file_path, to_add)
     print(f"==> [mu-agent] Reflex: added {len(to_add)} missing project import(s) to {file_path}: {to_add}")
     return True
 
@@ -276,42 +283,28 @@ def fix_python_undefined_imports(file_path: str, lint_error: str) -> bool:
     undefined = set(re.findall(r"undefined name '(\w+)'", lint_error))
     if not undefined:
         return False
+    fp = Path(file_path)
     try:
-        text = Path(file_path).read_text()
+        text = fp.read_text()
     except OSError:
         return False
-    parent = Path(file_path).parent
-    stem = Path(file_path).stem
-    sibling_sources = {p.stem: p.read_text()
-                       for p in parent.glob('*.py')
-                       if p.stem != stem and not p.stem.startswith('test_')}
+    sibling_sources = _sibling_py_sources(file_path)
     to_add = []
     for name in sorted(undefined):
-        # Skip if already imported
         if re.search(rf'(?:import {re.escape(name)}\b|from \S+ import .*\b{re.escape(name)}\b)', text):
             continue
         for mod, src in sibling_sources.items():
-            if re.search(rf'(?m)^(?:class|def|{re.escape(name)})\s*[\s(=:]', src) or \
+            if re.search(rf'(?m)^(?:class|def)\s+{re.escape(name)}\b', src) or \
                re.search(rf'(?m)^\s*{re.escape(name)}\s*=', src):
                 to_add.append((mod, name))
                 break
     if not to_add:
         return False
-    lines = text.splitlines()
-    insert_at = 0
-    for i, line in enumerate(lines):
-        if line.startswith(('import ', 'from ')):
-            insert_at = i + 1
-        elif line and not line.startswith('#') and insert_at > 0:
-            break
-    # Group by module
-    by_mod: dict = {}
+    by_mod: dict[str, list[str]] = {}
     for mod, sym in to_add:
         by_mod.setdefault(mod, []).append(sym)
     stmts = [f"from {mod} import {', '.join(sorted(syms))}" for mod, syms in sorted(by_mod.items())]
-    for stmt in reversed(stmts):
-        lines.insert(insert_at, stmt)
-    Path(file_path).write_text('\n'.join(lines) + '\n')
+    _insert_py_imports(file_path, stmts)
     print(f"==> [mu-agent] Reflex: added undefined-name imports to {file_path}: {stmts}")
     return True
 
@@ -398,13 +391,13 @@ def fix_rust_println_missing_arg(file_path: str) -> bool:
     lines = text.splitlines()
     changed = False
     result = []
-    loop_var: list[str] = []
+    loop_var_stack: list[str] = []
 
     for line in lines:
         stripped = line.strip()
         m = re.match(r'for\s+(\w+)\s+in\b', stripped)
         if m:
-            loop_var.append(m.group(1))
+            loop_var_stack.append(m.group(1))
 
         # Match println!("...") or print!("...") — capture format string and args
         macro_m = re.search(r'\b(println|print)!\s*\(("(?:[^"\\]|\\.)*")(.*)\)', line)
@@ -412,22 +405,16 @@ def fix_rust_println_missing_arg(file_path: str) -> bool:
             fmt_str = macro_m.group(2)  # includes surrounding quotes
             rest = macro_m.group(3)     # ', arg1, arg2, ...' or ''
             n_placeholders = fmt_str.count('{}')
-            # Count existing args (comma-separated after the format string)
             existing_args = [a.strip() for a in rest.lstrip(',').split(',') if a.strip()]
-            n_args = len(existing_args)
-            if n_placeholders > n_args and loop_var:
-                var = loop_var[-1]
-                missing = n_placeholders - n_args
-                fill = ', '.join([var] * missing)
-                new_args = (', ' + ', '.join(existing_args) + ', ' + fill
-                            if existing_args else f', {fill}')
-                old = macro_m.group(0)
-                new = f'{macro_m.group(1)}!({fmt_str}{new_args})'
-                line = line.replace(old, new, 1)
+            if n_placeholders > len(existing_args) and loop_var_stack:
+                var = loop_var_stack[-1]
+                all_args = existing_args + [var] * (n_placeholders - len(existing_args))
+                new_call = f'{macro_m.group(1)}!({fmt_str}, {", ".join(all_args)})'
+                line = line.replace(macro_m.group(0), new_call, 1)
                 changed = True
 
-        if stripped == '}' and loop_var:
-            loop_var.pop()
+        if stripped == '}' and loop_var_stack:
+            loop_var_stack.pop()
         result.append(line)
 
     if not changed:
@@ -475,12 +462,11 @@ def fix_csharp_duplicate_classes(file_path: str) -> bool:
         m = pattern.search(text)
         if not m:
             continue
-        # Find the matching closing brace
+        # Find the matching closing brace via depth tracking.
         start = m.start()
         depth = 0
-        pos = m.end() - 1  # position of the opening '{'
         end = len(text)
-        for i in range(pos, len(text)):
+        for i in range(m.end() - 1, len(text)):
             if text[i] == '{':
                 depth += 1
             elif text[i] == '}':
@@ -558,14 +544,17 @@ def fix_missing_pip_packages(test_output: str, project_dir: str) -> bool:
         existing = req_path.read_text() if req_path.exists() else ''
     except OSError:
         existing = ''
-    to_add = []
-    for pkg in sorted(pkgs):
-        pip_name = _PIP_NAME.get(pkg, pkg.replace('_', '-'))
-        if pip_name.lower() not in existing.lower():
-            to_add.append(pip_name)
+    existing_lower = existing.lower()
+    to_add = [
+        pip_name
+        for pkg in sorted(pkgs)
+        for pip_name in [_PIP_NAME.get(pkg, pkg.replace('_', '-'))]
+        if pip_name.lower() not in existing_lower
+    ]
     if not to_add:
         return False
-    new_content = existing.rstrip('\n') + '\n' + '\n'.join(to_add) + '\n'
+    existing_lines = [l for l in existing.splitlines() if l.strip()]
+    new_content = '\n'.join(existing_lines + to_add) + '\n'
     req_path.write_text(new_content)
     print(f"==> [mu-agent] Reflex: added missing packages to requirements.txt: {to_add}")
     return True
