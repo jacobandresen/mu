@@ -55,6 +55,9 @@ Tracks the most frequent or significant challenges encountered while running the
 17. **Top-level statements must precede namespace and type declarations**
   - Top-level statements in C# must appear before any namespaces or types; ensure they are placed correctly to avoid syntax errors.
 
+18. **Syntax error in Python code**
+  - Ensure proper indentation and correct use of colons for function definitions and control structures.
+
 ## Resolved
 
 - **Missing `fix_sqlite_in_memory` function** — obsolete. AST fixer pass and the orphaned sqlite sensor removed in commit `07717cc`.
