@@ -1,4 +1,12 @@
-"""Session: writer loop and repair loop."""
+"""Performance element (writer loop) and critic (repair loop).
+
+In AIMA terms ``Session.run`` is the **performance element** — it executes the
+plan by driving the LLM through the Write/Edit tool loop. ``Session.repair_loop``
+is the **critic's execution arm** — it runs the test gate after each model edit
+and loops until the performance standard (tests exit 0) is met or the iteration
+budget is exhausted. The repair loop returns ``(passed, iters)`` so the caller
+can accumulate repair iterations into the session's ``Utility`` record.
+"""
 
 import time
 from pathlib import Path
@@ -71,7 +79,8 @@ class Session:
                     run_test: Callable[[], tuple[bool, str]],
                     reapply: Optional[Callable[[], None]],
                     context: str = '',
-                    syntax_check: Optional[Callable[[str], tuple[bool, str]]] = None) -> bool:
+                    syntax_check: Optional[Callable[[str], tuple[bool, str]]] = None,
+                    ) -> tuple[bool, int]:
         tool_defs = self.tool_set if self.tool_set is not None else tools.REPAIR
         msgs: list[dict] = [{'role': 'system', 'content': self.system_prompt}]
         print("  Repairing...")
@@ -83,7 +92,7 @@ class Session:
             if passed:
                 if i > 0:
                     print(f"==> [mu-agent] Repair: tests pass after {i} edit(s).")
-                return True
+                return True, i
 
             if i == 0:
                 content = (f"GOAL: {goal}\n\n{context}The project's tests are failing. Make ONE targeted "
@@ -147,4 +156,4 @@ class Session:
         if reapply:
             reapply()
         passed, _ = run_test()
-        return passed
+        return passed, max_iters

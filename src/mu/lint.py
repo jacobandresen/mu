@@ -1,9 +1,15 @@
-"""Rule-based PLAN.md linter (the spaCy plan-lint arm).
+"""Pre-execution plan critic: rule-based PLAN.md linter.
 
-`lint_plan` returns a list of human-readable warnings that the planner
-critique loop feeds back to the LLM for a second pass. Warnings are
-*generic*: they describe shapes of underspecification, never per-problem
-fixes.
+In AIMA terms this is the **a-priori critic** — it evaluates the plan *before*
+any action is taken, in contrast to the post-execution critic (the test gate and
+``Session.repair_loop``) which scores outcomes after the performance element
+acts. The two critics are distinct: this one validates plan *form* (is the plan
+well-specified?); the test gate validates plan *execution* (did the world end up
+in the goal state?).
+
+``lint_plan`` returns a list of human-readable warnings that the planner
+critique loop feeds back to the LLM for a second pass. Warnings are *generic*:
+they describe shapes of underspecification, never per-problem fixes.
 
 Checks (in descending order of value):
 

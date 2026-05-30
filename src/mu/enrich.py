@@ -1,19 +1,23 @@
-"""Plan enrichment via semantic retrieval from prior sessions.
+"""Learning element (retrieval/recall): ASKs the knowledge base for relevant lessons.
 
-Semantic lesson retrieval (the "enrich" arm). The retriever uses
-sentence-transformers to embed CHALLENGES.md entries plus a per-session
-goal index, and returns lessons whose semantic neighbourhood in the
+In AIMA terms this is the **learning element's retrieval arm** — it reads the
+episodic memory (``~/.mu/sessions/``) and the mutable knowledge base
+(``CHALLENGES.md``) and surfaces lessons that are semantically relevant to the
+current goal. This is an ASK operation on the knowledge base, in contrast to
+``reflect`` which TELLs it.
+
+The retriever uses sentence-transformers to embed CHALLENGES.md entries plus a
+per-session goal index, and returns lessons whose semantic neighbourhood in the
 archive contains enough prior failures to corroborate them.
 
-The sentence_transformers and numpy imports are lazy. If either is
-missing every public function no-ops and returns empty results.
+The sentence_transformers and numpy imports are lazy. If either is missing,
+every public function no-ops and returns empty results.
 
 Two honesty guards keep retrieval generic, not problem-specific:
-  * corroboration: at least _CORROBORATION_MIN prior archived sessions
-    near the goal must have a non-success outcome before any lesson is
-    surfaced;
-  * concentration cap: no lesson is returned if it has been injected
-    into more than _CONCENTRATION_CAP of recent plan generations.
+  * corroboration: at least _CORROBORATION_MIN prior archived sessions near the
+    goal must have a non-success outcome before any lesson is surfaced;
+  * concentration cap: no lesson is returned if it has been injected into more
+    than _CONCENTRATION_CAP of recent plan generations.
 """
 
 import json

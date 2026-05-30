@@ -1,9 +1,25 @@
-"""Tool definitions and dispatch for the agent loop."""
+"""Tool definitions and dispatch for the agent loop.
+
+In AIMA terms this module holds both **actuators** and **percepts**:
+
+* **Actuators** (Write, Edit, Bash) — the only ways mu changes the world.
+* **Percepts** (Read + gate stdout captured by ``agent._run_cmd``) — the only
+  way mu observes the world. ``_read`` is the primary percept; test/lint gate
+  output is the secondary percept fed into the repair loop.
+
+``dispatch`` routes model tool-calls to the correct implementation. Tool
+definitions (``WRITE``, ``EDIT``, ``BASH``, ``READ``) are the JSON schemas
+passed to the LLM; implementations (``_write``, ``_edit``, ``_bash``, ``_read``)
+are the Python functions that execute them.
+"""
 
 import json
 import subprocess
 from pathlib import Path
 from typing import Any
+
+# ── Actuator definitions ──────────────────────────────────────────────────────
+# WRITE, EDIT, BASH — the only ways mu changes the world.
 
 WRITE: dict[str, Any] = {
     'type': 'function',
@@ -52,6 +68,9 @@ BASH: dict[str, Any] = {
         },
     },
 }
+
+# ── Percept definition ────────────────────────────────────────────────────────
+# READ — the primary way mu observes the world (file contents as percepts).
 
 READ: dict[str, Any] = {
     'type': 'function',
@@ -110,6 +129,8 @@ def log_call(tc: dict) -> None:
         print(f"==> [mu-agent] tool: {name}")
 
 
+# ── Actuator implementations ──────────────────────────────────────────────────
+
 def _write(path: str, content: str) -> str:
     try:
         p = Path(path)
@@ -145,6 +166,8 @@ def _bash(command: str) -> str:
     except Exception as e:
         return f"error: {e}"
 
+
+# ── Percept implementation ────────────────────────────────────────────────────
 
 def _read(path: str) -> str:
     try:

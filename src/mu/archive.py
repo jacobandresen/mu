@@ -1,14 +1,57 @@
-"""Session archiving: tombstones in ~/.mu/sessions/."""
+"""Episodic memory: session tombstones in ~/.mu/sessions/.
+
+In AIMA terms this module is the agent's **episodic memory** — the experience
+store that the learning element (``reflect``, ``enrich``) reads to distill
+lessons and retrieve relevant past failures. Each session directory is one
+episode; ``meta.json`` is the episode's summary including the ``Utility``
+record emitted by the critic.
+"""
 
 import json
 import os
 import re
 import shutil
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from mu.plan import Plan, count_tasks
+
+
+@dataclass
+class Utility:
+    """Performance measure emitted by the critic at the end of each episode.
+
+    Fields match the PEAS performance measure defined in the AIMA architecture
+    doc. ``first_try_pass`` and ``repair_iters`` capture the quality of the
+    performance element's execution; the learner reads these to weight lessons.
+    """
+    outcome: str          # success / error / max_iterations / stalled / interrupted
+    first_try_pass: bool  # tests passed with zero repair iterations
+    repair_iters: int     # total repair loop iterations across all test gates
+    wall_seconds: int     # total run duration
+    tasks_total: int      # tasks in PLAN.md
+    tasks_done: int       # tasks marked done
+
+    def as_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def load(cls, session_dir: str) -> Optional['Utility']:
+        """Load from a finalized session directory's meta.json."""
+        try:
+            meta = json.loads((Path(session_dir) / 'meta.json').read_text())
+            return cls(
+                outcome=meta.get('outcome', 'unknown'),
+                first_try_pass=meta.get('first_try_pass', False),
+                repair_iters=meta.get('repair_iters', 0),
+                wall_seconds=meta.get('duration_seconds', 0),
+                tasks_total=meta.get('tasks_total', 0),
+                tasks_done=meta.get('tasks_done', 0),
+            )
+        except (OSError, json.JSONDecodeError, KeyError):
+            return None
 
 
 class AgentSession:
@@ -22,6 +65,7 @@ class AgentSession:
         self.archive_path = os.path.join(archive_dir, self.id)
         self.max_iter = max_iter
         self.log_dir = log_dir
+        self.repair_iters = 0  # accumulated by caller across all test-gate repair loops
         os.makedirs(self.archive_path, exist_ok=True)
         try:
             Path(os.path.join(self.archive_path, 'meta.json')).write_text(
@@ -43,16 +87,26 @@ class AgentSession:
         outcome_map = {0: 'success', 1: 'error', 2: 'max_iterations',
                        3: 'stalled', 130: 'interrupted'}
         end_time = datetime.now(timezone.utc)
+        wall_seconds = int((end_time - self.start_time).total_seconds())
+        outcome = outcome_map.get(exit_code, 'unknown')
+
+        utility = Utility(
+            outcome=outcome,
+            first_try_pass=self.repair_iters == 0 and outcome == 'success',
+            repair_iters=self.repair_iters,
+            wall_seconds=wall_seconds,
+            tasks_total=tasks_total,
+            tasks_done=tasks_done,
+        )
         meta = {
             'session_id': self.id, 'goal': self.goal,
             'project_dir': self.project_dir,
             'start_time': self.start_time.isoformat(),
             'end_time': end_time.isoformat(),
-            'duration_seconds': int((end_time - self.start_time).total_seconds()),
+            'duration_seconds': wall_seconds,
             'max_iterations': self.max_iter,
-            'outcome': outcome_map.get(exit_code, 'unknown'),
             'exit_code': exit_code,
-            'tasks_total': tasks_total, 'tasks_done': tasks_done,
+            **utility.as_dict(),
         }
         try:
             Path(os.path.join(self.archive_path, 'meta.json')).write_text(

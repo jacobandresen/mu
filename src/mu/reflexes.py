@@ -1,4 +1,15 @@
-"""Deterministic code fixers applied after model writes."""
+"""Simple-reflex condition-action rules (effectors) applied after model writes.
+
+The agent's reflex layer — condition → action rules with no memory that repair
+general-class errors in model output before the lint/test gates run. These are
+*effectors*, not sensors: they change the world (rewrite files) rather than
+observe it. The real sensors (percepts) live in ``tools._read`` and gate stdout.
+
+Each function corrects a *general class* of model error, independent of any
+specific dojo problem. The honesty test: would you write this fix for any
+program in this language or build system? If the answer is "no, only because
+problem X needs it," the reflex is overfit — don't add it.
+"""
 
 import re
 import shutil
@@ -10,7 +21,7 @@ _KNOWN_TARGETS = {'all', 'clean', 'install', 'test', 'build', 'run', 'format',
                   'lint', 'check', 'release', 'debug', 'help'}
 
 
-# ── Python sensors ────────────────────────────────────────────────────────────
+# ── Python reflexes ───────────────────────────────────────────────────────────
 
 def fix_multiline_single_quote(file_path: str, lint_error: str) -> bool:
     """Replace multi-line single-quoted SQL strings with triple-quoted strings."""
@@ -146,6 +157,8 @@ def py_autofix(file_path: str) -> bool:
         return False
     return True
 
+
+# ── Makefile reflexes ─────────────────────────────────────────────────────────
 
 def fix_makefile_space_indent(f: str) -> bool:
     """Convert space-indented recipe lines to tab-indented."""
@@ -284,6 +297,8 @@ def fix_duplicate_var(f: str) -> bool:
     return True
 
 
+# ── Go reflexes ───────────────────────────────────────────────────────────────
+
 _GO_UNUSED_IMPORT_RE = re.compile(r'^(\S+):\d+:\d+: "([^"]+)" imported and not used')
 
 
@@ -331,7 +346,7 @@ def fix_go_unused_imports() -> bool:
     return removed_any
 
 
-def apply_go_sensors() -> bool:
+def apply_go_reflexes() -> bool:
     """Resolve Go module dependencies and clean unused imports before a build.
 
     Generic, problem-agnostic toolchain steps: any Go project with source files
@@ -352,7 +367,7 @@ def apply_go_sensors() -> bool:
     return True
 
 
-def apply_makefile_sensors(f: str) -> None:
+def apply_makefile_reflexes(f: str) -> None:
     for fn in [fix_makefile_space_indent, fix_orphan_top_level_commands,
                fix_no_targets, fix_inline_recipe, fix_duplicate_var]:
         fn(f)

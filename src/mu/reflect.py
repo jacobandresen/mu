@@ -1,21 +1,25 @@
-"""Reflect on recent failed sessions and distill generic lessons.
+"""Learning element (offline): distills critic feedback into the knowledge base.
 
-The `mu reflect` subcommand walks ~/.mu/sessions/, finds non-success
-sessions that haven't yet been reflected on, and asks the configured
-model to produce one generic challenge entry per session — or SKIP if
-the failure isn't generalizable. Surviving entries are appended to the
-project CHALLENGES.md under `## Open`, which the planner inlines on the
-next run.
+In AIMA terms this is the **learning element** operating on the episodic memory
+after each dojo round. It walks ``~/.mu/sessions/``, finds non-success sessions
+(episodes where the critic's outcome ≠ 'success') that haven't been reflected
+on yet, and asks the model to distill one *generic* lesson per session — or SKIP
+if the failure isn't generalizable. Surviving lessons are appended to
+``CHALLENGES.md`` (the mutable knowledge base) under ``## Open``, which the
+planner reads on the next run via the ``_load_challenges_for_planner`` path.
+
+This closes the feedback loop: critic (archive outcome) → learner (reflect) →
+knowledge base (CHALLENGES.md) → planner (next run's performance element).
 
 Honesty guards:
-  * the prompt demands a *generic* failure mode and forbids
-    problem-specific patches;
-  * SKIP is a first-class outcome — if the model can't generalize, no
-    entry is written;
-  * sessions are deduplicated by id (state file in the archive root)
-    so re-running is idempotent;
-  * before appending, each candidate is checked against existing Open
-    titles to avoid double-recording the same lesson.
+  * the prompt demands a *generic* failure mode and forbids problem-specific
+    patches;
+  * SKIP is a first-class outcome — if the model can't generalize, no entry is
+    written;
+  * sessions are deduplicated by id (state file in the archive root) so
+    re-running is idempotent;
+  * before appending, each candidate is checked against existing Open titles to
+    avoid double-recording the same lesson.
 """
 
 import json

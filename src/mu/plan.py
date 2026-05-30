@@ -1,4 +1,12 @@
-"""PLAN.md parsing and manipulation."""
+"""Problem representation: PLAN.md parsing and manipulation.
+
+In AIMA terms ``PLAN.md`` is the agent's **plan** — a goal (``## Summary``), an
+action sequence (``## Files`` checklist), and a goal test (``## Test Command``).
+``plan.parse`` is the problem reader; ``next_task`` selects the next action;
+``mark_task_done`` updates the state after execution. The normalizers
+(``strip_thinking_artifacts``, ``normalize_embedded_files``, etc.) are plan
+hygiene that keeps the problem representation well-formed.
+"""
 
 import os
 import re

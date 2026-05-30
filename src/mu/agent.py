@@ -1,4 +1,20 @@
-"""Autonomous coding agent orchestration."""
+"""Agent program and control architecture.
+
+In AIMA terms this module is the top-level **agent program** — it composes all
+four learning-agent components into the plan → write → repair → archive loop:
+
+* **Planner** (``_run_planner``, ``_run_planning_phase``) — goal-based: turns a
+  natural-language goal into a ``PLAN.md`` action sequence (the agent's plan).
+* **Performance element** (``_run_writer`` → ``Session.run``) — executes the
+  plan through the Write/Edit actuators.
+* **Critic** (lint gate + test gate + ``Session.repair_loop``) — judges each
+  action against the fixed performance standard (tests exit 0) and drives the
+  repair loop.
+* **Learning element** (``reflect``, ``enrich``) — distills the critic's
+  feedback across episodes into the knowledge base (``CHALLENGES.md``).
+
+``run()`` is the main entry point; ``plan()`` is the planner-only subcommand.
+"""
 
 import importlib.util
 import os
@@ -27,9 +43,9 @@ from mu.plan import (Plan, check_goal_alignment, clear_challenges,
                      relevant_files_context,
                      repair_history, strip_thinking_artifacts, tasks_remaining,
                      write_sketches)
-from mu.sensors import (apply_go_sensors, apply_makefile_sensors,
-                        fix_missing_close_paren, fix_multiline_single_quote,
-                        fix_test_import_module, py_autofix)
+from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
+                         fix_missing_close_paren, fix_multiline_single_quote,
+                         fix_test_import_module, py_autofix)
 from mu.session import Session
 
 LOG_DIR = ".mu"
@@ -724,13 +740,13 @@ def run(goal: str, model: str = '', target_dir: str = '',
                     log("Fixed %s: corrected import module name.", task.file_path)
 
             if task.file_path.endswith('.go') or task.file_path.endswith('go.mod'):
-                if apply_go_sensors():
+                if apply_go_reflexes():
                     log("Resolved Go module dependencies (go mod tidy).")
 
             if (is_build_file(task.file_path) and
                     Path(task.file_path).name.lower() == 'makefile'):
-                apply_makefile_sensors(task.file_path)
-                log("Applied Makefile sensors to %s.", task.file_path)
+                apply_makefile_reflexes(task.file_path)
+                log("Applied Makefile reflexes to %s.", task.file_path)
 
             lint_cmd = _lint_command(task.file_path, p)
             if lint_cmd:
@@ -770,8 +786,10 @@ def run(goal: str, model: str = '', target_dir: str = '',
                     record_challenge(
                         f"tests failed after writing {task.file_path}",
                         _tail_file(test_log, 5))
-                    if not _run_test_repair_loop(model, test_cmd, test_log, p,
-                                                 auto_system, writer_timeout, goal):
+                    ok, iters = _run_test_repair_loop(model, test_cmd, test_log, p,
+                                                      auto_system, writer_timeout, goal)
+                    sess.repair_iters += iters
+                    if not ok:
                         log("Tests still failing after repair for %s.", task.file_path)
                         record_failed_repair(f"test repair after writing {task.file_path}",
                                              _tail_file(test_log, 5))
@@ -789,7 +807,8 @@ def run(goal: str, model: str = '', target_dir: str = '',
             current_plan = p
 
         if not tasks_remaining(p):
-            err = _final_test_gate(model, p, auto_system, writer_timeout, goal)
+            err, iters = _final_test_gate(model, p, auto_system, writer_timeout, goal)
+            sess.repair_iters += iters
             if err:
                 exit_code = 3
                 return exit_code
@@ -953,7 +972,9 @@ def _run_writer(model: str, target_file: str, prompt: str,
 # ── Repair ────────────────────────────────────────────────────────────────────
 
 def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
-                          autonomous_system: str, writer_timeout: int, goal: str) -> bool:
+                          autonomous_system: str, writer_timeout: int, goal: str,
+                          ) -> tuple[bool, int]:
+    """Run the repair loop against the test gate; return (passed, repair_iters)."""
     sess = Session(autonomous_system + '\n\n' + _REPAIR_LOOP_RULES)
     sess.tool_set = tools.REPAIR
 
@@ -964,8 +985,8 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
         for t in p.tasks:
             if (Path(t.file_path).exists() and is_build_file(t.file_path) and
                     Path(t.file_path).name.lower() == 'makefile'):
-                apply_makefile_sensors(t.file_path)
-        apply_go_sensors()  # resolve Go module deps before each build attempt
+                apply_makefile_reflexes(t.file_path)
+        apply_go_reflexes()  # resolve Go module deps before each build attempt
 
     return sess.repair_loop(model, goal, _REPAIR_MAX_ITERS, float(writer_timeout),
                             run_test, reapply, _repair_context(p), _syntax_check)
@@ -1092,14 +1113,16 @@ def _run_mitigation_pass(model: str, p: Plan, challenges: str, goal: str) -> Non
     challenge_context = (f"\n\n## Challenges from previous run\n{challenges}\n\n"
                          "Address these challenges as you repair.")
     auto_system = _build_autonomous_system(project_dir) + challenge_context
-    if _run_test_repair_loop(model, test_cmd, mit_log, p, auto_system, writer_timeout, goal):
+    ok, _ = _run_test_repair_loop(model, test_cmd, mit_log, p, auto_system, writer_timeout, goal)
+    if ok:
         log("Mitigation pass: challenges resolved.")
     else:
         log("Mitigation pass: could not fully resolve challenges — proceeding anyway.")
 
 
 def _final_test_gate(model: str, p: Optional[Plan], autonomous_system: str,
-                     writer_timeout: int, goal: str) -> Optional[str]:
+                     writer_timeout: int, goal: str) -> tuple[Optional[str], int]:
+    """Run the final test gate with repair loop; return (error_msg_or_None, repair_iters)."""
     test_cmd = (p.test_command if p else '') or ''
     if not test_cmd:
         # Planner sometimes omits '## Test Command' (e.g. wraps output in code
@@ -1112,14 +1135,15 @@ def _final_test_gate(model: str, p: Optional[Plan], autonomous_system: str,
             log("No '## Test Command' — defaulting to: %s", test_cmd)
         else:
             log("No '## Test Command' and no test files — skipping final test gate.")
-            return None
+            return None, 0
     test_log = os.path.join(LOG_DIR, 'tests-final.log')
-    if _run_test_repair_loop(model, test_cmd, test_log, p, autonomous_system,
-                             writer_timeout, goal):
-        return None
+    ok, iters = _run_test_repair_loop(model, test_cmd, test_log, p, autonomous_system,
+                                      writer_timeout, goal)
+    if ok:
+        return None, iters
     record_failed_repair("final test gate: repair loop exhausted", _tail_file(test_log, 30))
     print("\n  Tests still failing after repair loop. Giving up.\n", flush=True)
-    return "final tests failed"
+    return "final tests failed", iters
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
