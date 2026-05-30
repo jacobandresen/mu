@@ -16,6 +16,7 @@ Stress-tests mu by driving a guest model through 7 fixed problems and recording 
 | p6 | Rust CLI printing first 10 Fibonacci numbers via cargo | moderate |
 | p7 | Flask REST API with SQLite, POST/GET /todos, pytest, Makefile | hard |
 | p8 | Node.js todo list CLI with JSON storage, Jest tests, Makefile | simple |
+| p9 | Vue 3 TypeScript todo webapp, Vite, Vitest, @vue/test-utils, Makefile | hard |
 
 ## Running
 

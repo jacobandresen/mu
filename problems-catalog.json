@@ -47,6 +47,12 @@
       "goal": "write a Node.js todo list manager that stores todos in a JSON file. Support add, list, and delete operations via a CLI. Include a test file using Jest. Provide a Makefile that installs dependencies with npm and runs the tests.",
       "toolchains": ["node"],
       "difficulty": "simple"
+    },
+    {
+      "id": "p9-vue-todo",
+      "goal": "write a Vue 3 TypeScript todo list web app. Use Vite as the build tool and Vitest for unit tests. The app should display a list of todos and allow adding new ones via a text input and button. Include a test file using @vue/test-utils that tests adding and displaying todos. Provide a Makefile that installs dependencies with npm and runs the tests.",
+      "toolchains": ["node"],
+      "difficulty": "hard"
     }
   ]
 }

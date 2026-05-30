@@ -722,6 +722,11 @@ def run(goal: str, model: str = '', target_dir: str = '',
             if _skill:
                 auto_system += '\n\n' + _skill
                 log("Loaded sdl2-writer skill.")
+        if _vue_relevant(goal, p):
+            _skill = _load_skill('vue-ts-env')
+            if _skill:
+                auto_system += '\n\n' + _skill
+                log("Loaded vue-ts-env skill.")
 
         for i in range(1, max_iter + 1):
             task = next_task(p)
@@ -1105,6 +1110,10 @@ def _load_repair_skills(p: Plan, goal: str = '') -> str:
         content = _load_skill('sdl2-writer')
         if content:
             parts.append(content)
+    if _vue_relevant(goal, p) and 'vue-ts-env' not in seen:
+        content = _load_skill('vue-ts-env')
+        if content:
+            parts.append(content)
     return '\n\n'.join(parts)
 
 
@@ -1348,6 +1357,14 @@ OFF-LIMITS:
 - No arbitrary network calls (curl, wget, fetch, http, etc.).
 - Only install packages explicitly listed in PLAN.md.
 - Never read from stdin unless the goal explicitly says "interactive"."""
+
+
+def _vue_relevant(goal: str, p: Plan) -> bool:
+    """True when the task involves Vue 3, so the vue-ts-env skill applies."""
+    if any(t.file_path.endswith('.vue') for t in p.tasks):
+        return True
+    blob = f"{goal}\n{p.test_command}".lower()
+    return 'vue' in blob
 
 
 def _makefile_relevant(goal: str, p: Plan) -> bool:
