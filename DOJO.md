@@ -32,10 +32,16 @@ Results are written to `~/.mu/sessions/` and cleaned from `dojo/` after each run
 
 **7/7** — qwen2.5-coder-7b-instruct, num_ctx=6000 (2026-05-30), p1–p7 only
 
-**6/10** — qwen2.5-coder-7b-instruct, num_ctx=6000 (2026-05-31), all 10 problems
+**6/10** — qwen2.5-coder-7b-instruct, num_ctx=6000 (2026-05-31), all 10 problems (2 confirmed runs)
 
-p9 newly passing (Vue 3 Vitest). p8 (Node todo) intermittent due to Jest testRegex.
-p7 (Flask) and p10 (dotnet+Vue blog) model-limited — see CHALLENGES.md items 29–30.
+- p1–p5: consistently pass
+- p6: stochastic (passes ~50% of runs; Rust module reference error)
+- p7: model-limited (flask_sqlalchemy instead of sqlite3; oscillates in repair)
+- p8: intermittent (Jest naming convention; fix_jest_no_tests_found reflex helps)
+- p9: stochastic (Vue Vitest; passes ~50% of runs; writer context or test structure)
+- p10: model-limited + context overflow (multi-project .NET structure; needs larger context)
+
+See CHALLENGES.md items 25–31.
 
 Open challenges tracked in [CHALLENGES.md](CHALLENGES.md).
 
