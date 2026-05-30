@@ -1,39 +1,36 @@
 # Dojo
 
-The dojo stress-tests **mu** by driving a guest model through a fixed problem set
-(P1–P7) and recording where the autonomous loop breaks. Problem prompts live in
-[PRACTICE.md](docs/PRACTICE.md); model selection and tuning in [MODELS.md](docs/MODELS.md)
-and [TUNING.md](docs/TUNING.md).
+Stress-tests mu by driving a guest model through 7 fixed problems and recording where the autonomous loop breaks.
 
-> **Honest-harness principle.** Fixes must be *language-class generic*, never
-> pattern-matched to one dojo problem. A sensor that rewrites "SDL3→SDL2" or
-> injects a known `.csproj` measures the harness author's knowledge of the test,
-> not the agent. The Go-era sensor zoo (v0.3–v0.6) was deleted for this reason.
-> Every fix below uses a real oracle — the compiler, the package manager, the
-> SDK — to name the problem, so it generalises beyond P1–P7.
+> **Honest-harness rule.** Reflexes must fix a *general class* of model error, never a specific dojo problem. A fixer that pattern-matches one problem's output measures the author's knowledge of the test, not the agent.
 
----
+## Problems
 
-## Dojo runs
+| ID | Goal | Difficulty |
+|----|------|------------|
+| p1 | Write a hello world in C, compile with clang | trivial |
+| p2 | Python todo list manager with SQLite and pytest | simple |
+| p3 | Render a line via SDL2, sdl2-config in Makefile | moderate |
+| p4 | Fibonacci in C#, compile with dotnet | moderate |
+| p5 | Go HTTP server with Gin, GET /ping returns JSON | moderate |
+| p6 | Rust CLI printing first 10 Fibonacci numbers via cargo | moderate |
+| p7 | Flask REST API with SQLite, POST/GET /todos, pytest, Makefile | hard |
 
-Result from the latest dojo runs are stored in the `dojo/` directory. 
+## Running
 
-They are not committed git. The results will be cleaned before each run.
+```sh
+bash sit.sh           # all 7 problems, shuffled
+bash sit.sh p3-sdl2   # single problem
+```
 
----
+Results are written to `~/.mu/sessions/` and cleaned from `dojo/` after each run.
 
-## Top challenge 
+## Current baseline
 
-The top challenge from the latest run will be noted in this file.
-(Where to push next)
+**7/7** — qwen2.5-coder-7b-instruct, num_ctx=6000 (2026-05-30)
 
----
+Open challenges tracked in [CHALLENGES.md](CHALLENGES.md).
 
-<a id="where-to-push-next"></a>
-## Where to push next
+## Model / tuning
 
-
-
-
-
-
+See [docs/MODELS.md](docs/MODELS.md) and [docs/TUNING.md](docs/TUNING.md).

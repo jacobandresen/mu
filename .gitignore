@@ -17,3 +17,4 @@ tmp_main.rs
 # Ephemeral practice-loop and Claude harness state
 .claude/
 dojo-failures.md
+practice_output.txt

@@ -60,28 +60,16 @@ Run `mu check` to verify which tools are installed before running the agent.
 
 ## Python dependencies
 
-All Python dependencies are declared in `pyproject.toml` and installed into the mu venv — **never into the system Python**. When installed via pip or pipx, the dependencies resolve automatically:
-
-```sh
-pip install mu           # installs all deps into the active venv
-# or
-pipx install mu          # pipx creates an isolated venv automatically
-```
-
-Dependencies: `lmstudio`, `httpx`, `inquirerpy`, `pyflakes`, `autoflake`. All are pure-Python; no compiler is needed for the Python layer.
-
-mu uses the [LM Studio Python SDK](https://lmstudio.ai/docs/sdk) for model management (listing and loading models) and `httpx` for the OpenAI-compatible chat API. The model/theme pickers use `InquirerPy` (a pure-Python `fzf` replacement), and Python linting/autofix use `pyflakes` + `autoflake` instead of shelling out to `ruff`.
+Declared in `pyproject.toml`; installed automatically by pip or pipx. Dependencies: `lmstudio`, `httpx`, `inquirerpy`, `pyflakes`, `autoflake`. All pure-Python.
 
 ### Optional: plan lint (spaCy)
 
-An opt-in planning aid. `mu lint` runs deterministic checks over a `PLAN.md` — cross-task entity inconsistency, vague verbs, dangling pronouns, underspecified tasks — and prints warnings; no LLM is involved. When `MU_LINT_PLAN=1` is set, the planner feeds these warnings back to the model for one revision pass before writing files.
+`mu lint` runs deterministic checks over `PLAN.md` (entity consistency, vague verbs, underspecified tasks) with no LLM. When `MU_LINT_PLAN=1`, warnings are fed back to the planner for one revision pass.
 
 ```sh
-pip3 install 'mu[lint]'                  # installs spaCy
-python3 -m spacy download en_core_web_sm # one-time model download
+pip3 install 'mu[lint]'
+python3 -m spacy download en_core_web_sm
 ```
-
-spaCy is **optional** and lazy-imported: the entity, pronoun, and length checks run without it; only the vague-verb check uses spaCy's dependency parser (falling back to a regex heuristic when the model is absent). With `MU_LINT_PLAN` unset, the planner path never imports it.
 
 ## Recommended models
 
@@ -143,19 +131,19 @@ pip3 install --break-system-packages -e .
 ```
 src/mu/                Python package
   __init__.py          __version__
-  __main__.py          CLI (argparse) + all commands
+  __main__.py          CLI (argparse) and all commands
   agent.py             autonomous orchestration loop
   archive.py           session tombstones (~/.mu/sessions/)
   client.py            LM Studio HTTP client
   plan.py              PLAN.md parsing and manipulation
-  sensors.py           deterministic code fixers
+  reflexes.py          deterministic post-write fixers
   session.py           writer loop and repair loop
-  tools.py             tool definitions (Write/Edit/Bash/Read)
+  tools.py             tool definitions (Write/Edit/Read)
 models-catalog.json    curated model specs (read by mu model picker)
 skills/                skill prompts injected into the planner
-  python-env/SKILL.md  Python venv + pytest rules
-  task-planner/SKILL.md  PLAN.md structure rules
-dojo/                  stress-test harness
+  python-env/          Python venv + pytest rules
+  task-planner/        PLAN.md structure rules
+dojo/                  stress-test harness (gitignored)
 ```
 
 ## Practice
