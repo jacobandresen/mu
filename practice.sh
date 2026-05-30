@@ -12,10 +12,17 @@
 # Usage:
 #   ./practice.sh                          # 100 rounds, default behaviour
 #   ROUNDS=10 ./practice.sh
-#   STOP_AFTER_BARREN=3 ./practice.sh      # bail after N rounds with zero successes
-#   ROUND_TIMEOUT=900 ./practice.sh        # kill any single round that exceeds this many seconds
+#   STOP_AFTER_BARREN=3 ./practice.sh      # bail after N rounds with zero successes (default 5)
+#   ROUND_TIMEOUT=900 ./practice.sh        # kill any single round that exceeds this many seconds (default 1800)
 #   SKIP_PREFLIGHT=1 ./practice.sh         # skip the LM Studio reachability check
 #   SKIP_CLEAN=1 ./practice.sh             # keep dojo state between rounds (passes through to sit.sh)
+#   SKIP_REFLECT=1 ./practice.sh           # skip the post-round reflect step
+#   SKIP_AUTOCOMMIT=1 ./practice.sh        # skip auto-committing CHALLENGES.md after reflect
+#   REFLECT_LIMIT=5 ./practice.sh          # max lessons written per reflect call (default 10)
+#   DOJO_DIGEST=my.md ./practice.sh        # path for the per-round failure digest (default dojo-failures.md)
+#   MU_AGENT_ARCHIVE_DIR=~/.mu/s ./practice.sh  # session archive dir (default ~/.mu/sessions)
+#   MU_LMSTUDIO_HOST=http://host:1234 ./practice.sh  # LM Studio base URL for preflight check
+#   PRACTICE_LOCK=/tmp/my.lock ./practice.sh     # override the single-instance lock file path
 
 set -uo pipefail
 
@@ -30,13 +37,12 @@ ROUND_TIMEOUT=${ROUND_TIMEOUT:-1800}
 LMSTUDIO_HOST=${MU_LMSTUDIO_HOST:-http://localhost:1234}
 
 export MU_ENRICH_LESSONS=1
+# Extend PATH with common tool install locations that may not be in the shell's
+# default PATH (e.g. dotnet on macOS, Homebrew on Apple Silicon, Cargo).
+# Directories that don't exist are ignored by the shell.
+export PATH="/usr/local/share/dotnet:$HOME/.dotnet:$HOME/.cargo/bin:/opt/homebrew/bin:$PATH"
 
 MU_CMD="mu"
-
-if ! command -v pi >/dev/null 2>&1; then
-  echo "What is reality? look at pi.dev and return back"
-  exit 1
-fi
 
 if [ ! -x ./sit.sh ]; then
   echo "practice.sh: ./sit.sh not found or not executable" >&2
@@ -74,7 +80,9 @@ echo "What is reality?"
 
 # Marker file used to find sessions finalized within the current round.
 marker=$(mktemp /tmp/practice-mark.XXXXXX)
-trap 'rm -f "$marker"' EXIT
+failure_lines=''
+failed_ids=''
+trap 'rm -f "$marker" ${failure_lines:+$failure_lines} ${failed_ids:+$failed_ids}' EXIT
 
 # Seed the digest header if missing.
 if [ ! -f "$DIGEST" ]; then
@@ -90,8 +98,10 @@ EOF
 fi
 
 barren_rounds=0
+empty_rounds=0
 total_ok=0
 total_fail=0
+practice_start=$(date +%s)
 
 for round in $(seq 1 "$ROUNDS"); do
   round_start=$(date +%s)
@@ -167,28 +177,34 @@ for round in $(seq 1 "$ROUNDS"); do
     fi
   fi
 
-  # Empty rounds (zero sessions finalized at all) mean sit.sh aborted
-  # before any problem completed — usually LM Studio went away mid-round
-  # or `timeout` fired. Count them as barren; two in a row is a hard stop.
-  if [ "$successes" -eq 0 ] && [ "$failures" -eq 0 ]; then
+  # Track consecutive no-success rounds and consecutive empty rounds separately.
+  # empty_rounds counts only truly empty rounds (no sessions at all — usually
+  # LM Studio died or timeout fired); barren_rounds counts all no-success rounds
+  # including empty ones. Both are reset on any success.
+  if [ "$successes" -gt 0 ]; then
+    barren_rounds=0
+    empty_rounds=0
+  else
     barren_rounds=$((barren_rounds + 1))
-    echo "round $round: empty (no sessions finalized) — counted as barren"
-    if [ "$barren_rounds" -ge 2 ]; then
-      echo "two empty rounds in a row — bailing"
-      break
+    if [ "$failures" -eq 0 ]; then
+      empty_rounds=$((empty_rounds + 1))
+      echo "round $round: empty (no sessions finalized) — counted as barren"
+      if [ "$empty_rounds" -ge 2 ]; then
+        echo "two empty rounds in a row — bailing"
+        break
+      fi
+    else
+      empty_rounds=0
     fi
-  elif [ "$successes" -eq 0 ] && [ "$failures" -gt 0 ]; then
-    barren_rounds=$((barren_rounds + 1))
     if [ "$barren_rounds" -ge "$STOP_AFTER_BARREN" ]; then
       echo "no successes for $barren_rounds rounds — bailing out so a human can look"
       break
     fi
-  else
-    barren_rounds=0
   fi
 
   echo "mu!..."
 done
 
-printf '\npractice complete: %d ok / %d fail across %d round(s). Digest: %s\n' \
-  "$total_ok" "$total_fail" "$round" "$DIGEST"
+total_elapsed=$(( $(date +%s) - practice_start ))
+printf '\npractice complete: %d ok / %d fail across %d round(s) in %ds. Digest: %s\n' \
+  "$total_ok" "$total_fail" "$round" "$total_elapsed" "$DIGEST"

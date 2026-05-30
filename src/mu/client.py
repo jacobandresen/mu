@@ -7,6 +7,10 @@ from dataclasses import dataclass
 from typing import Optional
 
 LMS_HOST = os.environ.get("MU_LMSTUDIO_HOST", "http://localhost:1234")
+# Context window sent per-request so the API setting overrides whatever LM Studio
+# UI value is loaded. Default 6000: fits Q4_K_M + system overhead on M2 8 GB
+# without triggering swap (8192 causes 6x slowdown per TUNING.md).
+_NUM_CTX = int(os.environ.get("MU_NUM_CTX", "6000"))
 
 
 @dataclass
@@ -334,6 +338,9 @@ def chat(model: str, messages: list[dict], tools: Optional[list[dict]],
         # prefix across requests (default-on upstream; sent explicitly here, and
         # ignored harmlessly by endpoints that don't recognize it).
         'cache_prompt': True,
+        # Override the LM Studio UI context setting so the right value is used
+        # regardless of what was set when the model was loaded.
+        'num_ctx': _NUM_CTX,
     }
     if tools:
         body['tools'] = tools

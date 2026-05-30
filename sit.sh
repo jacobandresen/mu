@@ -10,6 +10,8 @@
 
 set -euo pipefail
 
+export PATH="/usr/local/share/dotnet:$HOME/.dotnet:$HOME/.cargo/bin:/opt/homebrew/bin:$PATH"
+
 if [[ $# -gt 1 ]]; then
   echo "Usage: $0 [problem-id]"
   exit 1

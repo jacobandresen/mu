@@ -4,6 +4,7 @@ description: Python repair diagnostics — map common error messages to targeted
 ---
 
 - `NameError: name 'X' is not defined` — add `from module import X` or `import module` at the top of the file where X is used. If the error is in a module imported by the test file, fix the module, not the test.
+- `undefined name 'X'` in a test file — `X` is defined in the implementation but not imported into the test. Add `from module import X` at the top of the test file, where `module` is the filename (without `.py`) that defines `X`. Example: if `app.py` defines `db`, add `from app import db` to the test.
 - `ERROR collecting test_*.py` — an import or NameError in the traceback prevents collection; trace to the root file (not the test file) and fix the missing import or initialization there first.
 - `assert len(items) == N` fails with a much larger count — a persistent SQLite file is accumulating rows across test runs. Rewrite the test to use `sqlite3.connect(":memory:")` or truncate the table in setup.
 - `Address already in use` (Flask/uvicorn) — the test command starts a live server. Rewrite tests to use `app.test_client()` so no port is needed.

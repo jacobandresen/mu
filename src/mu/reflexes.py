@@ -19,6 +19,9 @@ from pathlib import Path
 _TARGET_RE = re.compile(r'(?m)^[a-zA-Z_.][a-zA-Z0-9._-]*\s*:')
 _KNOWN_TARGETS = {'all', 'clean', 'install', 'test', 'build', 'run', 'format',
                   'lint', 'check', 'release', 'debug', 'help'}
+_INLINE_COMPILER_RE = re.compile(
+    r'^(?:cc|clang|gcc|g\+\+|clang\+\+|go|cargo|dotnet|python3?|rustc|make)\b'
+)
 
 
 # ── Python reflexes ───────────────────────────────────────────────────────────
@@ -158,10 +161,243 @@ def py_autofix(file_path: str) -> bool:
     return True
 
 
+_PY_STDLIB_IMPORTS = {
+    'sqlite3': 'import sqlite3',
+    'json': 'import json',
+    'os': 'import os',
+    'sys': 'import sys',
+    're': 'import re',
+    'math': 'import math',
+    'random': 'import random',
+    'datetime': 'from datetime import datetime',
+    'threading': 'import threading',
+    'subprocess': 'import subprocess',
+    'pathlib': 'from pathlib import Path',
+    'collections': 'import collections',
+    'itertools': 'import itertools',
+    'functools': 'import functools',
+    'typing': 'from typing import List, Dict, Optional',
+    'dataclasses': 'from dataclasses import dataclass',
+    'abc': 'from abc import ABC, abstractmethod',
+    'uuid': 'import uuid',
+    'hashlib': 'import hashlib',
+    'base64': 'import base64',
+    'copy': 'import copy',
+    'time': 'import time',
+    'logging': 'import logging',
+}
+
+
+def fix_c_sdl_header(file_path: str) -> bool:
+    """Fix wrong SDL2 include path in C files.
+
+    `#include <SDL.h>` does not exist on macOS/Linux SDL2 installs — the
+    correct header is `#include <SDL2/SDL.h>`. Also fixes SDL_image, SDL_ttf etc.
+    General: applies to any C/C++ file using SDL2.
+    """
+    if not file_path.lower().endswith(('.c', '.cpp', '.cc', '.h')):
+        return False
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+    # Fix <SDL.h> → <SDL2/SDL.h>, <SDL_image.h> → <SDL2/SDL_image.h>, etc.
+    pattern = re.compile(r'#include\s*<(SDL[^2/][^>]*)>')
+    new_text, count = pattern.subn(r'#include <SDL2/\1>', text)
+    if not count:
+        return False
+    Path(file_path).write_text(new_text)
+    print(f"==> [mu-agent] Reflex: fixed SDL include path(s) in {file_path}")
+    return True
+
+
+def fix_python_missing_project_imports(file_path: str) -> bool:
+    """Add missing imports for project-local names used but not imported in test files.
+
+    Test files often use `app`, `db`, `client` and similar objects defined in
+    the implementation module (app.py, models.py) without importing them. This
+    reflex detects usage of names that match symbols exported by sibling .py files
+    and adds the missing import.
+    General: uses file existence and name matching, not problem-specific patterns.
+    """
+    if not file_path.lower().endswith('.py'):
+        return False
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+    # Only act on test files
+    name = Path(file_path).stem
+    if not name.startswith('test_'):
+        return False
+    # Find sibling .py files (same directory)
+    parent = Path(file_path).parent
+    sibling_modules = [p.stem for p in parent.glob('*.py')
+                       if p.stem != name and not p.stem.startswith('test_')]
+    if not sibling_modules:
+        return False
+    # Look for bare names used that aren't imported and exist as sibling module names
+    # Common pattern: `app.test_client()` or `with app.app_context()` → needs `from app import app`
+    to_add = []
+    for mod in sibling_modules:
+        # Check if mod name is used as identifier but not imported from anywhere
+        used = bool(re.search(rf'\b{re.escape(mod)}\b', text))
+        imported = bool(re.search(rf'(?:import {re.escape(mod)}\b|from {re.escape(mod)}\b)', text))
+        if used and not imported:
+            to_add.append(f'from {mod} import {mod}')
+    if not to_add:
+        return False
+    lines = text.splitlines()
+    insert_at = 0
+    for i, line in enumerate(lines):
+        if line.startswith(('import ', 'from ')):
+            insert_at = i + 1
+        elif line and not line.startswith('#') and insert_at > 0:
+            break
+    for stmt in reversed(to_add):
+        lines.insert(insert_at, stmt)
+    Path(file_path).write_text('\n'.join(lines) + '\n')
+    print(f"==> [mu-agent] Reflex: added {len(to_add)} missing project import(s) to {file_path}: {to_add}")
+    return True
+
+
+def fix_python_missing_stdlib_imports(file_path: str) -> bool:
+    """Add missing stdlib imports for identifiers used but not imported.
+
+    Scans for `name.` or `name(` usage patterns that require a stdlib import
+    and adds the import if it's absent. General: applies to any Python file,
+    not specific to any problem domain.
+    """
+    if not file_path.lower().endswith('.py'):
+        return False
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+    to_add = []
+    for name, stmt in _PY_STDLIB_IMPORTS.items():
+        already = re.search(rf'^(?:import {name}|from {name}\b)', text, re.MULTILINE)
+        if already:
+            continue
+        if re.search(rf'\b{name}[\.(]', text):
+            to_add.append(stmt)
+    if not to_add:
+        return False
+    lines = text.splitlines()
+    insert_at = 0
+    for i, line in enumerate(lines):
+        if line.startswith(('import ', 'from ')):
+            insert_at = i + 1
+        elif line and not line.startswith('#') and insert_at > 0:
+            break
+    for stmt in reversed(to_add):
+        lines.insert(insert_at, stmt)
+    Path(file_path).write_text('\n'.join(lines) + '\n')
+    print(f"==> [mu-agent] Reflex: added {len(to_add)} missing stdlib import(s) to {file_path}: {to_add}")
+    return True
+
+
+def fix_csharp_missing_braces(file_path: str) -> bool:
+    """Append missing closing braces to C# files with unbalanced brace counts.
+
+    CS1513 '} expected' means the file has more `{` than `}`. This reflex counts
+    braces (ignoring strings and comments) and appends the missing `}` characters.
+    General: applies to any C# file, not specific to any program.
+    """
+    if not file_path.lower().endswith('.cs'):
+        return False
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+    # Count braces outside strings and single-line comments
+    depth = 0
+    i = 0
+    while i < len(text):
+        c = text[i]
+        if c == '/' and i + 1 < len(text) and text[i + 1] == '/':
+            # Single-line comment — skip to end of line
+            while i < len(text) and text[i] != '\n':
+                i += 1
+            continue
+        if c == '"':
+            i += 1
+            while i < len(text):
+                if text[i] == '\\':
+                    i += 2
+                    continue
+                if text[i] == '"':
+                    break
+                i += 1
+        elif c == '{':
+            depth += 1
+        elif c == '}':
+            depth -= 1
+        i += 1
+    if depth <= 0:
+        return False
+    Path(file_path).write_text(text.rstrip() + '\n' + '}\n' * depth)
+    print(f"==> [mu-agent] Reflex: added {depth} missing closing brace(s) to {file_path}")
+    return True
+
+
+def fix_python_decorator_colon(file_path: str) -> bool:
+    """Remove spurious trailing colon from Python decorator lines.
+
+    Models occasionally write `@decorator(...):` which is a SyntaxError —
+    decorators must not end with a colon (the colon belongs on the def/class
+    line below, not the decorator). This is a general error on any decorator,
+    not specific to Flask.
+    """
+    if not file_path.lower().endswith('.py'):
+        return False
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+    pattern = re.compile(r'^(@\w[\w.]*\(.*\))\s*:\s*$', re.MULTILINE)
+    new_text, count = pattern.subn(r'\1', text)
+    if not count:
+        return False
+    Path(file_path).write_text(new_text)
+    print(f"==> [mu-agent] Reflex: removed {count} spurious colon(s) from decorator(s) in {file_path}")
+    return True
+
+
+def fix_python_literal_newlines(file_path: str) -> bool:
+    """Replace literal \\n escape sequences with real newlines in Python files.
+
+    Models occasionally write an entire file as one long string with \\n
+    characters instead of actual line breaks, causing an immediate SyntaxError
+    on the continuation character. Only applied when the file has very few real
+    newlines but many literal \\n sequences.
+    """
+    if not file_path.lower().endswith('.py'):
+        return False
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+    real_newlines = text.count('\n')
+    literal_newlines = text.count('\\n')
+    if literal_newlines < 3 or literal_newlines <= real_newlines:
+        return False
+    fixed = text.replace('\\n', '\n')
+    Path(file_path).write_text(fixed)
+    print(f"==> [mu-agent] Reflex: replaced {literal_newlines} literal \\n with real newlines in {file_path}")
+    return True
+
+
 # ── Makefile reflexes ─────────────────────────────────────────────────────────
 
 def fix_makefile_space_indent(f: str) -> bool:
-    """Convert space-indented recipe lines to tab-indented."""
+    """Fix recipe lines that are not tab-indented.
+
+    Covers two cases:
+    - Space-indented recipes (leading spaces → TAB).
+    - Flush-left recipes (no leading whitespace after a target line → TAB added).
+    Both produce "missing separator" from make.
+    """
     try:
         content = Path(f).read_text()
     except OSError:
@@ -182,6 +418,10 @@ def fix_makefile_space_indent(f: str) -> bool:
             out.append(line)
         elif in_recipe and line and line[0] == ' ':
             out.append('\t' + line.lstrip(' '))
+            changed = True
+        elif in_recipe and line and line[0] not in ('\t', '#') and not _TARGET_RE.match(line):
+            # Flush-left command after a target — missing tab entirely.
+            out.append('\t' + line)
             changed = True
         else:
             in_recipe = False
@@ -264,7 +504,9 @@ def fix_inline_recipe(f: str) -> bool:
             colon = trimmed.find(':')
             if colon > 0 and colon < len(trimmed) - 1:
                 target, after = trimmed[:colon].strip(), trimmed[colon + 1:].strip()
-                if target in _KNOWN_TARGETS and ' ' in after and not after.startswith('='):
+                is_known = target in _KNOWN_TARGETS
+                is_compiler = _INLINE_COMPILER_RE.match(after)
+                if (is_known or is_compiler) and ' ' in after and not after.startswith('='):
                     out.extend([target + ':', '\t' + after])
                     changed = True
                     continue
@@ -275,7 +517,7 @@ def fix_inline_recipe(f: str) -> bool:
     return True
 
 
-_NESTED_TARGET_RE = re.compile(r'^\t([A-Za-z0-9_.-]+):[ \t]*$')
+_NESTED_TARGET_RE = re.compile(r'^\t([A-Za-z0-9_.-]+):([ \t].*)?$')
 
 
 def fix_nested_targets(f: str) -> bool:
@@ -303,7 +545,9 @@ def fix_nested_targets(f: str) -> bool:
         m = _NESTED_TARGET_RE.match(line)
         if m:
             name = m.group(1)
-            recipe: list[str] = [name + ':']
+            deps = m.group(2).strip() if m.group(2) else ''
+            header = (name + ': ' + deps) if deps else (name + ':')
+            recipe: list[str] = [header]
             i += 1
             seen_cmds: set[str] = set()
             while i < len(lines):
@@ -327,11 +571,18 @@ def fix_nested_targets(f: str) -> bool:
     if not extracted:
         return False
 
-    for block in extracted:
-        out.append('')
-        out.extend(block)
+    # If all: has no prerequisites, add the hoisted target names as deps
+    # so `make` actually builds them.
+    hoisted_names = [block[0].split(':')[0].strip() for block in extracted]
+    all_re = re.compile(r'^(all\s*:)\s*$', re.MULTILINE)
+    joined = '\n'.join(out)
+    if hoisted_names:
+        joined = all_re.sub(r'all: ' + ' '.join(hoisted_names), joined, count=1)
 
-    Path(f).write_text('\n'.join(out))
+    for block in extracted:
+        joined += '\n\n' + '\n'.join(block)
+
+    Path(f).write_text(joined + '\n')
     return True
 
 
@@ -513,9 +764,37 @@ def fix_go_unused_imports() -> bool:
 
 _UNDEF_RE = re.compile(r'(?:vet: )?\./([\w/.-]+\.go):\d+:\d+: undefined: (\w+)')
 
+# stdlib packages whose package name doesn't equal the last path segment, or
+# that models commonly omit. Keyed by the identifier used in source.
+_STDLIB_IMPORTS: dict[str, str] = {
+    'httptest':  'net/http/httptest',
+    'http':      'net/http',
+    'url':       'net/url',
+    'json':      'encoding/json',
+    'rand':      'math/rand',
+    'filepath':  'path/filepath',
+    'ioutil':    'io/ioutil',
+    'bufio':     'bufio',
+    'context':   'context',
+    'errors':    'errors',
+    'fmt':       'fmt',
+    'io':        'io',
+    'log':       'log',
+    'math':      'math',
+    'os':        'os',
+    'sort':      'sort',
+    'strconv':   'strconv',
+    'strings':   'strings',
+    'sync':      'sync',
+    'time':      'time',
+}
+
 
 def fix_go_missing_pkg_imports() -> bool:
-    """Add imports to Go files for identifiers that are undefined but in go.mod.
+    """Add imports to Go files for identifiers that are undefined but resolvable.
+
+    Covers two sources: packages in go.mod (third-party) and a table of
+    commonly omitted stdlib packages (e.g. httptest → net/http/httptest).
 
     When ``go build`` reports ``undefined: X`` and go.mod requires a module
     whose last path component is X, the import was simply omitted from that
@@ -550,8 +829,11 @@ def fix_go_missing_pkg_imports() -> bool:
         if not fp.exists():
             continue
         src = fp.read_text()
-        to_add = [pkg_map[i] for i in idents
-                  if i in pkg_map and f'"{pkg_map[i]}"' not in src]
+        to_add = []
+        for i in idents:
+            imp = pkg_map.get(i) or _STDLIB_IMPORTS.get(i)
+            if imp and f'"{imp}"' not in src:
+                to_add.append(imp)
         if not to_add:
             continue
         lines = src.splitlines()
@@ -614,6 +896,74 @@ def fix_python_venv_cmd(f: str) -> bool:
     if new_content == content:
         return False
     Path(f).write_text(new_content)
+    return True
+
+
+def fix_makefile_bare_pytest(f: str) -> bool:
+    """Replace bare 'pytest' with '.venv/bin/pytest' in Makefile recipes that use a venv.
+
+    When a Makefile creates a .venv for the project, test recipes must use
+    .venv/bin/pytest — bare 'pytest' uses the system pytest which lacks the
+    installed packages, producing ModuleNotFoundError at collection time.
+    Only rewrites when the Makefile already references .venv (install step
+    creates it), to avoid changing Makefiles that intentionally use system pytest.
+    """
+    try:
+        content = Path(f).read_text()
+    except OSError:
+        return False
+    if '.venv' not in content:
+        return False
+    pattern = re.compile(r'(?m)^(\t.*\b)pytest(\b)')
+    new_content = pattern.sub(r'\1.venv/bin/pytest\2', content)
+    if new_content == content:
+        return False
+    Path(f).write_text(new_content)
+    print(f"==> [mu-agent] Reflex: replaced bare pytest with .venv/bin/pytest in {f}")
+    return True
+
+
+def fix_makefile_pip_no_venv(f: str) -> bool:
+    """Rewrite Makefiles that do bare 'pip install' then bare 'pytest' to use a venv.
+
+    'pip install -r requirements.txt && pytest' installs packages into whichever
+    Python owns the current pip, but 'pytest' may use a different interpreter.
+    This produces ModuleNotFoundError at collection. The fix: replace the install
+    recipe with a .venv-based pattern and rewrite bare 'pytest' to '.venv/bin/pytest'.
+    Only fires when the Makefile has pip install AND bare pytest AND no venv yet.
+    """
+    try:
+        data = Path(f).read_text()
+    except OSError:
+        return False
+    has_pip = bool(re.search(r'(?m)^\t.*\bpip\b.*install\b', data))
+    has_bare_pytest = bool(re.search(r'(?m)^\t.*(?<!\/)pytest\b', data))
+    has_venv = '.venv' in data
+    if not (has_pip and has_bare_pytest) or has_venv:
+        return False
+
+    # Replace bare `pip` with `.venv/bin/pip` and bare `pytest` with `.venv/bin/pytest`
+    new_data = re.sub(r'(?m)^(\t.*)\bpip\b', r'\1.venv/bin/pip', data)
+    new_data = re.sub(r'(?m)^(\t.*)(?<!\/)pytest\b', r'\1.venv/bin/pytest', new_data)
+
+    # Insert venv creation before the first recipe that uses pip/pytest
+    req_file = 'requirements.txt' if Path(f).parent.joinpath('requirements.txt').exists() else ''
+    pip_install = (f'\t.venv/bin/pip install -r {req_file} pytest'
+                   if req_file else '\t.venv/bin/pip install pytest')
+    venv_block = f'\n.venv:\n\tpython3 -m venv .venv\n{pip_install}\n'
+
+    # Add .venv as prerequisite of targets that now reference .venv/bin/
+    top_re = re.compile(r'(?m)^([A-Za-z0-9_./-][A-Za-z0-9_./-]*)\s*:([^=\n]*)$')
+    def add_venv_dep(m):
+        name, prereqs = m.group(1), m.group(2).strip()
+        if name == '.venv':
+            return m.group(0)
+        return f'{name}: .venv {prereqs}'.rstrip()
+    new_data = top_re.sub(add_venv_dep, new_data)
+    new_data += venv_block
+
+    Path(f).write_text(new_data)
+    print(f"==> [mu-agent] Reflex: rewrote Makefile to use .venv in {f}")
     return True
 
 
@@ -685,9 +1035,233 @@ def fix_missing_venv_rule(f: str) -> bool:
     return True
 
 
+def fix_makefile_literal_tab_escape(f: str) -> bool:
+    """Remove/replace literal \\t escape sequences anywhere in Makefiles.
+
+    Models sometimes write \\t (backslash + t) thinking it means TAB.
+    In Makefiles \\t is not special — it's just two literal characters.
+
+    Three cases handled:
+    - Line starts with \\t: replace with real TAB (recipe indentation).
+    - \\t inside a variable value (line has '=' before the \\t): replace with space.
+    - \\t inside a tab-indented recipe line: replace with space.
+    """
+    try:
+        text = Path(f).read_text()
+    except OSError:
+        return False
+    if '\\t' not in text:
+        return False
+    lines = text.splitlines()
+    changed = False
+    out = []
+    for line in lines:
+        if line.startswith('\\t'):
+            out.append('\t' + line[2:])
+            changed = True
+        elif '\\t' in line:
+            new_line = line.replace('\\t', ' ')
+            out.append(new_line)
+            changed = True
+        else:
+            out.append(line)
+    if not changed:
+        return False
+    Path(f).write_text('\n'.join(out))
+    print(f"==> [mu-agent] Reflex: removed literal \\t escape(s) in {f}")
+    return True
+
+
+def fix_makefile_binary_name(f: str, test_cmd: str) -> bool:
+    """Rename the Makefile's output binary to match what the test command expects.
+
+    When the test command is `make && ./foo` but the Makefile builds `bar`, the
+    compiled binary exists but the test can't find it. This reflex renames the
+    Makefile target and -o flag to match the expected binary name.
+    General: applies to any compiled-language Makefile, not SDL2-specific.
+    """
+    if not test_cmd:
+        return False
+    try:
+        text = Path(f).read_text()
+    except OSError:
+        return False
+    # Extract expected binary from test command: `./name` or bare `name` after `make &&`
+    m = re.search(r'&&\s+\.?/?([\w.-]+)\s*$', test_cmd)
+    if not m:
+        return False
+    expected = m.group(1)
+    # Find the actual -o target in the Makefile
+    o_match = re.search(r'-o\s+([\w.-]+)', text)
+    if not o_match:
+        return False
+    actual = o_match.group(1)
+    if actual == expected:
+        return False
+    # Rename: replace all occurrences of the actual binary name as a whole word
+    new_text = re.sub(rf'\b{re.escape(actual)}\b', expected, text)
+    if new_text == text:
+        return False
+    Path(f).write_text(new_text)
+    print(f"==> [mu-agent] Reflex: renamed Makefile binary '{actual}' → '{expected}' in {f}")
+    return True
+
+
+def fix_makefile_wrong_c_compiler(f: str) -> bool:
+    """Replace bare 'c ' as compiler with 'cc ' in Makefile recipe lines.
+
+    Models occasionally write `c $(CFLAGS)` or `c -o binary main.c` where
+    `c` is not a valid compiler name (should be `cc` or `clang`). This only
+    fires when the recipe line starts with TAB + `c ` followed by typical
+    compile flags (-o, -I, -L, -l, $(CC), $(CFLAGS)).
+    """
+    try:
+        text = Path(f).read_text()
+    except OSError:
+        return False
+    pattern = re.compile(r'(?m)^(\t)c +(?=-[oILl]|\$\()')
+    new_text, count = pattern.subn(r'\1cc ', text)
+    if not count:
+        return False
+    Path(f).write_text(new_text)
+    print(f"==> [mu-agent] Reflex: replaced bare 'c' compiler with 'cc' in {f}")
+    return True
+
+
+def fix_makefile_double_colon_target(f: str) -> bool:
+    """Fix lines with two colons that make misreads as a static pattern rule.
+
+    `target pattern contains no '%'` means Make saw `A: B: C` and treated
+    B as a target pattern. This happens when a model writes the prerequisite
+    and recipe on the same target line separated by an extra colon:
+        hello_world: main.c: cc -o hello_world main.c
+    Fix: strip everything after the second colon and move it to the next line
+    as a tab-indented recipe.
+    """
+    try:
+        text = Path(f).read_text()
+    except OSError:
+        return False
+    lines = text.splitlines()
+    changed = False
+    out: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith('#') or line.startswith('\t'):
+            out.append(line)
+            continue
+        # Count colons outside of shell expansions $(...)
+        parts = stripped.split(':')
+        if len(parts) >= 3 and not stripped.startswith('.'):
+            target = parts[0].strip()
+            prereq = parts[1].strip()
+            recipe = ':'.join(parts[2:]).strip()
+            if recipe and not recipe.startswith('='):
+                out.append(f'{target}: {prereq}')
+                out.append(f'\t{recipe}')
+                changed = True
+                continue
+        out.append(line)
+    if not changed:
+        return False
+    Path(f).write_text('\n'.join(out))
+    print(f"==> [mu-agent] Reflex: fixed double-colon target line(s) in {f}")
+    return True
+
+
+def fix_makefile_missing_compile_rule(f: str) -> bool:
+    """Add a missing compile rule when all: depends on a binary with no build recipe.
+
+    Pattern: `all: hello_world` exists but no `hello_world:` target. This leaves
+    Make unable to build the binary. Adds a minimal `NAME: *.c` rule using the
+    source files present in the current directory.
+    General: applies to any C project missing a binary target, not hello-world-specific.
+    """
+    try:
+        text = Path(f).read_text()
+    except OSError:
+        return False
+    # Find all declared targets
+    declared = set(re.findall(r'^([A-Za-z0-9_.-]+)\s*:', text, re.MULTILINE))
+    # Find all: prerequisites that look like binary names (not source files, not .PHONY)
+    all_match = re.search(r'^all\s*:\s*(.+)$', text, re.MULTILINE)
+    if not all_match:
+        return False
+    prereqs = all_match.group(1).split()
+    missing_binaries = [p for p in prereqs
+                        if p not in declared and '.' not in p and not p.startswith('.')]
+    if not missing_binaries:
+        return False
+    # Find C source files to use as dependencies
+    c_sources = list(Path(f).parent.glob('*.c'))
+    src_dep = ' '.join(s.name for s in c_sources) if c_sources else 'main.c'
+    additions = []
+    for binary in missing_binaries:
+        additions.append(f'\n{binary}: {src_dep}')
+        additions.append(f'\tcc -o {binary} {src_dep} $(CFLAGS) $(LDFLAGS)')
+    if not additions:
+        return False
+    Path(f).write_text(text.rstrip() + '\n' + '\n'.join(additions) + '\n')
+    print(f"==> [mu-agent] Reflex: added missing compile rule(s) for {missing_binaries} in {f}")
+    return True
+
+
+def fix_makefile_sdl2_config_typo(f: str) -> bool:
+    """Fix common misspellings of sdl2-config in Makefiles.
+
+    Models occasionally write 'sdl2-cconfig', 'sdl2config', 'SDL2-config', etc.
+    The correct tool name is exactly 'sdl2-config'.
+    """
+    try:
+        text = Path(f).read_text()
+    except OSError:
+        return False
+    # Fix common typo variants
+    pattern = re.compile(r'\bsdl2-cconfig\b|\bsdl2config\b|\bSDL2-config\b|\bsdl2-Config\b', re.IGNORECASE)
+    new_text, count = pattern.subn('sdl2-config', text)
+    if not count:
+        return False
+    Path(f).write_text(new_text)
+    print(f"==> [mu-agent] Reflex: fixed sdl2-config typo in {f}")
+    return True
+
+
+def fix_config_tool_redundant_flag(f: str) -> bool:
+    """Remove redundant -L / -I flags that immediately precede a $(shell *-config ...)
+    expansion whose output already contains those flags.
+
+    A model commonly writes:
+        LDFLAGS = -L $(shell sdl2-config --libs)
+    which expands to "-L -L/opt/homebrew/lib -lSDL2", causing a bare "-L" with no
+    path and a linker failure. The correct form is just:
+        LDFLAGS = $(shell sdl2-config --libs)
+    This is a general error with any *-config or pkg-config invocation.
+    """
+    try:
+        text = Path(f).read_text()
+    except OSError:
+        return False
+    # Match: -L or -I (with optional space) immediately before $(shell ...-config
+    # or pkg-config invocation). Replace the whole match minus the flag.
+    pattern = re.compile(
+        r'(-[LI])\s+(\$\(shell\s+(?:pkg-config\b|[a-z0-9_-]+-config\b))',
+    )
+    new_text, count = pattern.subn(r'\2', text)
+    if not count:
+        return False
+    Path(f).write_text(new_text)
+    print(f"==> [mu-agent] Reflex: removed {count} redundant flag(s) before $(shell *-config) in {f}")
+    return True
+
+
 def apply_makefile_reflexes(f: str) -> None:
-    for fn in [fix_makefile_space_indent, fix_nested_targets,
+    for fn in [fix_makefile_literal_tab_escape, fix_makefile_wrong_c_compiler,
+               fix_makefile_sdl2_config_typo, fix_makefile_double_colon_target,
+               fix_makefile_space_indent, fix_nested_targets,
                fix_orphan_top_level_commands, fix_no_targets,
                fix_inline_recipe, fix_binary_target_runs_itself,
-               fix_duplicate_var, fix_python_venv_cmd, fix_missing_venv_rule]:
+               fix_makefile_missing_compile_rule,
+               fix_duplicate_var, fix_python_venv_cmd, fix_makefile_pip_no_venv,
+               fix_makefile_bare_pytest, fix_missing_venv_rule,
+               fix_config_tool_redundant_flag]:
         fn(f)

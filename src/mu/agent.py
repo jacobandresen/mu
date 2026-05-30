@@ -44,7 +44,12 @@ from mu.plan import (Plan, check_goal_alignment, clear_challenges,
                      repair_history, strip_thinking_artifacts, tasks_remaining,
                      write_sketches)
 from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
+                         fix_csharp_missing_braces,
+                         fix_makefile_binary_name,
                          fix_missing_close_paren, fix_multiline_single_quote,
+                         fix_python_decorator_colon, fix_python_literal_newlines,
+                         fix_python_missing_project_imports,
+                         fix_python_missing_stdlib_imports,
                          fix_test_import_module, py_autofix)
 from mu.session import Session
 
@@ -705,6 +710,11 @@ def run(goal: str, model: str = '', target_dir: str = '',
             if _skill:
                 auto_system += '\n\n' + _skill
                 log("Loaded go-writer skill.")
+        if re.search(r'(?i)\bSDL2?\b', goal):
+            _skill = _load_skill('sdl2-writer')
+            if _skill:
+                auto_system += '\n\n' + _skill
+                log("Loaded sdl2-writer skill.")
 
         for i in range(1, max_iter + 1):
             task = next_task(p)
@@ -752,7 +762,19 @@ def run(goal: str, model: str = '', target_dir: str = '',
             except OSError:
                 pass
 
+            if task.file_path.endswith('.cs'):
+                if fix_csharp_missing_braces(task.file_path):
+                    log("Fixed %s: added missing closing brace(s).", task.file_path)
+
             if task.file_path.endswith('.py'):
+                if fix_python_literal_newlines(task.file_path):
+                    log("Fixed %s: replaced literal \\n with real newlines.", task.file_path)
+                if fix_python_decorator_colon(task.file_path):
+                    log("Fixed %s: removed spurious colon from decorator.", task.file_path)
+                if fix_python_missing_project_imports(task.file_path):
+                    log("Fixed %s: added missing project imports.", task.file_path)
+                if fix_python_missing_stdlib_imports(task.file_path):
+                    log("Fixed %s: added missing stdlib imports.", task.file_path)
                 if fix_test_import_module(task.file_path):
                     log("Fixed %s: corrected import module name.", task.file_path)
 
@@ -763,6 +785,7 @@ def run(goal: str, model: str = '', target_dir: str = '',
             if (is_build_file(task.file_path) and
                     Path(task.file_path).name.lower() == 'makefile'):
                 apply_makefile_reflexes(task.file_path)
+                fix_makefile_binary_name(task.file_path, p.test_command or '')
                 log("Applied Makefile reflexes to %s.", task.file_path)
 
             lint_cmd = _lint_command(task.file_path, p)
@@ -1031,10 +1054,11 @@ _LANG_REPAIR_SKILL: dict[str, str] = {
     'C++': 'repair-c',
     'Go': 'repair-go',
     'Rust': 'repair-rust',
+    'C#': 'repair-csharp',
 }
 
 
-def _load_repair_skills(p: Plan) -> str:
+def _load_repair_skills(p: Plan, goal: str = '') -> str:
     """Return concatenated repair skills for all languages present in the plan."""
     langs = plan_languages(p)
     seen: set[str] = set()
@@ -1046,6 +1070,10 @@ def _load_repair_skills(p: Plan) -> str:
             content = _load_skill(skill_name)
             if content:
                 parts.append(content)
+    if re.search(r'(?i)\bSDL2?\b', goal) and 'sdl2-writer' not in seen:
+        content = _load_skill('sdl2-writer')
+        if content:
+            parts.append(content)
     return '\n\n'.join(parts)
 
 
@@ -1053,7 +1081,7 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
                           autonomous_system: str, writer_timeout: int, goal: str,
                           ) -> tuple[bool, int]:
     """Run the repair loop against the test gate; return (passed, repair_iters)."""
-    repair_skills = _load_repair_skills(p)
+    repair_skills = _load_repair_skills(p, goal)
     system = autonomous_system + ('\n\n' + repair_skills if repair_skills else '')
     sess = Session(system + '\n\n' + _REPAIR_LOOP_RULES)
     sess.tool_set = tools.REPAIR
@@ -1063,9 +1091,13 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
 
     def reapply() -> None:
         for t in p.tasks:
-            if (Path(t.file_path).exists() and is_build_file(t.file_path) and
-                    Path(t.file_path).name.lower() == 'makefile'):
+            if not Path(t.file_path).exists():
+                continue
+            if is_build_file(t.file_path) and Path(t.file_path).name.lower() == 'makefile':
                 apply_makefile_reflexes(t.file_path)
+                fix_makefile_binary_name(t.file_path, p.test_command or '')
+            elif t.file_path.endswith('.cs'):
+                fix_csharp_missing_braces(t.file_path)
         apply_go_reflexes()  # resolve Go module deps before each build attempt
 
     return sess.repair_loop(model, goal, _REPAIR_MAX_ITERS, float(writer_timeout),

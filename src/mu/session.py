@@ -8,6 +8,7 @@ budget is exhausted. The repair loop returns ``(passed, iters)`` so the caller
 can accumulate repair iterations into the session's ``Utility`` record.
 """
 
+import hashlib
 import time
 from pathlib import Path
 from typing import Callable, Optional
@@ -83,6 +84,7 @@ class Session:
                     ) -> tuple[bool, int]:
         tool_defs = self.tool_set if self.tool_set is not None else tools.REPAIR
         msgs: list[dict] = [{'role': 'system', 'content': self.system_prompt}]
+        seen_states: dict[str, set[str]] = {}  # path -> set of sha1 hashes of seen file contents
         print("  Repairing...")
 
         for i in range(max_iters):
@@ -106,13 +108,18 @@ class Session:
 
             deadline = time.time() + per_turn_timeout
             edited = False
+            connection_dead = False
             for t in range(3):
                 if time.time() >= deadline:
                     break
                 try:
                     msg, _ = chat_or_retry(model, msgs, tool_defs, deadline)
                 except Exception as e:
+                    err = str(e)
                     print(f"==> [mu-agent] Repair: {e}")
+                    if any(s in err for s in ('Connection refused', 'Connection reset',
+                                              'Server disconnected', 'ConnectionError')):
+                        connection_dead = True
                     break
                 msgs.append(msg)
                 if not msg.get('tool_calls'):
@@ -134,7 +141,25 @@ class Session:
                         except OSError:
                             snapshot = None
                         ok_before, _ = syntax_check(path)
+                    if name in ('Write', 'Edit') and path and Path(path).exists():
+                        try:
+                            seen_states.setdefault(path, set()).add(
+                                hashlib.sha1(Path(path).read_bytes()).hexdigest())
+                        except OSError:
+                            pass
                     result = tools.dispatch(name, raw_args)
+                    if name in ('Write', 'Edit') and path and Path(path).exists():
+                        try:
+                            digest = hashlib.sha1(Path(path).read_bytes()).hexdigest()
+                            if digest in seen_states.get(path, set()):
+                                result += (f"\nDUPLICATE: {path} is now identical to a state you "
+                                           f"already tried. This edit did not help before — make a "
+                                           f"different change.")
+                                print(f"==> [mu-agent] Repair: duplicate edit detected for {path}")
+                            else:
+                                seen_states.setdefault(path, set()).add(digest)
+                        except OSError:
+                            pass
                     if syntax_check and snapshot is not None and ok_before and path:
                         ok_after, serr = syntax_check(path)
                         if not ok_after:
@@ -149,6 +174,9 @@ class Session:
                     msgs.append({'role': 'tool', 'content': result,
                                  'tool_call_id': tc.get('id', '')})
                 edited = True
+                break
+            if connection_dead:
+                print(f"==> [mu-agent] Repair: connection lost — aborting repair loop.")
                 break
             if not edited:
                 print(f"==> [mu-agent] Repair iter {i + 1}: model produced no edit.")

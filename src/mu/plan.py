@@ -392,6 +392,73 @@ def ground_plan(plan_path: str, p: Plan) -> list[str]:
         text = _set_test_command(text, 'dotnet run')
         changes.append("rewrote Test Command to canonical 'dotnet run'")
 
+    # Level 2b — if test command uses 'make' but no Makefile is in the plan, add one.
+    has_makefile = any(Path(t.file_path).name.lower() == 'makefile' for t in p.tasks)
+    if not has_makefile and 'make' in p.test_command:
+        # Infer binary name from test command (e.g. 'make && ./hello_world' → 'hello_world')
+        bin_match = re.search(r'&&\s+\.?/?([\w.-]+)\s*$', p.test_command)
+        binary = bin_match.group(1) if bin_match else 'main'
+        # Find C source files in plan or default to main.c
+        c_sources = [t.file_path for t in p.tasks if t.file_path.endswith('.c')]
+        src = c_sources[0] if c_sources else 'main.c'
+        makefile_content = (
+            f'{binary}: {src}\n'
+            f'\tcc -o {binary} {src} $(CFLAGS) $(LDFLAGS)\n\n'
+            f'clean:\n\trm -f {binary}\n'
+        )
+        try:
+            if not Path('Makefile').exists():
+                Path('Makefile').write_text(makefile_content)
+            if '- [ ] Makefile' not in text and '- [x] Makefile' not in text:
+                text = text.replace(
+                    '## Files\n',
+                    '## Files\n- [x] Makefile — auto-grounded (test command uses make)\n', 1)
+            has_makefile = True
+            changes.append(f"added Makefile for '{binary}' (test command uses make)")
+        except OSError:
+            pass
+
+    # Level 4 — bare 'pytest' without an install step won't find third-party packages.
+    # If the plan has a Makefile and the goal mentions Flask/packages, the test command
+    # must run make first so the venv is created before pytest is invoked.
+    has_makefile = any(Path(t.file_path).name.lower() == 'makefile' for t in p.tasks)
+    has_py_test = any(is_test_file(t.file_path) for t in p.tasks)
+    has_py_src = any(Path(t.file_path).suffix == '.py' and not is_test_file(t.file_path)
+                     for t in p.tasks)
+    tc = p.test_command.strip()
+    _bare_pytest = re.compile(r'(?<![/\w])pytest\b')
+    # Level 4a — if no Makefile but there are Python src+test files, add a default Makefile.
+    if not has_makefile and has_py_test and has_py_src:
+        req_line = '\t.venv/bin/pip install -r requirements.txt pytest' \
+                   if any(Path(t.file_path).name == 'requirements.txt' for t in p.tasks) \
+                   else '\t.venv/bin/pip install flask pytest'
+        makefile_content = (
+            'install:\n'
+            '\tpython3 -m venv .venv\n'
+            f'{req_line}\n\n'
+            'test: install\n'
+            '\t.venv/bin/pytest\n'
+        )
+        try:
+            if not Path('Makefile').exists():
+                Path('Makefile').write_text(makefile_content)
+            if '- [ ] Makefile' not in text and '- [x] Makefile' not in text:
+                text = text.replace(
+                    '## Files\n',
+                    '## Files\n- [x] Makefile — auto-grounded (Python project needs venv)\n', 1)
+            has_makefile = True
+            changes.append("added Makefile for Python venv setup")
+        except OSError:
+            pass
+    # Level 4b — normalize bare/unvenv-ed pytest to use the venv.
+    if has_makefile and has_py_test and _bare_pytest.search(tc):
+        new_tc = _bare_pytest.sub('.venv/bin/pytest', tc)
+        if not new_tc.startswith('make'):
+            new_tc = 'make && ' + new_tc
+        if new_tc != tc:
+            text = _set_test_command(text, new_tc)
+            changes.append(f"normalized test command to use venv: {new_tc}")
+
     if text != data:
         Path(plan_path).write_text(text)
     return changes
