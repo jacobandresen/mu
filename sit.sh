@@ -53,8 +53,41 @@ get_goal() {
   esac
 }
 
+# ---------------------------------------------------------------------------
+# Toolchain requirements per problem. Returns 0 if all required tools are
+# present, 1 if any are missing.
+# ---------------------------------------------------------------------------
+problem_tools_available() {
+  case "$1" in
+    p1-helloworld) command -v clang >/dev/null ;;
+    p2-sqlite)     command -v python3 >/dev/null ;;
+    p3-sdl2)       command -v clang >/dev/null && command -v sdl2-config >/dev/null ;;
+    p4-fibonacci)  command -v dotnet >/dev/null ;;
+    p5-gin)        command -v go >/dev/null ;;
+    p6-rust)       command -v cargo >/dev/null ;;
+    p7-flask)      command -v python3 >/dev/null ;;
+    *)             return 0 ;;
+  esac
+}
+
 # List of all known problem identifiers (used when no specific problem is given).
-PROBLEMS=(p1-helloworld p2-sqlite p3-sdl2 p4-fibonacci p5-gin p6-rust p7-flask)
+ALL_PROBLEMS=(p1-helloworld p2-sqlite p3-sdl2 p4-fibonacci p5-gin p6-rust p7-flask)
+
+# Filter to problems whose toolchain is installed.
+PROBLEMS=()
+for _p in "${ALL_PROBLEMS[@]}"; do
+  if problem_tools_available "$_p"; then
+    PROBLEMS+=("$_p")
+  else
+    echo "Skipping $_p — required toolchain not installed."
+  fi
+done
+unset _p
+
+if [[ ${#PROBLEMS[@]} -eq 0 ]]; then
+  echo "No problems to run — install toolchains with: mu toolchain" >&2
+  exit 1
+fi
 
 # Shuffle the order so practice rounds don't always prime the model on p1's
 # failure mode first. Skip when SIT_NO_SHUFFLE=1 (useful for reproducible
@@ -96,6 +129,10 @@ if [[ -n "${PROBLEM_ID}" ]]; then
   # Run a single specified problem.
   if ! GOAL=$(get_goal "${PROBLEM_ID}"); then
     echo "Unknown problem ID: ${PROBLEM_ID}" >&2
+    exit 1
+  fi
+  if ! problem_tools_available "${PROBLEM_ID}"; then
+    echo "Cannot run ${PROBLEM_ID} — required toolchain not installed. Run: mu toolchain" >&2
     exit 1
   fi
   run_problem "${PROBLEM_ID}" "${GOAL}"
