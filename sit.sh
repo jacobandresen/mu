@@ -21,77 +21,79 @@ fi
 PROBLEM_ID="${1:-}" # optional; if empty run all problems
 
 # ---------------------------------------------------------------------------
-# Function that returns the goal string for a given problem identifier.
-# Returns success (0) if the problem is known, otherwise returns non‑zero.
+# Load problems from the catalog, filtering to those whose toolchains are
+# installed. Emits "ID|GOAL" lines for available problems, and prints a
+# skip notice for each unavailable one.
 # ---------------------------------------------------------------------------
-get_goal() {
-  case "$1" in
-  p1-helloworld)
-    echo "write a hello world program in C. Use clang to compile it and run it."
-    ;;
-  p2-sqlite)
-    echo "write a Python todo list manager that stores todos in a SQLite database. Support add, list, and delete operations. Include a test file using pytest."
-    ;;
-  p3-sdl2)
-    echo "render a line on screen via SDL2. Use sdl2-config in the Makefile to set up SDL2 libs."
-    ;;
-  p4-fibonacci)
-    echo "write the fibonacci sequence using C#. Use the dotnet command to compile C#."
-    ;;
-  p5-gin)
-    echo "write a Go HTTP server with a GET /ping endpoint that returns JSON {\"status\":\"ok\"}. Use the Gin framework. Include a Makefile."
-    ;;
-  p6-rust)
-    echo "write a Rust command-line program that prints the first 10 Fibonacci numbers. Use cargo to build and run."
-    ;;
-  p7-flask)
-    echo "write a Python REST API using Flask with a SQLite backend. Support POST /todos (body: JSON with a \"task\" field) and GET /todos (returns list of todos). Include a pytest test file that tests both endpoints. Provide a Makefile that installs dependencies with pip and runs pytest."
-    ;;
-  *)
-    return 1
-    ;;
-  esac
+CATALOG="${MU_PROBLEMS_CATALOG:-$(dirname "$0")/problems-catalog.json}"
+
+_load_available_problems() {
+  python3 - "$CATALOG" <<'PYEOF'
+import json, sys
+from pathlib import Path
+
+catalog_path = sys.argv[1]
+
+# Locate mu package relative to the catalog file (../src/mu).
+src = Path(catalog_path).resolve().parent / 'src'
+if str(src) not in sys.path:
+    sys.path.insert(0, str(src))
+
+from mu.toolchain import available as toolchains_available, load_problems_catalog
+
+try:
+    problems = load_problems_catalog(catalog_path)
+except Exception as e:
+    print(f"Cannot read catalog {catalog_path}: {e}", file=sys.stderr)
+    sys.exit(1)
+
+avail = toolchains_available()
+for p in problems:
+    missing = set(p.get('toolchains', [])) - avail
+    if missing:
+        print(f"Skipping {p['id']} — toolchain not installed: {', '.join(sorted(missing))}", file=sys.stderr)
+    else:
+        print(f"{p['id']}|{p['goal']}")
+PYEOF
 }
 
-# ---------------------------------------------------------------------------
-# Toolchain requirements per problem. Returns 0 if all required tools are
-# present, 1 if any are missing.
-# ---------------------------------------------------------------------------
-problem_tools_available() {
-  case "$1" in
-    p1-helloworld) command -v clang >/dev/null ;;
-    p2-sqlite)     command -v python3 >/dev/null ;;
-    p3-sdl2)       command -v clang >/dev/null && command -v sdl2-config >/dev/null ;;
-    p4-fibonacci)  command -v dotnet >/dev/null ;;
-    p5-gin)        command -v go >/dev/null ;;
-    p6-rust)       command -v cargo >/dev/null ;;
-    p7-flask)      command -v python3 >/dev/null ;;
-    *)             return 0 ;;
-  esac
-}
+# Build parallel arrays: PROBLEM_IDS and PROBLEM_GOALS
+PROBLEM_IDS=()
+PROBLEM_GOALS=()
+while IFS='|' read -r pid pgoal; do
+  PROBLEM_IDS+=("$pid")
+  PROBLEM_GOALS+=("$pgoal")
+done < <(_load_available_problems)
 
-# List of all known problem identifiers (used when no specific problem is given).
-ALL_PROBLEMS=(p1-helloworld p2-sqlite p3-sdl2 p4-fibonacci p5-gin p6-rust p7-flask)
-
-# Filter to problems whose toolchain is installed.
-PROBLEMS=()
-for _p in "${ALL_PROBLEMS[@]}"; do
-  if problem_tools_available "$_p"; then
-    PROBLEMS+=("$_p")
-  else
-    echo "Skipping $_p — required toolchain not installed."
-  fi
-done
-unset _p
-
-if [[ ${#PROBLEMS[@]} -eq 0 ]]; then
+if [[ ${#PROBLEM_IDS[@]} -eq 0 ]]; then
   echo "No problems to run — install toolchains with: mu toolchain" >&2
   exit 1
 fi
 
+# Helpers so the rest of the script can look up a problem by ID.
+get_goal() {
+  local id="$1"
+  for i in "${!PROBLEM_IDS[@]}"; do
+    if [[ "${PROBLEM_IDS[$i]}" == "$id" ]]; then
+      echo "${PROBLEM_GOALS[$i]}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+problem_available() {
+  local id="$1"
+  for pid in "${PROBLEM_IDS[@]}"; do
+    [[ "$pid" == "$id" ]] && return 0
+  done
+  return 1
+}
+
 # Shuffle the order so practice rounds don't always prime the model on p1's
 # failure mode first. Skip when SIT_NO_SHUFFLE=1 (useful for reproducible
 # single-run debugging) or when `shuf` is unavailable.
+PROBLEMS=("${PROBLEM_IDS[@]}")
 if [[ -z "${SIT_NO_SHUFFLE:-}" ]] && command -v shuf >/dev/null 2>&1; then
   mapfile -t PROBLEMS < <(printf '%s\n' "${PROBLEMS[@]}" | shuf)
 fi
@@ -127,17 +129,30 @@ echo "Warming up the model…"
 
 if [[ -n "${PROBLEM_ID}" ]]; then
   # Run a single specified problem.
-  if ! GOAL=$(get_goal "${PROBLEM_ID}"); then
-    echo "Unknown problem ID: ${PROBLEM_ID}" >&2
-    exit 1
+  if ! problem_available "${PROBLEM_ID}"; then
+    # Distinguish unknown ID from missing toolchain via the catalog.
+    python3 - "$CATALOG" "${PROBLEM_ID}" <<'PYEOF'
+import json, sys
+from pathlib import Path
+src = Path(sys.argv[1]).resolve().parent / 'src'
+if str(src) not in sys.path:
+    sys.path.insert(0, str(src))
+from mu.toolchain import load_problems_catalog
+problems = load_problems_catalog(sys.argv[1])
+ids = [p['id'] for p in problems]
+if sys.argv[2] not in ids:
+    print(f"Unknown problem ID: {sys.argv[2]}", file=sys.stderr)
+    sys.exit(2)
+else:
+    print(f"Cannot run {sys.argv[2]} — required toolchain not installed. Run: mu toolchain", file=sys.stderr)
+    sys.exit(1)
+PYEOF
+    exit $?
   fi
-  if ! problem_tools_available "${PROBLEM_ID}"; then
-    echo "Cannot run ${PROBLEM_ID} — required toolchain not installed. Run: mu toolchain" >&2
-    exit 1
-  fi
+  GOAL=$(get_goal "${PROBLEM_ID}")
   run_problem "${PROBLEM_ID}" "${GOAL}"
 else
-  # Run all problems defined in the PROBLEMS array.
+  # Run all available problems from the catalog (shuffled).
   for folder in "${PROBLEMS[@]}"; do
     GOAL=$(get_goal "${folder}")
     run_problem "${folder}" "${GOAL}"

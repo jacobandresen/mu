@@ -1133,7 +1133,7 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
 
     # Before entering the repair loop, check if the failure is a missing package.
     initial_out = _tail_file(test_log, 60)
-    if fix_missing_pip_packages(initial_out, p.project_dir):
+    if fix_missing_pip_packages(initial_out, os.getcwd()):
         log("Added missing pip packages to requirements before repair.")
 
     return sess.repair_loop(model, goal, _REPAIR_MAX_ITERS, float(writer_timeout),
