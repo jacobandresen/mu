@@ -44,4 +44,9 @@ Rules:
 - **Python projects**: when the goal references third‑party Python packages (e.g. mentions `Flask`, `SQLAlchemy`, `requests`, or any import not in the standard library), automatically add a `requirements.txt` file listing those packages (un‑pinned) and a simple `Makefile` target `install:` that runs `python -m venv .venv && .venv/bin/pip install -r requirements.txt`. The test command should use the venv (`.venv/bin/pytest`).
 - **Makefile requirement**: if the goal mentions any of `install`, `pip`, `requirements`, `make`, or `Makefile`, ensure a `Makefile` is listed as the first task and contains at least an `install` (or `test`) target appropriate for the language (e.g. `install:` for Python, `build:` for C/Go). This prevents missing‑term failures.
 - **Test file placeholder**: when the goal contains the words `test`, `pytest`, `unittest`, `go test`, or mentions a testing framework (e.g. `Gin` with `GET /ping`), automatically add a test file stub (`*_test.py` for Python, `*_test.go` for Go, etc.) with a minimal skeleton that the model can flesh out. The test file should be listed as a task and the test command should invoke the appropriate test runner (e.g. `pytest` or `go test`).
-- **Go HTTP servers MUST use `go test ./...`** — never `./main` or `make && ./main`. `./main` starts a blocking server process that never exits; the test hangs forever. Always pair Go HTTP goals with a `*_test.go` file and set Test Command to `go test ./...`.
+- **Go HTTP servers MUST use `go test ./...`** — NEVER `./main` or `make && ./main`. `./main` starts a blocking server process that never exits; the test gate hangs forever. Always pair a Go HTTP goal with a `*_test.go` file and set:
+  ```
+  ## Test Command
+  go test ./...
+  ```
+  Do NOT write `make && ./main` or `./main` for any Go project whose binary is a long-running server.

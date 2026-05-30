@@ -838,6 +838,24 @@ def run(goal: str, model: str = '', target_dir: str = '',
 
 # ── Planning ──────────────────────────────────────────────────────────────────
 
+_BLOCKING_CMD_RE = re.compile(r'(^|&&\s*|;\s*)\./')
+
+
+def _plan_has_blocking_go_cmd(text: str) -> bool:
+    """True when a Go plan's Test Command would start a blocking server.
+
+    Checks for `./binary` in the Test Command of a plan that lists .go files.
+    `go test ./...` is non-blocking; bare `./binary` hangs forever.
+    """
+    if not re.search(r'\b\w+\.go\b', text):
+        return False
+    m = re.search(r'(?m)^## Test Command\n(.+)', text)
+    if not m:
+        return False
+    cmd = m.group(1).strip()
+    return bool(_BLOCKING_CMD_RE.search(cmd)) and 'go test' not in cmd
+
+
 def _run_planning_phase(goal: str, model: str, planner_timeout: int, complexity: str) -> bool:
     log("Planning: %s (timeout=%ds complexity=%s)", goal, planner_timeout, complexity)
     for attempt in range(1, 4):
@@ -850,9 +868,14 @@ def _run_planning_phase(goal: str, model: str, planner_timeout: int, complexity:
             log("Attempt %d: no PLAN.md produced", attempt)
             continue
         data = Path('PLAN.md').read_bytes()
-        if re.search(rb'(?m)^- \[[ x~]\]', data):
-            break
-        log("Attempt %d: PLAN.md has no task checklist (wrong format) — retrying", attempt)
+        if not re.search(rb'(?m)^- \[[ x~]\]', data):
+            log("Attempt %d: PLAN.md has no task checklist (wrong format) — retrying", attempt)
+            continue
+        text = data.decode('utf-8', errors='replace')
+        if _plan_has_blocking_go_cmd(text):
+            log("Attempt %d: Go plan uses blocking ./binary test command — retrying", attempt)
+            continue
+        break
     else:
         print("mu-agent: task-planner did not produce a valid PLAN.md after 3 attempts",
               file=sys.stderr)
