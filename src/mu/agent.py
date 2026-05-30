@@ -867,6 +867,7 @@ def _run_planner(goal: str, model: str, planner_timeout: int) -> None:
     import time
     project_dir = os.getcwd()
     skill = _load_skill('task-planner')
+    goal_lower = goal.lower()
     example = (
         "## Summary\n"
         "Implement a command-line tool in C that prints a greeting. "
@@ -901,6 +902,15 @@ def _run_planner(goal: str, model: str, planner_timeout: int) -> None:
         f"{challenges_block}\n\n"
     ) if challenges_block else ""
 
+    # Inject language-specific writer skills at plan time when detectable from goal.
+    # This ensures test-command guidance (e.g. "use go test not ./main") reaches
+    # the planner before it locks in the Test Command field.
+    extra_skills: list[str] = []
+    if any(k in goal_lower for k in ('gin', ' go ', 'golang', '.go', 'go http')):
+        gs = _load_skill('go-writer')
+        if gs:
+            extra_skills.append(gs)
+
     if os.environ.get('MU_PROMPT_CACHE') == '1':
         # Cache-friendly layout: all stable content (instructions, skill, rules,
         # challenges, example) goes in the system message as a byte-identical
@@ -911,6 +921,8 @@ def _run_planner(goal: str, model: str, planner_timeout: int) -> None:
                   "no code blocks. Begin with ## Summary, then ## Files.")
         if skill:
             system += '\n\n' + skill
+        for es in extra_skills:
+            system += '\n\n' + es
         system += "\n\nRules:\n" + '\n'.join(rules)
         if challenges_text:
             system += "\n\n" + challenges_text.rstrip()
@@ -923,6 +935,8 @@ def _run_planner(goal: str, model: str, planner_timeout: int) -> None:
                   "no code blocks. Begin with ## Summary, then ## Files.")
         if skill:
             system += '\n\n' + skill
+        for es in extra_skills:
+            system += '\n\n' + es
         user_msg = (
             f"Create a PLAN.md task list for this goal.\n\n"
             f"GOAL: {goal}\nDIR: {project_dir}\n\n"

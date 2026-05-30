@@ -275,6 +275,66 @@ def fix_inline_recipe(f: str) -> bool:
     return True
 
 
+_NESTED_TARGET_RE = re.compile(r'^\t([A-Za-z0-9_.-]+):[ \t]*$')
+
+
+def fix_nested_targets(f: str) -> bool:
+    """Lift target definitions accidentally indented inside another recipe.
+
+    Models sometimes indent the entire Makefile under a single ``all:`` block,
+    writing ``\thello_world:`` and ``\trun:`` as recipe lines instead of
+    top-level targets.  This reflex detects tab-prefixed ``word:`` lines inside
+    a recipe and hoists them to column-0 targets.
+    """
+    try:
+        content = Path(f).read_text()
+    except OSError:
+        return False
+    lines = content.splitlines()
+    if not any(_NESTED_TARGET_RE.match(line) for line in lines):
+        return False
+
+    # Rebuild: scan line-by-line; when a misplaced target is found, extract it.
+    out: list[str] = []
+    extracted: list[list[str]] = []  # each element = [header, *recipe_lines]
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        m = _NESTED_TARGET_RE.match(line)
+        if m:
+            name = m.group(1)
+            recipe: list[str] = [name + ':']
+            i += 1
+            seen_cmds: set[str] = set()
+            while i < len(lines):
+                nxt = lines[i]
+                if _NESTED_TARGET_RE.match(nxt):
+                    break
+                if not nxt.strip():
+                    i += 1
+                    break
+                # Normalise to single-tab indented, deduplicate.
+                cmd = '\t' + nxt.lstrip('\t')
+                if cmd not in seen_cmds:
+                    recipe.append(cmd)
+                    seen_cmds.add(cmd)
+                i += 1
+            extracted.append(recipe)
+        else:
+            out.append(line)
+            i += 1
+
+    if not extracted:
+        return False
+
+    for block in extracted:
+        out.append('')
+        out.extend(block)
+
+    Path(f).write_text('\n'.join(out))
+    return True
+
+
 def fix_duplicate_var(f: str) -> bool:
     """Remove duplicate top-level variable assignments (keep first)."""
     try:
@@ -368,6 +428,7 @@ def apply_go_reflexes() -> bool:
 
 
 def apply_makefile_reflexes(f: str) -> None:
-    for fn in [fix_makefile_space_indent, fix_orphan_top_level_commands,
-               fix_no_targets, fix_inline_recipe, fix_duplicate_var]:
+    for fn in [fix_makefile_space_indent, fix_nested_targets,
+               fix_orphan_top_level_commands, fix_no_targets,
+               fix_inline_recipe, fix_duplicate_var]:
         fn(f)
