@@ -71,6 +71,9 @@ Tracks the most frequent or significant challenges encountered while running the
   - One sentence describing the generic failure mode and what to watch for.
     - Unused imports in Rust can cause build failures; ensure all imports are used or remove them.
 
+23. **String literal not terminated**
+  - Ensure all string literals in Go are properly terminated with a closing quote.
+
 ## Resolved
 
 - **Missing `fix_sqlite_in_memory` function** — obsolete. AST fixer pass and the orphaned sqlite sensor removed in commit `07717cc`.
