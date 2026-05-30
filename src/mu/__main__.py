@@ -381,18 +381,19 @@ def _cmd_model(args) -> int:
 
 
 def _model_warm(model_id: str = '') -> int:
-    """Load a model persistently and run one warm-up generation.
+    """Ensure the target model is loaded and run a warm-up generation.
 
-    `client.load_model` loads with ttl=None (no idle-unload), so the model
-    stays resident across later runs until LM Studio restarts. The cold-start
-    that stalls a dojo's first heavy request is the inference pipeline warming
-    up, not the load — so we also fire one real generation here to heat it.
+    Resolution order: explicit arg → MU_AGENT_MODEL env var → recommended.
+    If the wrong model is running, it is unloaded and the correct one is
+    loaded.  If the model is not yet downloaded, it is fetched from the hub.
+    `client.load_model` uses ttl=None so the model stays resident across later
+    runs until LM Studio restarts.
     """
     import time
     if not client.is_running():
         print(f"LM Studio not running at {client.LMS_HOST}", file=sys.stderr)
         return 1
-    model = model_id or client.recommended_model()
+    model = model_id or os.environ.get('MU_AGENT_MODEL', '') or client.recommended_model()
     if not model:
         print("No model given and no recommended model found.", file=sys.stderr)
         return 1

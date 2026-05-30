@@ -238,7 +238,7 @@ def load_model(model_id: str, _retry: bool = True) -> bool:
         print(f"Loaded: {getattr(info, 'identifier', model_id)}")
         return True
     except ImportError:
-        print("lmstudio SDK not installed — run: pip3 install lmstudio --break-system-packages")
+        print("lmstudio SDK not installed — run: pip install lmstudio  (in the mu venv)")
         return False
     except Exception as e:
         err_str = str(e)
@@ -282,7 +282,7 @@ def download_model(model_id: str, on_progress=None) -> str:
         key = opt.download(on_progress=on_progress) if on_progress else opt.download()
         return key or ''
     except ImportError:
-        print("lmstudio SDK not installed — run: pip3 install lmstudio --break-system-packages")
+        print("lmstudio SDK not installed — run: pip install lmstudio  (in the mu venv)")
         return ''
     except Exception as e:
         print(f"Error downloading {model_id}: {e}")
