@@ -49,6 +49,9 @@ Tracks the most frequent or significant challenges encountered while running the
 15. **Duplicate method definition**
   - Ensure that no methods are defined more than once in a class.
 
+16. **Syntax error in Rust code**
+  - Unexpected closing delimiters like `{` and `}` require matching opening delimiters. Ensure all brackets are properly opened and closed.
+
 ## Resolved
 
 - **Missing `fix_sqlite_in_memory` function** — obsolete. AST fixer pass and the orphaned sqlite sensor removed in commit `07717cc`.
