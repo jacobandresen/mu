@@ -46,6 +46,9 @@ Tracks the most frequent or significant challenges encountered while running the
 14. **Line continuation character**
   - Ensure that line continuations are used correctly in Python scripts to avoid syntax errors.
 
+15. **Duplicate method definition**
+  - Ensure that no methods are defined more than once in a class.
+
 ## Resolved
 
 - **Missing `fix_sqlite_in_memory` function** — obsolete. AST fixer pass and the orphaned sqlite sensor removed in commit `07717cc`.
