@@ -104,26 +104,16 @@ run_problem() {
   local folder="$1"
   local goal="$2"
   local workdir="./dojo/${folder}"
-  # Start each problem from a clean per-problem dir so leftover PLAN.md
-  # from an interrupted prior run doesn't trick `mu agent` into reusing
-  # a stale plan. SKIP_CLEAN preserves state for debugging.
   if [ -z "${SKIP_CLEAN:-}" ]; then
-    rm -rf "${workdir}"
+    rm -rf "${workdir}"   # fresh dir prevents stale PLAN.md from a prior run
   fi
   mkdir -p "${workdir}"
   pushd "${workdir}" >/dev/null
   echo "Running problem '${folder}'"
-  # mu agent exits non-zero when tests fail. Swallow it so a single failing
-  # problem does not terminate the rest of the round; outcomes are
-  # recovered from the session archive by practice.sh.
-  "${MU_CMD}" agent "${goal}" --dir . || true
+  "${MU_CMD}" agent "${goal}" --dir . || true   # non-zero exit swallowed; outcome in session archive
   popd >/dev/null
 }
 
-# Warm the model once before the round so the first heavy generation isn't
-# cold. (The cold-start that stalled p6-rust: the short planner call warms up,
-# but the first long writer call times out.) Best-effort under `set -e`: a
-# warm-up failure (e.g. LM Studio not up yet) must not abort the round.
 echo "Warming up the model…"
 "${MU_CMD}" model warm || echo "  (warm-up skipped — continuing cold)"
 
@@ -159,30 +149,9 @@ else
   done
 fi
 
-# End of script
-
-# Commit any Git changes (if any) after all runs have completed.
-# This ensures that we only clean the dojo directory after the changes
-# have been recorded in version control.
-# sit.sh deliberately does NOT auto-commit. Auto-committing here ran
-# before practice.sh invoked `mu reflect`, so the lessons reflect
-# appended to CHALLENGES.md were never captured. practice.sh handles
-# the commit in the right place (after reflect). Operators running
-# sit.sh standalone are expected to commit themselves.
-
-# Clean the dojo directory after the run.
-# This ensures a fresh state for subsequent runs. It removes all files
-# and subdirectories inside the dojo folder while preserving the folder
-# itself. The command is safe even if the folder is empty.
-# Set environment variable SKIP_CLEAN=1 to skip cleaning (useful for debugging).
-
 if [ -z "${SKIP_CLEAN:-}" ]; then
   echo "Cleaning dojo directory..."
-  # Use find to delete everything inside dojo, ignoring the dojo directory itself.
   if [ -d "dojo" ]; then
-    # Only delete top-level entries; rm -rf takes care of contents.
-    # -mindepth 1 -maxdepth 1 avoids `find` enumerating into a directory
-    # whose parent rm already removed, which spams "No such file" errors.
     find dojo -mindepth 1 -maxdepth 1 -exec rm -rf {} + || true
   fi
 else

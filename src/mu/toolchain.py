@@ -38,30 +38,35 @@ def status() -> list[dict]:
     return rows
 
 
+# File extension → toolchain
+_EXT_TOOL: dict[str, str] = {
+    '.c':   'clang',
+    '.cpp': 'clang',
+    '.go':  'go',
+    '.rs':  'cargo',
+    '.cs':  'dotnet',
+    '.py':  'python3',
+    '.js':  'node',
+    '.ts':  'node',
+}
+
+# Test-command substring → toolchain
+_CMD_TOOL: list[tuple[str, str]] = [
+    ('cargo',  'cargo'),
+    ('dotnet', 'dotnet'),
+    ('go ',    'go'),
+    ('clang',  'clang'),
+    ('gcc',    'clang'),
+    ('pytest', 'python3'),
+    ('python', 'python3'),
+    ('node',   'node'),
+    ('npm',    'node'),
+    ('sdl2',   'sdl2'),
+]
+
+
 def required_by_plan(file_paths: list[str], test_cmd: str) -> set[str]:
     """Infer toolchain names needed to build and test a plan."""
-    _EXT_TOOL: dict[str, str] = {
-        '.c':   'clang',
-        '.cpp': 'clang',
-        '.go':  'go',
-        '.rs':  'cargo',
-        '.cs':  'dotnet',
-        '.py':  'python3',
-        '.js':  'node',
-        '.ts':  'node',
-    }
-    _CMD_TOOL: list[tuple[str, str]] = [
-        ('cargo',  'cargo'),
-        ('dotnet', 'dotnet'),
-        ('go ',    'go'),
-        ('clang',  'clang'),
-        ('gcc',    'clang'),
-        ('pytest', 'python3'),
-        ('python', 'python3'),
-        ('node',   'node'),
-        ('npm',    'node'),
-        ('sdl2',   'sdl2'),
-    ]
     needed: set[str] = set()
     for fp in file_paths:
         tool = _EXT_TOOL.get(Path(fp).suffix.lower())
