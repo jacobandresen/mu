@@ -43,6 +43,9 @@ Tracks the most frequent or significant challenges encountered while running the
 13. **Syntax error in SQL query**
   - Ensure proper indentation and correct use of the backslash for line continuations in SQL queries.
 
+14. **Line continuation character**
+  - Ensure that line continuations are used correctly in Python scripts to avoid syntax errors.
+
 ## Resolved
 
 - **Missing `fix_sqlite_in_memory` function** — obsolete. AST fixer pass and the orphaned sqlite sensor removed in commit `07717cc`.
