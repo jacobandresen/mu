@@ -689,6 +689,11 @@ def run(goal: str, model: str = '', target_dir: str = '',
                 if _skill:
                     auto_system += '\n\n' + _skill
                     log("Loaded %s skill (Python task).", _skill_name)
+        if _makefile_relevant(goal, p):
+            _skill = _load_skill('makefile-writer')
+            if _skill:
+                auto_system += '\n\n' + _skill
+                log("Loaded makefile-writer skill.")
 
         for i in range(1, max_iter + 1):
             task = next_task(p)
@@ -1201,6 +1206,14 @@ OFF-LIMITS:
 - No arbitrary network calls (curl, wget, fetch, http, etc.).
 - Only install packages explicitly listed in PLAN.md.
 - Never read from stdin unless the goal explicitly says "interactive"."""
+
+
+def _makefile_relevant(goal: str, p: Plan) -> bool:
+    """True when the plan includes a Makefile or the test command invokes make."""
+    if any(Path(t.file_path).name == 'Makefile' for t in p.tasks):
+        return True
+    blob = f"{goal}\n{p.test_command}".lower()
+    return 'make ' in blob or blob.strip().startswith('make')
 
 
 def _python_relevant(goal: str, p: Plan) -> bool:
