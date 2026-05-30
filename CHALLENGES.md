@@ -58,6 +58,9 @@ Tracks the most frequent or significant challenges encountered while running the
 18. **Syntax error in Python code**
   - Ensure proper indentation and correct use of colons for function definitions and control structures.
 
+19. **Syntax error in C# code**
+  - Ensure that every opening brace `{` has a corresponding closing brace `}`.
+
 ## Resolved
 
 - **Missing `fix_sqlite_in_memory` function** — obsolete. AST fixer pass and the orphaned sqlite sensor removed in commit `07717cc`.
