@@ -368,7 +368,10 @@ def _cmd_model(args) -> int:
     if sub == 'status':
         return _model_status()
     if sub == 'load':
-        return 0 if client.load_model(args.model_id) else 1
+        if client.load_model(args.model_id):
+            _save_preferred_model(args.model_id)
+            return 0
+        return 1
     if sub == 'warm':
         return _model_warm(args.model_id)
     if sub == 'unload':
@@ -393,7 +396,8 @@ def _model_warm(model_id: str = '') -> int:
     if not client.is_running():
         print(f"LM Studio not running at {client.LMS_HOST}", file=sys.stderr)
         return 1
-    model = model_id or os.environ.get('MU_AGENT_MODEL', '') or client.recommended_model()
+    model = (model_id or os.environ.get('MU_AGENT_MODEL', '')
+             or _load_preferred_model() or client.recommended_model())
     if not model:
         print("No model given and no recommended model found.", file=sys.stderr)
         return 1
@@ -519,10 +523,19 @@ def _model_ensure_single() -> int:
     return 1
 
 
+def _save_preferred_model(model_id: str) -> None:
+    client.save_preferred_model(model_id)
+
+
+def _load_preferred_model() -> str:
+    return client.preferred_model()
+
+
 def _model_list() -> int:
     catalog = _load_catalog()
     active = _active_model_ids()
     recommended = client.recommended_model()
+    preferred = _load_preferred_model()
     if not catalog:
         for m in active:
             print(m)
@@ -535,7 +548,9 @@ def _model_list() -> int:
         if _model_active(mid, active):
             tags.append('loaded')
         if mid == recommended:
-            tags.append('recommended')
+            tags.append('★ recommended for this hardware')
+        if mid == preferred:
+            tags.append('selected')
         tag_str = f"  [{', '.join(tags)}]" if tags else ''
         print(f"  {mid:<48} {ctx:>5}  {spec.get('description', '')}{tag_str}")
     return 0
@@ -568,6 +583,7 @@ def _model_picker() -> int:
     catalog = _load_catalog()
     active = _active_model_ids()
     recommended = client.recommended_model()
+    preferred = _load_preferred_model()
     if catalog:
         rows = []
         for spec in catalog:
@@ -577,14 +593,19 @@ def _model_picker() -> int:
             if _model_active(mid, active):
                 tags.append('loaded')
             if mid == recommended:
-                tags.append('recommended')
+                tags.append('★ recommended')
+            if mid == preferred:
+                tags.append('selected')
             suffix = f"  [{', '.join(tags)}]" if tags else ''
             rows.append((f"{mid:<48} {ctx:>5}  {spec.get('description', '')}{suffix}", mid))
+        # Sort: recommended first, then preferred, then rest
+        rows.sort(key=lambda r: (r[1] != recommended, r[1] != preferred, r[0]))
     else:
         rows = [(m, m) for m in sorted(active)]
     model = _fuzzy_pick(rows, "model> ")
     if model:
         print(f"Selected: {model}")
+        _save_preferred_model(model)
         client.load_model(model)
     return 0
 

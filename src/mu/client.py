@@ -138,6 +138,39 @@ def recommended_model() -> str:
     return catalog[0].get('id', '')
 
 
+_MU_CONFIG = None  # lazily resolved below
+
+
+def _mu_config_path():
+    from pathlib import Path
+    return Path.home() / '.mu' / 'config.json'
+
+
+def preferred_model() -> str:
+    """Model ID persisted by `mu model` / `mu model load` selections.
+
+    Returns '' when no preference has been saved yet.
+    """
+    import json
+    try:
+        p = _mu_config_path()
+        return json.loads(p.read_text()).get('model', '') if p.exists() else ''
+    except Exception:
+        return ''
+
+
+def save_preferred_model(model_id: str) -> None:
+    import json
+    p = _mu_config_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        cfg = json.loads(p.read_text()) if p.exists() else {}
+    except Exception:
+        cfg = {}
+    cfg['model'] = model_id
+    p.write_text(json.dumps(cfg, indent=2))
+
+
 def _fuzzy_match_model(query: str, candidates: list[str]) -> str | None:
     """Return the best candidate whose path contains `query` as a substring (case-insensitive)."""
     q = query.lower()

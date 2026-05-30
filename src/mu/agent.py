@@ -29,7 +29,7 @@ from typing import Optional
 from mu import tools
 from mu.archive import AgentSession
 from mu.client import (chat, list_downloaded_llm_paths, list_models, load_catalog,
-                        load_model, recommended_model)
+                        load_model, preferred_model, recommended_model)
 from mu.plan import (Plan, check_goal_alignment, clear_challenges,
                      drop_minority_languages,
                      drop_runtime_artifacts,
@@ -139,11 +139,16 @@ def _match_loaded(loaded: list[str], target: str) -> str:
 
 
 def _select_model() -> str:
-    """Pick the model for the agent: prefer the recommended one, loading it if
-    needed; otherwise fall back to whatever is already loaded. Returns '' on
-    failure (caller should abort)."""
+    """Pick the model for the agent.
+
+    Resolution order: user-persisted preference → hardware-recommended →
+    already-loaded catalog model. Loads the target model if needed.
+    Returns '' on failure (caller should abort).
+    """
     loaded = list_models()
-    recommended = recommended_model()
+    # Prefer explicitly saved selection over hardware recommendation.
+    preferred = preferred_model()
+    recommended = preferred or recommended_model()
     match = _match_loaded(loaded, recommended)
     if match:
         log("Using recommended model: %s", match)
