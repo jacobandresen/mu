@@ -61,6 +61,12 @@ Tracks the most frequent or significant challenges encountered while running the
 19. **Syntax error in C# code**
   - Ensure that every opening brace `{` has a corresponding closing brace `}`.
 
+20. **Incorrect function call**
+  - A function is expected but a module was called instead; ensure the correct function is referenced.
+
+21. **Indentation issues**
+  - Ensure consistent indentation in Python files to avoid syntax errors.
+
 ## Resolved
 
 - **Missing `fix_sqlite_in_memory` function** — obsolete. AST fixer pass and the orphaned sqlite sensor removed in commit `07717cc`.
