@@ -56,7 +56,7 @@ class Session:
                             return True, None
                         except OSError:
                             pass
-                    return False, None
+                    # Fall through: nudge the model to call the tool instead of giving up.
                 if turn < max_turns - 1:
                     msgs.append({'role': 'user',
                                  'content': 'Call Write or Edit now. Do not write text — call the tool immediately.'})
@@ -87,6 +87,8 @@ class Session:
         tool_defs = self.tool_set if self.tool_set is not None else tools.REPAIR
         msgs: list[dict] = [{'role': 'system', 'content': self.system_prompt}]
         seen_states: dict[str, set[str]] = {}  # path -> set of sha1 hashes of seen file contents
+        consecutive_dups: dict[str, int] = {}  # path -> consecutive duplicate count
+        stuck = False
         print("  Repairing...")
 
         for i in range(max_iters):
@@ -161,7 +163,13 @@ class Session:
                                            f"already tried. This edit did not help before — make a "
                                            f"different change.")
                                 print(f"==> [mu-agent] Repair: duplicate edit detected for {path}")
+                                consecutive_dups[path] = consecutive_dups.get(path, 0) + 1
+                                if consecutive_dups[path] >= 2:
+                                    print(f"==> [mu-agent] Repair: stuck on {path} "
+                                          f"— aborting repair loop.")
+                                    stuck = True
                             else:
+                                consecutive_dups[path] = 0
                                 seen_states.setdefault(path, set()).add(digest)
                         except OSError:
                             pass
@@ -182,6 +190,8 @@ class Session:
                 break
             if connection_dead:
                 print(f"==> [mu-agent] Repair: connection lost — aborting repair loop.")
+                break
+            if stuck:
                 break
             if not edited:
                 print(f"==> [mu-agent] Repair iter {i + 1}: model produced no edit.")

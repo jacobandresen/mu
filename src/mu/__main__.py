@@ -120,6 +120,14 @@ def main() -> int:
     lint_p.add_argument('plan', nargs='?', default='PLAN.md', metavar='PLAN',
                         help='Path to the plan file (default: PLAN.md)')
 
+    architect_p = sub.add_parser('architect',
+                                  help='Generate ARCHITECTURE.md and staged plan files for a hard problem')
+    architect_p.add_argument('goal', help='Plain-English coding goal')
+    architect_p.add_argument('-d', '--dir', default='', metavar='PATH',
+                             help='Create/enter PATH before running')
+    architect_p.add_argument('--model', default='',
+                             help='LM Studio model ID (overrides MU_AGENT_MODEL)')
+
     iterate_p = sub.add_parser('iterate', help='Continue executing an existing PLAN.md')
     iterate_p.add_argument('goal', nargs='?', default='', metavar='GOAL',
                            help='Optional goal hint (inferred from PLAN.md if omitted)')
@@ -182,6 +190,7 @@ def main() -> int:
         'flow': _cmd_flow,
         'assess': _cmd_assess,
         'lint': _cmd_lint,
+        'architect': _cmd_architect,
         'iterate': _cmd_iterate,
         'reflect': _cmd_reflect,
         'version': _cmd_version,
@@ -708,6 +717,27 @@ def _cmd_lint(args) -> int:
         print(f"- {w}")
     print(f"\n{len(warnings)} warning(s).")
     return 1
+
+
+# ── architect ─────────────────────────────────────────────────────────────────
+
+def _cmd_architect(args) -> int:
+    model = args.model or os.environ.get('MU_AGENT_MODEL', '')
+    if not model:
+        model = agent._select_model()
+        if not model:
+            return 1
+    if args.dir:
+        Path(args.dir).mkdir(parents=True, exist_ok=True)
+        os.chdir(args.dir)
+    from mu.agent import _COMPLEXITY_PLANNER, detect_complexity
+    timeout = _COMPLEXITY_PLANNER[detect_complexity(args.goal)]
+    stages = agent._run_architect_pass(args.goal, model, timeout)
+    if not stages:
+        print("mu-architect: no stages produced.", file=sys.stderr)
+        return 1
+    print(f"mu-architect: produced stages: {', '.join(stages)}")
+    return 0
 
 
 # ── iterate ───────────────────────────────────────────────────────────────────

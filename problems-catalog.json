@@ -53,6 +53,12 @@
       "goal": "write a Vue 3 TypeScript todo list web app. Use Vite as the build tool and Vitest for unit tests. The app should display a list of todos and allow adding new ones via a text input and button. Include a test file using @vue/test-utils that tests adding and displaying todos. Provide a Makefile that installs dependencies with npm and runs the tests.",
       "toolchains": ["node"],
       "difficulty": "hard"
+    },
+    {
+      "id": "p10-dotnet-vue-blog",
+      "goal": "write a blog application with an ASP.NET Core minimal API backend and a Vue 3 TypeScript frontend. Backend: use EF Core with SQLite, define a Post model with Id, Title, and Content, seed one example post titled 'Hello World' on startup, expose GET /api/posts returning JSON. Include an xUnit test project using WebApplicationFactory that calls GET /api/posts and asserts the 'Hello World' post is present. Frontend: Vue 3 TypeScript app built with Vite that fetches and displays posts, with a Vitest test that mocks fetch and asserts the post is rendered. Provide a Makefile with an install target (npm install in frontend/) and a test target that runs dotnet test and npx vitest run.",
+      "toolchains": ["dotnet", "node"],
+      "difficulty": "hard"
     }
   ]
 }

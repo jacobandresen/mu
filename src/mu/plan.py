@@ -102,7 +102,10 @@ def _extract_test_command(lines: list[str]) -> str:
         if in_section and line.startswith('## '):
             break
         if in_section:
-            t = line.strip().strip('`').strip()
+            stripped = line.strip()
+            if stripped.startswith('```'):  # skip fence open/close markers
+                continue
+            t = stripped.strip('`').strip()
             if t:
                 return t
     return ''
@@ -140,8 +143,8 @@ def mark_task_done(path: str, file_path: str) -> None:
         return
     for i, line in enumerate(lines):
         m = _TASK_RE.match(line.rstrip('\n'))
-        if m and m.group(1) == ' ' and m.group(2) == file_path:
-            lines[i] = '- [x] ' + m.group(2) + m.group(3) + '\n'
+        if m and m.group(1) == ' ' and m.group(2).strip('`') == file_path:
+            lines[i] = '- [x] ' + m.group(2).strip('`') + m.group(3) + '\n'
             break
     Path(path).write_text(''.join(lines))
 
@@ -181,6 +184,10 @@ def normalize_test_command(path: str) -> bool:
     for old, new in [('\npython ', '\npython3 '), ('&& python ', '&& python3 '),
                      ('| python ', '| python3 ')]:
         updated = updated.replace(old, new)
+    # dotnet ef migration/database commands are not test commands — replace with dotnet test.
+    p = parse_content(updated)
+    if p.test_command and re.match(r'dotnet\s+ef\s+', p.test_command):
+        updated = _set_test_command(updated, 'dotnet test')
     if updated == data:
         return False
     Path(path).write_text(updated)
@@ -247,7 +254,7 @@ def drop_runtime_artifacts(plan_path: str, p: Plan) -> list[str]:
         return []
     out = [ln for ln in lines
            if not (_TASK_RE.match(ln.rstrip('\n')) and
-                   Path(_TASK_RE.match(ln.rstrip('\n')).group(2)).suffix.lstrip('.').lower()
+                   Path(_TASK_RE.match(ln.rstrip('\n')).group(2).strip('`')).suffix.lstrip('.').lower()
                    in _RUNTIME_EXTS)]
     Path(plan_path).write_text(''.join(out))
     return dropped
@@ -286,7 +293,7 @@ def drop_minority_languages(plan_path: str, p: Plan) -> list[str]:
     out = []
     for line in lines:
         m = _TASK_RE.match(line.rstrip('\n'))
-        if m and m.group(2) in to_drop:
+        if m and m.group(2).strip('`') in to_drop:
             continue
         out.append(line)
     Path(plan_path).write_text(''.join(out))
@@ -309,10 +316,26 @@ def _dotnet_target_framework() -> str:
     return "net8.0"  # last LTS fallback when the SDK can't be queried
 
 
-def _csproj_content() -> str:
+def _csproj_content(include_ef_core: bool = False) -> str:
     """A minimal, canonical SDK-style console project. SDK-style projects glob all
     .cs files in the directory, so no source files need to be listed explicitly."""
+    ef_packages = (
+        '  <ItemGroup>\n'
+        '    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.0" />\n'
+        '    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.0" />\n'
+        '    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.0" />\n'
+        '  </ItemGroup>\n'
+    ) if include_ef_core else ''
     return (
+        '<Project Sdk="Microsoft.NET.Sdk.Web">\n'
+        '  <PropertyGroup>\n'
+        f'    <TargetFramework>{_dotnet_target_framework()}</TargetFramework>\n'
+        '    <ImplicitUsings>enable</ImplicitUsings>\n'
+        '    <Nullable>disable</Nullable>\n'
+        '  </PropertyGroup>\n'
+        + ef_packages
+        + '</Project>\n'
+    ) if include_ef_core else (
         '<Project Sdk="Microsoft.NET.Sdk">\n'
         '  <PropertyGroup>\n'
         '    <OutputType>Exe</OutputType>\n'
@@ -372,13 +395,47 @@ def ground_plan(plan_path: str, p: Plan) -> list[str]:
     exts = {Path(t.file_path).suffix.lower() for t in p.tasks}
     names = [Path(t.file_path).name.lower() for t in p.tasks]
 
+    # Level 2 — Rust multi-file plans need a Cargo.toml; without one the lint
+    # command falls back to `rustc file.rs` which fails for module files.
+    rs_files = [t.file_path for t in p.tasks if t.file_path.endswith('.rs')]
+    if (len(rs_files) > 1 and 'cargo.toml' not in names
+            and not Path('Cargo.toml').exists()):
+        proj = Path(os.getcwd()).name or 'app'
+        # Detect root-level main.rs so Cargo finds it without an `src/` move.
+        main_rs = next((f for f in rs_files if Path(f).name == 'main.rs'), None)
+        bin_section = (
+            f'\n[[bin]]\nname = "{proj}"\npath = "{main_rs}"\n' if main_rs else ''
+        )
+        cargo_content = (
+            '[package]\n'
+            f'name = "{proj}"\n'
+            'version = "0.1.0"\n'
+            'edition = "2021"\n'
+            + bin_section
+        )
+        try:
+            Path('Cargo.toml').write_text(cargo_content)
+            if '] Cargo.toml' not in text:
+                text = text.replace(
+                    '## Files\n',
+                    '## Files\n- [x] Cargo.toml — auto-grounded (Rust needs a project file)\n', 1)
+            changes.append('Rust: added Cargo.toml (multi-file Rust needs a project file)')
+        except OSError:
+            pass
+
     # Level 2 — C# needs a project file to compile.
+    _ef_keywords = ('entityframework', 'ef core', 'dbcontext', 'webapplicationfactory',
+                    'asp.net', 'aspnetcore', 'minimal api')
+    plan_lower = data.lower()
+    needs_ef = any(kw in plan_lower for kw in _ef_keywords)
     if '.cs' in exts and not any(n.endswith('.csproj') for n in names):
         proj = Path(os.getcwd()).name or 'app'
         csproj = f"{proj}.csproj"
         try:
             if not Path(csproj).exists():
-                Path(csproj).write_text(_csproj_content())
+                Path(csproj).write_text(_csproj_content(include_ef_core=needs_ef))
+            elif needs_ef and 'EntityFrameworkCore' not in Path(csproj).read_text():
+                Path(csproj).write_text(_csproj_content(include_ef_core=True))
             if f'] {csproj}' not in text:
                 text = text.replace(
                     '## Files\n',
@@ -467,6 +524,53 @@ def ground_plan(plan_path: str, p: Plan) -> list[str]:
         except OSError:
             pass
 
+    # Level 2d — xUnit test files in a Tests/ subdirectory need their own .csproj.
+    # `dotnet test ./Tests` fails with "no project file found" unless Tests/Tests.csproj
+    # exists and references the main project.
+    if '.cs' in exts:
+        test_cs_files = [t.file_path for t in p.tasks
+                         if t.file_path.startswith('Tests/') and t.file_path.endswith('.cs')]
+        tests_csproj = Path('Tests/Tests.csproj')
+        has_tests_csproj = any(
+            t.file_path == 'Tests/Tests.csproj' or t.file_path.startswith('Tests/') and t.file_path.endswith('.csproj')
+            for t in p.tasks
+        )
+        if test_cs_files and not has_tests_csproj and not tests_csproj.exists():
+            proj_name = Path(os.getcwd()).name or 'app'
+            main_csproj = f'{proj_name}.csproj'
+            tests_csproj_content = (
+                '<Project Sdk="Microsoft.NET.Sdk">\n'
+                '  <PropertyGroup>\n'
+                f'    <TargetFramework>{_dotnet_target_framework()}</TargetFramework>\n'
+                '    <ImplicitUsings>enable</ImplicitUsings>\n'
+                '    <Nullable>disable</Nullable>\n'
+                '    <IsPackable>false</IsPackable>\n'
+                '  </PropertyGroup>\n'
+                '  <ItemGroup>\n'
+                '    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.9.0" />\n'
+                '    <PackageReference Include="xunit" Version="2.7.0" />\n'
+                '    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.7" />\n'
+                '    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.0" />\n'
+                '  </ItemGroup>\n'
+                '  <ItemGroup>\n'
+                f'    <ProjectReference Include="../{main_csproj}" />\n'
+                '  </ItemGroup>\n'
+                '</Project>\n'
+            )
+            try:
+                Path('Tests').mkdir(exist_ok=True)
+                tests_csproj.write_text(tests_csproj_content)
+                if '- [ ] Tests/Tests.csproj' not in text and '- [x] Tests/Tests.csproj' not in text:
+                    text = text.replace(
+                        '## Files\n',
+                        '## Files\n- [x] Tests/Tests.csproj — auto-grounded (xUnit needs a project file)\n', 1)
+                changes.append('C#: added Tests/Tests.csproj (xUnit tests need a project file)')
+                # Rewrite test command to target the test project
+                if p.test_command and 'Tests' in p.test_command and 'dotnet test' in p.test_command:
+                    text = _set_test_command(text, 'dotnet test Tests/')
+            except OSError:
+                pass
+
     # Level 4 — bare 'pytest' without an install step won't find third-party packages.
     # If the plan has a Makefile and the goal mentions Flask/packages, the test command
     # must run make first so the venv is created before pytest is invoked.
@@ -536,10 +640,13 @@ def check_goal_alignment(p: Plan, goal: str) -> tuple[bool, list[str]]:
     return found, missing
 
 
+_RELEVANT_FILES_CHAR_BUDGET = 3000
+
+
 def relevant_files_context(p: Plan, target: str) -> str:
     target_dir = str(Path(target).parent)
     module_stem = Path(target).stem.removeprefix('test_')
-    buf, count = [], 0
+    buf, count, total_chars = [], 0, 0
     for t in p.tasks:
         if count >= 6 or not t.done:
             continue
@@ -550,7 +657,12 @@ def relevant_files_context(p: Plan, target: str) -> str:
                 str(fp.parent) == target_dir or fp.stem == module_stem):
             continue
         try:
-            buf.append(f'### {t.file_path}\n```\n{fp.read_text()}\n```\n')
+            content = fp.read_text()
+            entry = f'### {t.file_path}\n```\n{content}\n```\n'
+            if total_chars + len(entry) > _RELEVANT_FILES_CHAR_BUDGET:
+                break
+            buf.append(entry)
+            total_chars += len(entry)
             count += 1
         except OSError:
             pass
@@ -627,8 +739,8 @@ def extract_plan_content(s: str) -> str:
     return s if '- [ ]' in s else ''
 
 
-def record_failed_repair(label: str, error_snippet: str) -> None:
-    plan_file = 'PLAN.md'
+def record_failed_repair(label: str, error_snippet: str,
+                         plan_file: str = 'PLAN.md') -> None:
     try:
         content = Path(plan_file).read_text()
     except OSError:
@@ -644,9 +756,9 @@ def record_failed_repair(label: str, error_snippet: str) -> None:
     Path(plan_file).write_text(content)
 
 
-def repair_history() -> str:
+def repair_history(plan_file: str = 'PLAN.md') -> str:
     try:
-        data = Path('PLAN.md').read_text()
+        data = Path(plan_file).read_text()
     except OSError:
         return ''
     header = '## Repair History'
@@ -655,8 +767,8 @@ def repair_history() -> str:
     return f'\n\n{data[data.index(header):].strip()}\n\nDo NOT repeat approaches listed in Repair History above.'
 
 
-def record_challenge(label: str, snippet: str = '') -> None:
-    plan_file = 'PLAN.md'
+def record_challenge(label: str, snippet: str = '',
+                     plan_file: str = 'PLAN.md') -> None:
     try:
         content = Path(plan_file).read_text()
     except OSError:
@@ -676,9 +788,9 @@ def record_challenge(label: str, snippet: str = '') -> None:
     Path(plan_file).write_text(content)
 
 
-def get_challenges() -> str:
+def get_challenges(plan_file: str = 'PLAN.md') -> str:
     try:
-        data = Path('PLAN.md').read_text()
+        data = Path(plan_file).read_text()
     except OSError:
         return ''
     header = '## Challenges'
@@ -691,8 +803,7 @@ def get_challenges() -> str:
     return section.strip()
 
 
-def clear_challenges() -> None:
-    plan_file = 'PLAN.md'
+def clear_challenges(plan_file: str = 'PLAN.md') -> None:
     try:
         content = Path(plan_file).read_text()
     except OSError:

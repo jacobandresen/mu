@@ -11,6 +11,7 @@ program in this language or build system? If the answer is "no, only because
 problem X needs it," the reflex is overfit — don't add it.
 """
 
+import json
 import re
 import shutil
 import subprocess
@@ -345,6 +346,40 @@ def fix_sqlite_test_isolation(file_path: str) -> bool:
     return True
 
 
+def fix_sqlite_path_unlink(file_path: str) -> bool:
+    """Wrap bare attribute .unlink() calls with Path() in Python test files.
+
+    Models write teardown code like `manager.db_path.unlink(missing_ok=True)`
+    but db_path is a plain string, not a Path object, so this raises
+    AttributeError. Replace with `Path(manager.db_path).unlink(...)`.
+    Only fires on test files to avoid touching production code.
+    """
+    if not file_path.lower().endswith('.py'):
+        return False
+    base = Path(file_path).name
+    if not (base.startswith('test_') or '_test.' in base):
+        return False
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+    # Match: anything.db_path.unlink( or anything.db.unlink(
+    new_text = re.sub(
+        r'\b(\w+(?:\.\w+)*\.(?:db_path|db_file|database_path|database|sqlite_path))'
+        r'(\.unlink\()',
+        r'Path(\1)\2',
+        text,
+    )
+    if new_text == text:
+        return False
+    # Ensure pathlib is imported
+    if 'from pathlib import Path' not in new_text and 'import pathlib' not in new_text:
+        new_text = 'from pathlib import Path\n' + new_text
+    Path(file_path).write_text(new_text)
+    print(f"==> [mu-agent] Reflex: wrapped db_path.unlink() with Path() in {file_path}")
+    return True
+
+
 def fix_python_missing_stdlib_imports(file_path: str) -> bool:
     """Add missing stdlib imports for identifiers used but not imported.
 
@@ -428,6 +463,78 @@ def fix_rust_println_missing_arg(file_path: str) -> bool:
         return False
     Path(file_path).write_text('\n'.join(result) + '\n')
     print(f"==> [mu-agent] Reflex: fixed println! missing arg(s) in {file_path}")
+    return True
+
+
+def fix_rust_cargo_toml(file_path: str) -> bool:
+    """Regenerate a corrupted Cargo.toml that has merged or duplicate sections.
+
+    The repair model sometimes appends content to Cargo.toml without proper
+    separation, producing artifacts like `authors = ["x"][package]` or multiple
+    `[package]` headers. Detect these and replace with a minimal valid Cargo.toml.
+    """
+    if Path(file_path).name.lower() != 'cargo.toml':
+        return False
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+    # Corruption signals: inline '][', multiple [package] sections, [[package]]
+    is_corrupt = (
+        re.search(r'\]\[', text) is not None
+        or text.count('\n[package]') > 1
+        or '[[package]]' in text
+        or text.count('[package]') > 1
+    )
+    if not is_corrupt:
+        return False
+    # Extract the project name if we can find it
+    m = re.search(r'^name\s*=\s*"([^"]+)"', text, re.MULTILINE)
+    proj = m.group(1) if m else Path(file_path).parent.name or 'app'
+    # Detect if there's a src/main.rs or main.rs to set up [[bin]]
+    has_src_main = Path(Path(file_path).parent / 'src' / 'main.rs').exists()
+    has_root_main = Path(Path(file_path).parent / 'main.rs').exists()
+    clean = (
+        '[package]\n'
+        f'name = "{proj}"\n'
+        'version = "0.1.0"\n'
+        'edition = "2021"\n'
+    )
+    if has_root_main and not has_src_main:
+        clean += f'\n[[bin]]\nname = "{proj}"\npath = "main.rs"\n'
+    Path(file_path).write_text(clean)
+    print(f"==> [mu-agent] Reflex: regenerated corrupted Cargo.toml in {file_path}")
+    return True
+
+
+def fix_rust_duplicate_use(file_path: str) -> bool:
+    """Remove exact duplicate `use` lines from a Rust source file.
+
+    The model sometimes emits the same `use std::io::{self, Write};` line twice,
+    causing E0252 'name defined multiple times'. Dedup in order of first occurrence.
+    """
+    if not file_path.endswith('.rs'):
+        return False
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+    lines = text.splitlines(keepends=True)
+    seen: set[str] = set()
+    result = []
+    changed = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith('use ') and stripped in seen:
+            changed = True
+            continue
+        if stripped.startswith('use '):
+            seen.add(stripped)
+        result.append(line)
+    if not changed:
+        return False
+    Path(file_path).write_text(''.join(result))
+    print(f"==> [mu-agent] Reflex: removed duplicate use statement(s) in {file_path}")
     return True
 
 
@@ -537,6 +644,122 @@ def fix_csharp_app_used_before_declared(file_path: str, test_output: str = '') -
     new_text = new_text[:line_start] + build_line + '\n' + new_text[line_start:]
     Path(file_path).write_text(new_text)
     print(f"==> [mu-agent] Reflex: moved 'var app = builder.Build()' before first app. usage in {file_path}")
+    return True
+
+
+def fix_vue_missing_package(project_dir: str) -> bool:
+    """Add `vue` to package.json devDependencies when it is missing.
+
+    `@vitejs/plugin-vue` and `@vue/test-utils` both require `vue` as a peer
+    dependency. The lean-system retry often writes package.json without the `vue`
+    entry, causing MODULE_NOT_FOUND errors at test time. Generic: any project
+    that uses vue-related packages needs the core `vue` package.
+    """
+    pkg = Path(project_dir) / 'package.json'
+    if not pkg.exists():
+        return False
+    try:
+        data = json.loads(pkg.read_text())
+    except Exception:
+        return False
+    dev = data.get('devDependencies', {})
+    deps = data.get('dependencies', {})
+    needs_vue = any(k.startswith('@vue/') or k == '@vitejs/plugin-vue'
+                    for k in list(dev) + list(deps))
+    has_vue = 'vue' in dev or 'vue' in deps
+    if not needs_vue or has_vue:
+        return False
+    dev['vue'] = '^3.4.0'
+    data['devDependencies'] = dev
+    pkg.write_text(json.dumps(data, indent=2) + '\n')
+    print(f"==> [mu-agent] Reflex: added missing vue package to {pkg}")
+    return True
+
+
+def fix_csharp_verbatim_string_escape(file_path: str) -> bool:
+    """Convert verbatim strings with backslash escapes to regular strings.
+
+    In C# verbatim strings (@"..."), backslash is literal — `\"` does NOT escape
+    a quote; it ends the string. Models write `@"{\"key\":value}"` thinking it
+    works like a regular string. The fix: drop the `@` prefix so the string
+    becomes a regular string where `\"` is valid. The content stays unchanged.
+    """
+    if not file_path.endswith('.cs'):
+        return False
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+    # Find @" followed eventually by \" — the verbatim string has invalid escaping.
+    # Replace @" with plain " to make it a regular string.
+    new_text = re.sub(r'@("(?:[^"\\]|\\.)*")', r'\1', text)
+    if new_text == text:
+        return False
+    Path(file_path).write_text(new_text)
+    print(f"==> [mu-agent] Reflex: converted verbatim strings to regular strings in {file_path}")
+    return True
+
+
+def fix_csharp_keyword_prefix_artifacts(file_path: str) -> bool:
+    """Remove stray 1-2 char prefix artifacts glued to C# keywords at line start.
+
+    Models occasionally emit `tnamespace`, `#class`, etc. — a lone character
+    fused to a keyword. The `t` before `namespace` causes CS1513/CS1022.
+    Pattern: line starts with 1-2 lowercase letters OR a non-letter char,
+    immediately followed (no space) by a known keyword + word boundary.
+    """
+    if not file_path.endswith('.cs'):
+        return False
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+    kws = (r'namespace|class|struct|interface|enum|public|private|protected|'
+           r'internal|using|static|abstract|sealed|partial|record')
+    # Match 1-2 lowercase letters OR one symbol, fused directly to a keyword
+    pattern = re.compile(r'^(?:[a-z]{1,2}|[^a-zA-Z\s])(' + kws + r')\b', re.MULTILINE)
+    new_text = pattern.sub(r'\1', text)
+    if new_text == text:
+        return False
+    Path(file_path).write_text(new_text)
+    print(f"==> [mu-agent] Reflex: removed keyword prefix artifact(s) in {file_path}")
+    return True
+
+
+def fix_csharp_using_order(file_path: str) -> bool:
+    """Move all `using` directives to the top of a C# source file.
+
+    CS1529 'A using clause must precede all other elements' fires when using
+    statements appear after top-level statements, namespace blocks, or class
+    definitions. This reflex collects all using lines and re-emits them at the
+    very start of the file before any non-using content.
+    """
+    if not file_path.endswith('.cs'):
+        return False
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+    lines = text.splitlines(keepends=True)
+    using_lines = [ln for ln in lines if ln.lstrip().startswith('using ')]
+    non_using_lines = [ln for ln in lines if not ln.lstrip().startswith('using ')]
+    if not using_lines:
+        return False
+    # Check if any using is already out of order (appears after non-empty non-using)
+    first_non_using = next((i for i, ln in enumerate(lines)
+                            if not ln.lstrip().startswith('using ') and ln.strip()), None)
+    first_using_after = any(
+        i > first_non_using
+        for i, ln in enumerate(lines)
+        if ln.lstrip().startswith('using ')
+    ) if first_non_using is not None else False
+    if not first_using_after:
+        return False
+    new_text = ''.join(using_lines) + ''.join(non_using_lines)
+    if new_text == text:
+        return False
+    Path(file_path).write_text(new_text)
+    print(f"==> [mu-agent] Reflex: moved using statements to top of {file_path}")
     return True
 
 
@@ -673,6 +896,37 @@ def fix_missing_pip_packages(test_output: str, project_dir: str) -> bool:
     new_content = '\n'.join(existing_lines + to_add) + '\n'
     req_path.write_text(new_content)
     print(f"==> [mu-agent] Reflex: added missing packages to requirements.txt: {to_add}")
+    return True
+
+
+def fix_vitest_watch_mode(project_dir: str) -> bool:
+    """Replace bare `vitest` with `vitest run` in package.json test scripts.
+
+    `vitest` without arguments starts in watch mode and waits for file changes
+    indefinitely, causing the test command to hang. `vitest run` executes once
+    and exits with a pass/fail code. This fires whenever package.json uses the
+    bare `vitest` command as the test script.
+    """
+    pkg = Path(project_dir) / 'package.json'
+    if not pkg.exists():
+        return False
+    try:
+        text = pkg.read_text()
+        data = json.loads(text)
+    except Exception:
+        return False
+    scripts = data.get('scripts', {})
+    changed = False
+    for key in list(scripts):
+        val = scripts[key]
+        if isinstance(val, str) and re.search(r'\bvitest\b(?!\s+run\b)', val):
+            scripts[key] = re.sub(r'\bvitest\b(?!\s+run\b)', 'vitest run', val)
+            changed = True
+    if not changed:
+        return False
+    data['scripts'] = scripts
+    pkg.write_text(json.dumps(data, indent=2) + '\n')
+    print(f"==> [mu-agent] Reflex: changed vitest to vitest run in {pkg}")
     return True
 
 
@@ -1045,6 +1299,75 @@ def fix_python_decorator_colon(file_path: str) -> bool:
     return True
 
 
+def fix_python_missing_def(file_path: str) -> bool:
+    """Insert a missing `def funcname():` between an orphaned decorator and its body.
+
+    Models occasionally write `@app.route(...)` immediately followed by the
+    indented function body, skipping the `def` line entirely. Python raises
+    `unexpected indent` on the first body line. This reflex synthesises a
+    function name from the route path or decorator name and inserts the def.
+    """
+    if not file_path.lower().endswith('.py'):
+        return False
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+    lines = text.splitlines()
+    result = []
+    changed = False
+    used_names: set[str] = set()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+        # Collect a block of consecutive decorator lines
+        if stripped.startswith('@'):
+            decorator_block = [line]
+            j = i + 1
+            while j < len(lines) and lines[j].strip().startswith('@'):
+                decorator_block.append(lines[j])
+                j += 1
+            # If the line after the decorators is indented (function body, not def/class)
+            if (j < len(lines)
+                    and lines[j].startswith((' ', '\t'))
+                    and not lines[j].strip().startswith(('def ', 'async def ', 'class '))):
+                # Synthesise a unique function name from route path + HTTP methods.
+                last_dec = decorator_block[-1].strip()
+                path_m = re.search(r"['\"/]([^'\"/?]+)", last_dec)
+                method_m = re.search(r"methods\s*=\s*\[([^\]]+)\]", last_dec)
+                base = ''
+                if path_m:
+                    base = re.sub(r'[^a-zA-Z0-9]', '_', path_m.group(1).strip('/'))
+                if method_m:
+                    methods = re.findall(r"['\"]([A-Z]+)['\"]", method_m.group(1))
+                    if methods:
+                        base = (base + '_' if base else '') + methods[0].lower()
+                name = (base.strip('_') or 'handler')
+                # Deduplicate: append suffix if name already used
+                candidate, suffix = name, 2
+                while candidate in used_names:
+                    candidate = f'{name}_{suffix}'
+                    suffix += 1
+                name = candidate
+                used_names.add(name)
+                result.extend(decorator_block)
+                result.append(f'def {name}():')
+                changed = True
+                i = j
+                continue
+            result.extend(decorator_block)
+            i = j
+            continue
+        result.append(line)
+        i += 1
+    if not changed:
+        return False
+    Path(file_path).write_text('\n'.join(result) + '\n')
+    print(f"==> [mu-agent] Reflex: inserted missing def(s) after orphaned decorator(s) in {file_path}")
+    return True
+
+
 _CODE_EXTS = {'.py', '.cs', '.rs', '.go', '.c', '.cpp', '.h', '.java', '.js', '.ts'}
 
 
@@ -1084,7 +1407,8 @@ def fix_literal_newlines(file_path: str, lint_error: str = '') -> bool:
     - Targeted mode (lint_error contains 'line continuation'): fires even in
       mixed files, but only replaces literal \\n outside string literals.
     """
-    if Path(file_path).suffix.lower() not in _CODE_EXTS:
+    allowed_exts = _CODE_EXTS | {'.json'}
+    if Path(file_path).suffix.lower() not in allowed_exts:
         return False
     try:
         text = Path(file_path).read_text()
@@ -1748,6 +2072,40 @@ def fix_makefile_npm_test_jest(f: str) -> bool:
     return True
 
 
+def fix_makefile_escaped_dollar(f: str) -> bool:
+    r"""Replace \$(cmd) patterns in Makefile recipes with $(cmd) or bare cmd.
+
+    Models sometimes write `\$(npm) install` thinking it calls npm. In a
+    Makefile recipe `\$` means a literal `$`, so the shell receives `$(npm)
+    install` where `$(npm)` is a command-substitution — empty for npm — leaving
+    just ` install` which fails. Replace `\$(npm)` with `npm`, `\$(node)` with
+    `node`, `\$(python)` with `python3`, and `\$(make)` with `$(MAKE)`.
+    """
+    try:
+        content = Path(f).read_text()
+    except OSError:
+        return False
+    if r'\$(' not in content:
+        return False
+    replacements = {
+        r'\$(npm)': 'npm',
+        r'\$(node)': 'node',
+        r'\$(python3)': 'python3',
+        r'\$(python)': 'python3',
+        r'\$(make)': '$(MAKE)',
+        r'\$(cargo)': 'cargo',
+        r'\$(go)': 'go',
+    }
+    new_content = content
+    for bad, good in replacements.items():
+        new_content = new_content.replace(bad, good)
+    if new_content == content:
+        return False
+    Path(f).write_text(new_content)
+    print(f"==> [mu-agent] Reflex: replaced escaped \\$(...) with direct commands in {f}")
+    return True
+
+
 def fix_makefile_bare_pytest(f: str) -> bool:
     """Replace bare 'pytest' with '.venv/bin/pytest' in Makefile recipes that use a venv.
 
@@ -1887,27 +2245,30 @@ def fix_missing_venv_rule(f: str) -> bool:
 
 
 def fix_makefile_literal_tab_escape(f: str) -> bool:
-    """Remove/replace literal \\t escape sequences anywhere in Makefiles.
+    """Remove/replace literal \\t and \\@ escape sequences in Makefiles.
 
-    Models sometimes write \\t (backslash + t) thinking it means TAB.
-    In Makefiles \\t is not special — it's just two literal characters.
+    Models sometimes write \\t (backslash + t) thinking it means TAB, and \\@
+    thinking it silences a recipe line. In Makefiles these are literal characters.
 
-    Three cases handled:
+    Cases handled:
     - Line starts with \\t: replace with real TAB (recipe indentation).
-    - \\t inside a variable value (line has '=' before the \\t): replace with space.
-    - \\t inside a tab-indented recipe line: replace with space.
+    - Line starts with \\@: replace with real TAB + @ (silent recipe).
+    - \\t inside a variable or recipe line: replace with space.
     """
     try:
         text = Path(f).read_text()
     except OSError:
         return False
-    if '\\t' not in text:
+    if '\\t' not in text and '\\@' not in text:
         return False
     lines = text.splitlines()
     changed = False
     out = []
     for line in lines:
-        if line.startswith('\\t'):
+        if line.startswith('\\@'):
+            out.append('\t@' + line[2:])
+            changed = True
+        elif line.startswith('\\t'):
             out.append('\t' + line[2:])
             changed = True
         elif '\\t' in line:
@@ -1920,6 +2281,42 @@ def fix_makefile_literal_tab_escape(f: str) -> bool:
         return False
     Path(f).write_text('\n'.join(out))
     print(f"==> [mu-agent] Reflex: removed literal \\t escape(s) in {f}")
+    return True
+
+
+def fix_makefile_literal_newline_escape(f: str) -> bool:
+    """Replace literal \\n escape sequences in Makefiles with real newlines.
+
+    Models emit \\n (backslash + n) thinking it means a line break. Strategy:
+    \\n\\n → blank line (target boundary), \\n → newline+tab (recipe line).
+    After substitution, repair any target-like bare words (no colon, no tab)
+    that should be target declarations.
+    """
+    try:
+        text = Path(f).read_text()
+    except OSError:
+        return False
+    if '\\n' not in text:
+        return False
+    new_text = text.replace('\\n\\n', '\n\n')
+    new_text = new_text.replace('\\n', '\n\t')
+    # Post-pass: fix lines that look like targets missing their colon.
+    # A target line has no leading whitespace, a word, and no colon.
+    lines = new_text.splitlines()
+    result = []
+    for ln in lines:
+        if ln == '\t':          # lone-tab empty continuation — skip
+            continue
+        # Bare word at column 0, not a comment, not blank, no colon → add ':'
+        if (ln and not ln[0].isspace() and not ln.startswith('#')
+                and ':' not in ln and re.match(r'^[A-Za-z_][\w-]*$', ln.strip())):
+            ln = ln.rstrip() + ':'
+        result.append(ln)
+    new_text = '\n'.join(result)
+    if new_text == text:
+        return False
+    Path(f).write_text(new_text)
+    print(f"==> [mu-agent] Reflex: replaced literal \\n escape(s) in {f}")
     return True
 
 
@@ -2190,8 +2587,34 @@ def fix_makefile_recipe_is_prerequisite_list(f: str) -> bool:
     return True
 
 
+def fix_makefile_bare_vitest(f: str) -> bool:
+    """Replace bare `vitest` recipe commands with `npx vitest run`.
+
+    vitest is a project-local binary in node_modules/.bin — calling it directly
+    in a Makefile recipe fails because it's not on PATH. `npx vitest run` finds
+    it in node_modules and runs in non-watch (single-pass) mode.
+    """
+    try:
+        content = Path(f).read_text()
+    except OSError:
+        return False
+    # Match tab-indented recipe lines containing bare `vitest` (not `npx vitest`)
+    new_content = re.sub(
+        r'(?m)^(\t[^\n]*)\bvitest\b(?!\s+run\b)(?!\s*:)',
+        lambda m: re.sub(r'\bvitest\b(?!\s+run\b)', 'npx vitest run', m.group(0)),
+        content,
+    )
+    if new_content == content:
+        return False
+    Path(f).write_text(new_content)
+    print(f"==> [mu-agent] Reflex: replaced bare vitest with npx vitest run in {f}")
+    return True
+
+
 def apply_makefile_reflexes(f: str) -> None:
-    for fn in [fix_makefile_literal_tab_escape, fix_makefile_wrong_c_compiler,
+    for fn in [fix_makefile_literal_tab_escape, fix_makefile_literal_newline_escape,
+               fix_makefile_escaped_dollar,
+               fix_makefile_wrong_c_compiler,
                fix_makefile_sdl2_config_typo, fix_makefile_double_colon_target,
                fix_makefile_space_indent, fix_nested_targets,
                fix_orphan_top_level_commands, fix_no_targets,
@@ -2200,6 +2623,7 @@ def apply_makefile_reflexes(f: str) -> None:
                fix_makefile_recipe_is_prerequisite_list,
                fix_duplicate_var, fix_python_venv_cmd, fix_makefile_pip_no_venv,
                fix_makefile_bare_pytest, fix_makefile_npm_test_jest,
+               fix_makefile_bare_vitest,
                fix_missing_venv_rule,
                fix_config_tool_redundant_flag]:
         fn(f)

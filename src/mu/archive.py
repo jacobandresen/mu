@@ -74,14 +74,15 @@ class AgentSession:
         except OSError:
             pass
 
-    def finalize(self, exit_code: int, p: Optional[Plan]) -> None:
+    def finalize(self, exit_code: int, p: Optional[Plan],
+                 plan_file: str = 'PLAN.md') -> None:
         os.makedirs(os.path.join(self.archive_path, 'logs'), exist_ok=True)
         if os.path.isdir(self.log_dir):
             _copy_dir(self.log_dir, os.path.join(self.archive_path, 'logs'))
         tasks_total, tasks_done = (0, 0) if p is None else count_tasks(p)
         if p is not None:
             try:
-                shutil.copy2('PLAN.md', os.path.join(self.archive_path, 'PLAN-final.md'))
+                shutil.copy2(plan_file, os.path.join(self.archive_path, 'PLAN-final.md'))
             except OSError:
                 pass
         outcome_map = {0: 'success', 1: 'error', 2: 'max_iterations',

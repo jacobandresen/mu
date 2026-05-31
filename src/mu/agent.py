@@ -51,16 +51,25 @@ from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
                          fix_js_extra_closing_brace,
                          fix_js_missing_requires,
                          fix_vitest_globals,
+                         fix_vitest_watch_mode,
+                         fix_vue_missing_package,
                          fix_literal_newlines,
                          fix_makefile_binary_name,
                          fix_missing_close_paren, fix_missing_pip_packages,
                          fix_multiline_single_quote,
                          fix_python_decorator_colon,
+                         fix_python_missing_def,
                          fix_python_missing_project_imports,
                          fix_python_missing_stdlib_imports,
                          fix_python_undefined_imports,
                          fix_requirements_path_entries,
+                         fix_csharp_keyword_prefix_artifacts,
+                         fix_csharp_verbatim_string_escape,
+                         fix_csharp_using_order,
+                         fix_rust_cargo_toml,
+                         fix_rust_duplicate_use,
                          fix_rust_println_missing_arg,
+                         fix_sqlite_path_unlink,
                          fix_sqlite_test_isolation,
                          fix_test_import_module,
                          fix_tool_call_artifacts,
@@ -71,17 +80,33 @@ LOG_DIR = ".mu"
 
 _LIB_RE = re.compile(
     r'(?i)SDL2|OpenGL|ncurses|dotnet|C#|csharp|tensorflow|pytorch|'
-    r'django|flask|opencv|wxwidgets|express|gin|cargo')
-_HARD_LIB_RE = re.compile(r'(?i)pytest|jest|xunit|nunit|rspec|cargo\s+test')
+    r'django|flask|opencv|wxwidgets|express|gin|cargo|'
+    r'vue|react|svelte|angular|node\.js|nodejs')
+_HARD_LIB_RE = re.compile(r'(?i)pytest|jest|vitest|xunit|nunit|rspec|cargo\s+test')
 _COMPLEXITY_PLANNER = {'trivial': 120, 'simple': 200, 'complex': 360, 'hard': 480}
 _COMPLEXITY_WRITER = {'trivial': 90, 'simple': 220, 'complex': 300, 'hard': 400}
 _REPAIR_MAX_ITERS = 6
-_REPAIR_LOOP_RULES = """REPAIR RULES — follow exactly:
-1. You are fixing failing tests. Each turn, make ONE targeted change: call Edit, or Write to replace a whole file.
-2. Do NOT run any commands. The test is run for you after each edit and the new output is shown to you.
-3. Only modify files that already exist. Do not create new files. Do not touch PLAN.md.
-4. Never modify files inside generated directories: .venv/, node_modules/, __pycache__/, target/, .cargo/, dist/, build/. These are managed by package managers, not by you.
-5. Call the tool immediately — no prose, no explanation. Stop after one tool call."""
+_STAGE_SEQUENCE = [
+    ('model',    'PLAN-model.md'),
+    ('backend',  'PLAN-backend.md'),
+    ('frontend', 'PLAN-frontend.md'),
+]
+
+
+def _repair_loop_rules(plan_file: str = 'PLAN.md') -> str:
+    return (
+        "REPAIR RULES — follow exactly:\n"
+        "1. You are fixing failing tests. Each turn, make ONE targeted change: "
+        "call Edit, or Write to replace a whole file.\n"
+        "2. Do NOT run any commands. The test is run for you after each edit "
+        "and the new output is shown to you.\n"
+        f"3. Only modify files that already exist. Do not create new files. "
+        f"Do not touch {plan_file}.\n"
+        "4. Never modify files inside generated directories: .venv/, node_modules/, "
+        "__pycache__/, target/, .cargo/, dist/, build/. "
+        "These are managed by package managers, not by you.\n"
+        "5. Call the tool immediately — no prose, no explanation. Stop after one tool call."
+    )
 
 
 def detect_complexity(goal: str) -> str:
@@ -212,8 +237,9 @@ def _select_model() -> str:
     return ''
 
 
-def split(goal: str = '', model: str = '', target_dir: str = '') -> int:
-    """Rewrite PLAN.md so pending tasks are split into smaller, more actionable files."""
+def split(goal: str = '', model: str = '', target_dir: str = '',
+          plan_file: str = 'PLAN.md') -> int:
+    """Rewrite the plan so pending tasks are split into smaller, more actionable files."""
     import time
     if not model:
         model = os.environ.get('MU_AGENT_MODEL', '')
@@ -224,12 +250,12 @@ def split(goal: str = '', model: str = '', target_dir: str = '') -> int:
 
     if target_dir:
         os.chdir(target_dir)
-    if not Path('PLAN.md').exists():
-        print("mu-split: no PLAN.md found — run `mu plan` first", file=sys.stderr)
+    if not Path(plan_file).exists():
+        print(f"mu-split: no {plan_file} found — run `mu plan` first", file=sys.stderr)
         return 1
 
-    original = Path('PLAN.md').read_text()
-    p = parse('PLAN.md')
+    original = Path(plan_file).read_text()
+    p = parse(plan_file)
     pending = [t for t in p.tasks if not t.done and not t.in_progress]
     if not pending:
         log("No pending tasks — nothing to split.")
@@ -239,8 +265,8 @@ def split(goal: str = '', model: str = '', target_dir: str = '') -> int:
     log("Splitting %d pending task(s) (timeout=%ds)", len(pending), timeout)
 
     system = (
-        "You refine PLAN.md by splitting broad or vague pending tasks into smaller, "
-        "more actionable file-level tasks. Output ONLY the raw PLAN.md markdown — "
+        f"You refine {plan_file} by splitting broad or vague pending tasks into smaller, "
+        f"more actionable file-level tasks. Output ONLY the raw plan markdown — "
         "no preamble, no explanation, no code fences."
     )
     rules = (
@@ -255,9 +281,9 @@ def split(goal: str = '', model: str = '', target_dir: str = '') -> int:
         "- Do NOT write code, prose, or file contents — only the task checklist."
     )
     user = (
-        f"Current PLAN.md:\n\n{original}\n\n{rules}\n\n"
+        f"Current {plan_file}:\n\n{original}\n\n{rules}\n\n"
         + (f"GOAL: {goal}\n\n" if goal else "")
-        + "Output the revised PLAN.md now. Preserve ## Summary if present, then ## Files."
+        + "Output the revised plan now. Preserve ## Summary if present, then ## Files."
     )
 
     msgs = [{'role': 'system', 'content': system},
@@ -281,14 +307,14 @@ def split(goal: str = '', model: str = '', target_dir: str = '') -> int:
     new_p = parse_content(content)
     new_pending = [t for t in new_p.tasks if not t.done and not t.in_progress]
     if len(new_pending) <= len(pending):
-        log("Split: no new tasks produced (%d -> %d pending) — leaving PLAN.md unchanged.",
-            len(pending), len(new_pending))
+        log("Split: no new tasks produced (%d -> %d pending) — leaving %s unchanged.",
+            len(pending), len(new_pending), plan_file)
         return 0
 
     os.makedirs(LOG_DIR, exist_ok=True)
-    backup = os.path.join(LOG_DIR, 'PLAN-before-split.md')
+    backup = os.path.join(LOG_DIR, f'{Path(plan_file).stem}-before-split.md')
     Path(backup).write_text(original)
-    Path('PLAN.md').write_text(content)
+    Path(plan_file).write_text(content)
     log("Split: %d -> %d pending tasks. Backup saved to %s.",
         len(pending), len(new_pending), backup)
     print()
@@ -296,8 +322,9 @@ def split(goal: str = '', model: str = '', target_dir: str = '') -> int:
     return 0
 
 
-def flow(goal: str = '', model: str = '', target_dir: str = '') -> int:
-    """Reorganize PLAN.md so each write step is immediately followed by a testable step."""
+def flow(goal: str = '', model: str = '', target_dir: str = '',
+         plan_file: str = 'PLAN.md') -> int:
+    """Reorganize the plan so each write step is immediately followed by a testable step."""
     import time
     if not model:
         model = os.environ.get('MU_AGENT_MODEL', '')
@@ -308,12 +335,12 @@ def flow(goal: str = '', model: str = '', target_dir: str = '') -> int:
 
     if target_dir:
         os.chdir(target_dir)
-    if not Path('PLAN.md').exists():
-        print("mu-flow: no PLAN.md found — run `mu plan` first", file=sys.stderr)
+    if not Path(plan_file).exists():
+        print(f"mu-flow: no {plan_file} found — run `mu plan` first", file=sys.stderr)
         return 1
 
-    original = Path('PLAN.md').read_text()
-    p = parse('PLAN.md')
+    original = Path(plan_file).read_text()
+    p = parse(plan_file)
     pending = [t for t in p.tasks if not t.done and not t.in_progress]
     if not pending:
         log("No pending tasks — nothing to flow.")
@@ -323,8 +350,8 @@ def flow(goal: str = '', model: str = '', target_dir: str = '') -> int:
     log("Flowing %d pending task(s) into write+test pairs (timeout=%ds)", len(pending), timeout)
 
     system = (
-        "You reorganize PLAN.md so every source file task is immediately followed by a "
-        "testable step that exercises it. Output ONLY the raw PLAN.md markdown — "
+        f"You reorganize {plan_file} so every source file task is immediately followed by a "
+        f"testable step that exercises it. Output ONLY the raw plan markdown — "
         "no preamble, no explanation, no code fences."
     )
     rules = (
@@ -348,9 +375,9 @@ def flow(goal: str = '', model: str = '', target_dir: str = '') -> int:
         "- Do NOT write code, prose, or file contents — only the task checklist."
     )
     user = (
-        f"Current PLAN.md:\n\n{original}\n\n{rules}\n\n"
+        f"Current {plan_file}:\n\n{original}\n\n{rules}\n\n"
         + (f"GOAL: {goal}\n\n" if goal else "")
-        + "Output the revised PLAN.md now. Preserve ## Summary if present, then ## Files."
+        + "Output the revised plan now. Preserve ## Summary if present, then ## Files."
     )
 
     msgs = [{'role': 'system', 'content': system},
@@ -368,20 +395,20 @@ def flow(goal: str = '', model: str = '', target_dir: str = '') -> int:
 
     content = extract_plan_content(msg.get('content') or '')
     if not content or not re.search(r'(?m)^- \[([ x])\] ', content):
-        log("Flow: response had no valid task checklist — leaving PLAN.md unchanged.")
+        log("Flow: response had no valid task checklist — leaving %s unchanged.", plan_file)
         return 1
 
     new_p = parse_content(content)
     new_pending = [t for t in new_p.tasks if not t.done and not t.in_progress]
     if len(new_pending) < len(pending):
-        log("Flow: pending count decreased (%d -> %d) — leaving PLAN.md unchanged.",
-            len(pending), len(new_pending))
+        log("Flow: pending count decreased (%d -> %d) — leaving %s unchanged.",
+            len(pending), len(new_pending), plan_file)
         return 1
 
     os.makedirs(LOG_DIR, exist_ok=True)
-    backup = os.path.join(LOG_DIR, 'PLAN-before-flow.md')
+    backup = os.path.join(LOG_DIR, f'{Path(plan_file).stem}-before-flow.md')
     Path(backup).write_text(original)
-    Path('PLAN.md').write_text(content)
+    Path(plan_file).write_text(content)
     log("Flow: %d -> %d pending tasks. Backup saved to %s.",
         len(pending), len(new_pending), backup)
     print()
@@ -389,7 +416,8 @@ def flow(goal: str = '', model: str = '', target_dir: str = '') -> int:
     return 0
 
 
-def assess(goal: str = '', model: str = '', target_dir: str = '') -> int:
+def assess(goal: str = '', model: str = '', target_dir: str = '',
+           plan_file: str = 'PLAN.md') -> int:
     """Assess each plan step for goal alignment; revise or skip deviating tasks."""
     import time
     if not model:
@@ -401,12 +429,12 @@ def assess(goal: str = '', model: str = '', target_dir: str = '') -> int:
 
     if target_dir:
         os.chdir(target_dir)
-    if not Path('PLAN.md').exists():
-        print("mu-assess: no PLAN.md found — run `mu plan` first", file=sys.stderr)
+    if not Path(plan_file).exists():
+        print(f"mu-assess: no {plan_file} found — run `mu plan` first", file=sys.stderr)
         return 1
 
-    original = Path('PLAN.md').read_text()
-    p = parse('PLAN.md')
+    original = Path(plan_file).read_text()
+    p = parse(plan_file)
     pending = [t for t in p.tasks if not t.done and not t.in_progress]
     if not pending:
         log("No pending tasks — nothing to assess.")
@@ -420,7 +448,7 @@ def assess(goal: str = '', model: str = '', target_dir: str = '') -> int:
         "You are a strict plan reviewer. Your job is to ensure every pending task "
         "directly serves the stated GOAL — removing or revising tasks that deviate, "
         "and enriching descriptions so each task has what the implementer needs. "
-        "Output ONLY the raw PLAN.md markdown — no preamble, no explanation, no code fences."
+        "Output ONLY the raw plan markdown — no preamble, no explanation, no code fences."
     )
     rules = (
         "Rules:\n"
@@ -441,8 +469,8 @@ def assess(goal: str = '', model: str = '', target_dir: str = '') -> int:
     )
     goal_line = f"GOAL: {goal}\n\n" if goal else ""
     user = (
-        f"{goal_line}Current PLAN.md:\n\n{original}\n\n{rules}\n\n"
-        "Output the assessed PLAN.md now. Preserve ## Summary if present, then ## Files."
+        f"{goal_line}Current {plan_file}:\n\n{original}\n\n{rules}\n\n"
+        "Output the assessed plan now. Preserve ## Summary if present, then ## Files."
     )
 
     msgs = [{'role': 'system', 'content': system},
@@ -460,7 +488,7 @@ def assess(goal: str = '', model: str = '', target_dir: str = '') -> int:
 
     content = extract_plan_content(msg.get('content') or '')
     if not content or not re.search(r'(?m)^- \[([ x])\] ', content):
-        log("Assess: response had no valid task checklist — leaving PLAN.md unchanged.")
+        log("Assess: response had no valid task checklist — leaving %s unchanged.", plan_file)
         return 1
 
     new_p = parse_content(content)
@@ -470,15 +498,15 @@ def assess(goal: str = '', model: str = '', target_dir: str = '') -> int:
     # All kept paths must be from the original set (no new tasks added)
     added = [fp for fp in new_paths if fp not in orig_paths]
     if added:
-        log("Assess: response added new tasks (%s) — leaving PLAN.md unchanged.",
-            ', '.join(added))
+        log("Assess: response added new tasks (%s) — leaving %s unchanged.",
+            ', '.join(added), plan_file)
         return 1
 
     # Done tasks must all be preserved
     orig_done = [t.file_path for t in p.tasks if t.done]
     new_done = [t.file_path for t in new_p.tasks if t.done]
     if orig_done != new_done:
-        log("Assess: done tasks were altered — leaving PLAN.md unchanged.")
+        log("Assess: done tasks were altered — leaving %s unchanged.", plan_file)
         return 1
 
     orig_pending_paths = [t.file_path for t in p.tasks if not t.done]
@@ -495,9 +523,9 @@ def assess(goal: str = '', model: str = '', target_dir: str = '') -> int:
             len(header_merged), ', '.join(sorted(header_merged)))
 
     os.makedirs(LOG_DIR, exist_ok=True)
-    backup = os.path.join(LOG_DIR, 'PLAN-before-assess.md')
+    backup = os.path.join(LOG_DIR, f'{Path(plan_file).stem}-before-assess.md')
     Path(backup).write_text(original)
-    Path('PLAN.md').write_text(merged)
+    Path(plan_file).write_text(merged)
     log("Assess: plan updated (%d pending -> %d pending). Backup saved to %s.",
         len(orig_pending_paths), len(new_pending_paths), backup)
     print()
@@ -506,39 +534,40 @@ def assess(goal: str = '', model: str = '', target_dir: str = '') -> int:
 
 
 def iterate(goal: str = '', model: str = '', target_dir: str = '',
-            max_iter: int = 10) -> int:
-    """Continue executing an existing PLAN.md without re-planning."""
+            max_iter: int = 10, plan_file: str = 'PLAN.md') -> int:
+    """Continue executing an existing plan without re-planning."""
     if target_dir:
         Path(target_dir).mkdir(parents=True, exist_ok=True)
         os.chdir(target_dir)
-    if not Path('PLAN.md').exists():
-        print("mu-iterate: no PLAN.md found — run `mu plan` or `mu agent` first",
+    if not Path(plan_file).exists():
+        print(f"mu-iterate: no {plan_file} found — run `mu plan` or `mu agent` first",
               file=sys.stderr)
         return 1
-    plan_text = Path('PLAN.md').read_text()
+    plan_text = Path(plan_file).read_text()
     reset_text = re.sub(r'^(- \[)~(\] )', r'\1 \2', plan_text, flags=re.MULTILINE)
     reset_count = plan_text.count('- [~]')
     if reset_count:
-        Path('PLAN.md').write_text(reset_text)
+        Path(plan_file).write_text(reset_text)
         log("Reset %d in-progress task(s) to pending.", reset_count)
     if not goal:
-        p = parse('PLAN.md')
+        p = parse(plan_file)
         goal = p.plan_context[:120].strip() or 'implement the plan'
 
-    challenges = get_challenges()
+    challenges = get_challenges(plan_file)
     if challenges:
         mit_model = model or os.environ.get('MU_AGENT_MODEL', '') or _select_model()
         if mit_model:
-            _run_mitigation_pass(mit_model, parse('PLAN.md'), challenges, goal)
-        clear_challenges()
+            _run_mitigation_pass(mit_model, parse(plan_file), challenges, goal)
+        clear_challenges(plan_file)
         log("Cleared challenges section after mitigation pass.")
 
     return run(goal=goal, model=model, target_dir='', max_iter=max_iter, force=True,
-               show_result=True)
+               show_result=True, plan_file=plan_file)
 
 
-def plan(goal: str, model: str = '', target_dir: str = '', force: bool = False) -> int:
-    """Generate PLAN.md and write sketch stubs for each planned file."""
+def plan(goal: str, model: str = '', target_dir: str = '', force: bool = False,
+         plan_file: str = 'PLAN.md') -> int:
+    """Generate a plan file and write sketch stubs for each planned file."""
     if not model:
         model = os.environ.get('MU_AGENT_MODEL', '')
     if not model:
@@ -550,7 +579,7 @@ def plan(goal: str, model: str = '', target_dir: str = '', force: bool = False) 
         Path(target_dir).mkdir(parents=True, exist_ok=True)
         os.chdir(target_dir)
 
-    err = _check_standalone(force)
+    err = _check_standalone(force, plan_file)
     if err:
         print(err, file=sys.stderr)
         return 1
@@ -558,55 +587,55 @@ def plan(goal: str, model: str = '', target_dir: str = '', force: bool = False) 
     complexity = detect_complexity(goal)
     planner_timeout = _COMPLEXITY_PLANNER[complexity]
 
-    if Path('PLAN.md').exists():
-        log("PLAN.md already exists — skipping task-planner.")
-        err = _validate_existing_plan()
+    if Path(plan_file).exists():
+        log("%s already exists — skipping task-planner.", plan_file)
+        err = _validate_existing_plan(plan_file)
         if err:
             print(f"mu-plan: {err}", file=sys.stderr)
             return 1
     else:
-        if not _run_planning_phase(goal, model, planner_timeout, complexity):
+        if not _run_planning_phase(goal, model, planner_timeout, complexity, plan_file):
             return 1
 
-    if strip_thinking_artifacts('PLAN.md'):
-        log("WARNING: thinking artifact tokens stripped from PLAN.md")
-    extracted = normalize_embedded_files('PLAN.md')
+    if strip_thinking_artifacts(plan_file):
+        log("WARNING: thinking artifact tokens stripped from %s", plan_file)
+    extracted = normalize_embedded_files(plan_file)
     if extracted:
         log("Extracted embedded files: %s", ', '.join(extracted))
-    if normalize_test_command('PLAN.md'):
+    if normalize_test_command(plan_file):
         log("Normalized test command for portability.")
 
     if os.environ.get('MU_LINT_PLAN') == '1':
-        _lint_critique_pass('PLAN.md', goal, model, planner_timeout)
+        _lint_critique_pass(plan_file, goal, model, planner_timeout)
 
     if os.environ.get('MU_ENRICH_LESSONS') == '1':
-        _inject_lessons_section('PLAN.md', goal)
+        _inject_lessons_section(plan_file, goal)
 
-    p = parse('PLAN.md')
+    p = parse(plan_file)
 
-    dropped = drop_runtime_artifacts('PLAN.md', p)
+    dropped = drop_runtime_artifacts(plan_file, p)
     if dropped:
         log("Dropped runtime artifact tasks: %s", ', '.join(dropped))
-        p = parse('PLAN.md')
+        p = parse(plan_file)
 
-    minority = drop_minority_languages('PLAN.md', p)
+    minority = drop_minority_languages(plan_file, p)
     if minority:
-        langs = plan_languages(parse('PLAN.md'))
+        langs = plan_languages(parse(plan_file))
         dominant = next(iter(langs)) if langs else '?'
         log("Dropped minority-language files (keeping %s): %s", dominant, ', '.join(minority))
-        p = parse('PLAN.md')
+        p = parse(plan_file)
 
-    grounded = ground_plan('PLAN.md', p)
+    grounded = ground_plan(plan_file, p)
     if grounded:
         for change in grounded:
             log("Grounded plan against toolchain — %s", change)
-        p = parse('PLAN.md')
+        p = parse(plan_file)
 
     ok, missing = check_goal_alignment(p, goal)
     if not ok:
-        log("WARNING: PLAN.md contains none of the goal keywords.")
+        log("WARNING: %s contains none of the goal keywords.", plan_file)
     elif missing:
-        log("NOTE: PLAN.md missing some goal terms: %s", ', '.join(missing))
+        log("NOTE: %s missing some goal terms: %s", plan_file, ', '.join(missing))
 
     sketched = write_sketches(p, goal)
     if sketched:
@@ -618,7 +647,8 @@ def plan(goal: str, model: str = '', target_dir: str = '', force: bool = False) 
 
 
 def run(goal: str, model: str = '', target_dir: str = '',
-        max_iter: int = 10, force: bool = False, show_result: bool = False) -> int:
+        max_iter: int = 10, force: bool = False, show_result: bool = False,
+        plan_file: str = 'PLAN.md') -> int:
     if not model:
         model = os.environ.get('MU_AGENT_MODEL', '')
     if not model:
@@ -636,7 +666,17 @@ def run(goal: str, model: str = '', target_dir: str = '',
         Path(target_dir).mkdir(parents=True, exist_ok=True)
         os.chdir(target_dir)
 
-    err = _check_standalone(force)
+    # Auto-trigger architect pass for hard multi-layer problems before planning.
+    if not force and complexity == 'hard' and _is_multilayer(goal):
+        if not any(Path(pf).exists() for _, pf in _STAGE_SEQUENCE):
+            log("Hard multi-layer problem detected — running architect pass.")
+            stages = _run_architect_pass(goal, model, planner_timeout)
+            if len(stages) > 1:
+                return run_staged(goal, model, max_iter=max_iter)
+            log("Architect produced %d stage(s) — falling back to single-plan mode.",
+                len(stages))
+
+    err = _check_standalone(force, plan_file)
     if err:
         print(err, file=sys.stderr)
         return 1
@@ -648,66 +688,66 @@ def run(goal: str, model: str = '', target_dir: str = '',
 
     def _on_signal(sig, frame):
         print("\nInterrupted.", file=sys.stderr)
-        sess.finalize(130, current_plan)
+        sess.finalize(130, current_plan, plan_file)
         sys.exit(130)
 
     signal.signal(signal.SIGINT, _on_signal)
     signal.signal(signal.SIGTERM, _on_signal)
 
     try:
-        if Path('PLAN.md').exists():
-            log("PLAN.md already exists — skipping task-planner.")
-            err = _validate_existing_plan()
+        if Path(plan_file).exists():
+            log("%s already exists — skipping task-planner.", plan_file)
+            err = _validate_existing_plan(plan_file)
             if err:
                 print(f"mu-agent: {err}", file=sys.stderr)
                 exit_code = 1
                 return exit_code
         else:
-            if not _run_planning_phase(goal, model, planner_timeout, complexity):
+            if not _run_planning_phase(goal, model, planner_timeout, complexity, plan_file):
                 exit_code = 1
                 return exit_code
 
-        if strip_thinking_artifacts('PLAN.md'):
-            log("WARNING: thinking artifact tokens stripped from PLAN.md")
-        extracted = normalize_embedded_files('PLAN.md')
+        if strip_thinking_artifacts(plan_file):
+            log("WARNING: thinking artifact tokens stripped from %s", plan_file)
+        extracted = normalize_embedded_files(plan_file)
         if extracted:
             log("Extracted embedded files: %s", ', '.join(extracted))
-        if normalize_test_command('PLAN.md'):
+        if normalize_test_command(plan_file):
             log("Normalized test command for portability.")
 
         if os.environ.get('MU_LINT_PLAN') == '1':
-            _lint_critique_pass('PLAN.md', goal, model, planner_timeout)
+            _lint_critique_pass(plan_file, goal, model, planner_timeout)
 
-        p = parse('PLAN.md')
+        p = parse(plan_file)
         current_plan = p
 
-        dropped = drop_runtime_artifacts('PLAN.md', p)
+        dropped = drop_runtime_artifacts(plan_file, p)
         if dropped:
             log("Dropped runtime artifact tasks: %s", ', '.join(dropped))
-            p = parse('PLAN.md')
+            p = parse(plan_file)
             current_plan = p
 
-        grounded = ground_plan('PLAN.md', p)
+        grounded = ground_plan(plan_file, p)
         if grounded:
             for change in grounded:
                 log("Grounded plan against toolchain — %s", change)
-            p = parse('PLAN.md')
+            p = parse(plan_file)
             current_plan = p
 
         ok, missing = check_goal_alignment(p, goal)
         if not ok:
-            log("WARNING: PLAN.md contains none of the goal keywords.")
+            log("WARNING: %s contains none of the goal keywords.", plan_file)
         elif missing:
-            log("NOTE: PLAN.md missing some goal terms: %s", ', '.join(missing))
+            log("NOTE: %s missing some goal terms: %s", plan_file, ', '.join(missing))
 
         os.makedirs(sess.archive_path, exist_ok=True)
         try:
-            shutil.copy2('PLAN.md', os.path.join(sess.archive_path, 'PLAN-initial.md'))
+            shutil.copy2(plan_file, os.path.join(sess.archive_path, 'PLAN-initial.md'))
         except OSError:
             pass
 
         project_dir = os.getcwd()
-        auto_system = _build_autonomous_system(project_dir)
+        auto_system = _build_autonomous_system(project_dir, plan_file)
         for _skill_name, _skill_content in _contextual_skills(goal, p):
             auto_system += '\n\n' + _skill_content
             log("Loaded %s skill.", _skill_name)
@@ -720,13 +760,25 @@ def run(goal: str, model: str = '', target_dir: str = '',
 
             log("Iteration %d / %d: %s", i, max_iter, task.file_path)
             companion = _companion_header(task.description)
-            write_prompt = _build_write_prompt(goal, task, p, companion)
+            write_prompt = _build_write_prompt(goal, task, p, companion, plan_file)
 
             if not _run_writer(model, task.file_path, write_prompt, auto_system, writer_timeout,
                                companion):
                 if not Path(task.file_path).exists():
+                    # Writer may have put the file in a subdirectory — check and move.
+                    basename = Path(task.file_path).name
+                    misplaced = next(
+                        (p2 for p2 in Path('.').rglob(basename)
+                         if p2 != Path(task.file_path) and p2.stat().st_size > 0),
+                        None)
+                    if misplaced:
+                        Path(task.file_path).parent.mkdir(parents=True, exist_ok=True)
+                        misplaced.rename(task.file_path)
+                        log("Relocated %s → %s.", misplaced, task.file_path)
+                if not Path(task.file_path).exists():
                     log("Writer did not produce %s — retrying.", task.file_path)
-                    record_challenge(f"writer did not produce {task.file_path} on first attempt")
+                    record_challenge(f"writer did not produce {task.file_path} on first attempt",
+                                     plan_file=plan_file)
                     retry = (f"Write file NOW: `{task.file_path}`\n"
                              f"You ONLY have the Write tool. Use it immediately.\n"
                              f"GOAL: {goal}\n{p.plan_context}")
@@ -738,11 +790,24 @@ def run(goal: str, model: str = '', target_dir: str = '',
                         retry += f"\n\n## Reference files (do not rewrite)\n{ref}"
                         if is_test_file(task.file_path):
                             retry += "\nCRITICAL: Call EXACT method/function names from the reference files above.\n"
-                    if not _run_writer(model, task.file_path, retry, auto_system, writer_timeout,
+                    # Use a lean system on retry: drop skills that may have caused 400.
+                    lean_system = _build_autonomous_system(project_dir, plan_file)
+                    if not _run_writer(model, task.file_path, retry, lean_system, writer_timeout,
                                        companion):
-                        log("Iteration %d: %s not written after retry.", i, task.file_path)
-                        exit_code = 3
-                        return exit_code
+                        # Retry may have written to wrong path — check again.
+                        if not Path(task.file_path).exists():
+                            misplaced2 = next(
+                                (p2 for p2 in Path('.').rglob(basename)
+                                 if p2 != Path(task.file_path) and p2.stat().st_size > 0),
+                                None)
+                            if misplaced2:
+                                Path(task.file_path).parent.mkdir(parents=True, exist_ok=True)
+                                misplaced2.rename(task.file_path)
+                                log("Relocated (post-retry) %s → %s.", misplaced2, task.file_path)
+                        if not Path(task.file_path).exists():
+                            log("Iteration %d: %s not written after retry.", i, task.file_path)
+                            exit_code = 3
+                            return exit_code
 
             # Empty-output check: only stub a file the model left with no code.
             try:
@@ -752,7 +817,8 @@ def run(goal: str, model: str = '', target_dir: str = '',
                 if (_is_effectively_empty(task.file_path) and
                         not is_build_file(task.file_path) and not is_config):
                     log("No code written to %s — inserting minimal stub.", task.file_path)
-                    record_challenge(f"no code written for {task.file_path}")
+                    record_challenge(f"no code written for {task.file_path}",
+                                     plan_file=plan_file)
                     stub_content = _default_stub(ext, task.file_path)
                     Path(task.file_path).write_text(stub_content)
             except OSError:
@@ -764,12 +830,20 @@ def run(goal: str, model: str = '', target_dir: str = '',
                 log("Fixed %s: replaced literal \\n with real newlines.", task.file_path)
 
             if task.file_path.endswith('.cs'):
+                if fix_csharp_keyword_prefix_artifacts(task.file_path):
+                    log("Fixed %s: removed keyword prefix artifacts.", task.file_path)
+                if fix_csharp_verbatim_string_escape(task.file_path):
+                    log("Fixed %s: fixed verbatim string escaping.", task.file_path)
+                if fix_csharp_using_order(task.file_path):
+                    log("Fixed %s: moved using statements to top.", task.file_path)
                 if fix_csharp_missing_braces(task.file_path):
                     log("Fixed %s: fixed unbalanced brace(s).", task.file_path)
                 if fix_csharp_duplicate_classes(task.file_path):
                     log("Fixed %s: removed duplicate class definitions.", task.file_path)
 
             if task.file_path.endswith('.py'):
+                if fix_python_missing_def(task.file_path):
+                    log("Fixed %s: inserted missing def after orphaned decorator.", task.file_path)
                 if fix_python_decorator_colon(task.file_path):
                     log("Fixed %s: removed spurious colon from decorator.", task.file_path)
                 if fix_python_missing_project_imports(task.file_path):
@@ -778,10 +852,10 @@ def run(goal: str, model: str = '', target_dir: str = '',
                     log("Fixed %s: added missing stdlib imports.", task.file_path)
                 if fix_test_import_module(task.file_path):
                     log("Fixed %s: corrected import module name.", task.file_path)
+                if fix_sqlite_path_unlink(task.file_path):
+                    log("Fixed %s: wrapped db_path.unlink() with Path().", task.file_path)
                 if fix_sqlite_test_isolation(task.file_path):
                     log("Fixed %s: replaced SQLite file path with :memory:.", task.file_path)
-                # When a test file is written, also fix sibling implementation files
-                # that may have been written before any test file existed.
                 fp = Path(task.file_path)
                 if fp.stem.startswith('test_'):
                     for sib in fp.parent.glob('*.py'):
@@ -799,7 +873,13 @@ def run(goal: str, model: str = '', target_dir: str = '',
                 if apply_go_reflexes():
                     log("Resolved Go module dependencies (go mod tidy).")
 
+            if task.file_path.lower() == 'cargo.toml':
+                if fix_rust_cargo_toml(task.file_path):
+                    log("Fixed Cargo.toml: regenerated corrupted content.")
+
             if task.file_path.endswith('.rs'):
+                if fix_rust_duplicate_use(task.file_path):
+                    log("Fixed %s: removed duplicate use statement(s).", task.file_path)
                 if fix_rust_println_missing_arg(task.file_path):
                     log("Fixed %s: added missing println! argument.", task.file_path)
 
@@ -826,6 +906,7 @@ def run(goal: str, model: str = '', target_dir: str = '',
                              fix_missing_close_paren(task.file_path, lint_head) or
                              fix_literal_newlines(task.file_path, lint_head) or
                              fix_python_undefined_imports(task.file_path, lint_head) or
+                             fix_rust_duplicate_use(task.file_path) or
                              fix_rust_println_missing_arg(task.file_path)) and
                             _run_cmd(lint_cmd, lint_log)
                         )
@@ -833,13 +914,14 @@ def run(goal: str, model: str = '', target_dir: str = '',
                             log("Lint auto-fixed (deterministic): %s", task.file_path)
                         else:
                             record_challenge(
-                                f"lint repair needed for {task.file_path}", lint_head)
+                                f"lint repair needed for {task.file_path}", lint_head,
+                                plan_file=plan_file)
                             _run_repair_lint(model, lint_cmd, task.file_path, lint_log, lint_head,
-                                            auto_system, writer_timeout, goal)
+                                            auto_system, writer_timeout, goal, plan_file)
                             if not _run_cmd(lint_cmd, lint_log):
                                 log("Lint still failing after repair for %s.", task.file_path)
                                 record_failed_repair(f"lint repair for {task.file_path}",
-                                                     _head_file(lint_log, 5))
+                                                     _head_file(lint_log, 5), plan_file)
                                 exit_code = 3
                                 return exit_code
                             log("Lint passed after repair: %s", task.file_path)
@@ -853,29 +935,31 @@ def run(goal: str, model: str = '', target_dir: str = '',
                     log("Tests failing after %s — invoking repair.", task.file_path)
                     record_challenge(
                         f"tests failed after writing {task.file_path}",
-                        _tail_file(test_log, 5))
+                        _tail_file(test_log, 5), plan_file=plan_file)
                     ok, iters = _run_test_repair_loop(model, test_cmd, test_log, p,
-                                                      auto_system, writer_timeout, goal)
+                                                      auto_system, writer_timeout, goal,
+                                                      plan_file)
                     sess.repair_iters += iters
                     if not ok:
                         log("Tests still failing after repair for %s.", task.file_path)
                         record_failed_repair(f"test repair after writing {task.file_path}",
-                                             _tail_file(test_log, 5))
+                                             _tail_file(test_log, 5), plan_file)
                         exit_code = 3
                         return exit_code
 
-            mark_task_done('PLAN.md', task.file_path)
+            mark_task_done(plan_file, task.file_path)
             log("Marked done: %s", task.file_path)
             print(f"\n  Iteration {i} done: {task.file_path}\n", flush=True)
             if show_result:
                 _print_result(task.file_path)
                 if companion and Path(companion).exists():
                     _print_result(companion)
-            p = parse('PLAN.md')
+            p = parse(plan_file)
             current_plan = p
 
         if not tasks_remaining(p):
-            err, iters = _final_test_gate(model, p, auto_system, writer_timeout, goal)
+            err, iters = _final_test_gate(model, p, auto_system, writer_timeout, goal,
+                                          plan_file)
             sess.repair_iters += iters
             if err:
                 exit_code = 3
@@ -890,7 +974,7 @@ def run(goal: str, model: str = '', target_dir: str = '',
         exit_code = 2
         return exit_code
     finally:
-        sess.finalize(exit_code, current_plan)
+        sess.finalize(exit_code, current_plan, plan_file)
 
 
 # ── Planning ──────────────────────────────────────────────────────────────────
@@ -913,20 +997,22 @@ def _plan_has_blocking_go_cmd(text: str) -> bool:
     return bool(_BLOCKING_CMD_RE.search(cmd)) and 'go test' not in cmd
 
 
-def _run_planning_phase(goal: str, model: str, planner_timeout: int, complexity: str) -> bool:
+def _run_planning_phase(goal: str, model: str, planner_timeout: int, complexity: str,
+                        plan_file: str = 'PLAN.md') -> bool:
     log("Planning: %s (timeout=%ds complexity=%s)", goal, planner_timeout, complexity)
     for attempt in range(1, 4):
         if attempt > 1:
             log("Planner attempt %d / 3 (previous plan had wrong format)", attempt)
-            if Path('PLAN.md').exists():
-                Path('PLAN.md').unlink()
-        _run_planner(goal, model, planner_timeout)
-        if not Path('PLAN.md').exists():
-            log("Attempt %d: no PLAN.md produced", attempt)
+            if Path(plan_file).exists():
+                Path(plan_file).unlink()
+        _run_planner(goal, model, planner_timeout, plan_file)
+        if not Path(plan_file).exists():
+            log("Attempt %d: no %s produced", attempt, plan_file)
             continue
-        data = Path('PLAN.md').read_bytes()
+        data = Path(plan_file).read_bytes()
         if not re.search(rb'(?m)^- \[[ x~]\]', data):
-            log("Attempt %d: PLAN.md has no task checklist (wrong format) — retrying", attempt)
+            log("Attempt %d: %s has no task checklist (wrong format) — retrying",
+                attempt, plan_file)
             continue
         text = data.decode('utf-8', errors='replace')
         if _plan_has_blocking_go_cmd(text):
@@ -934,16 +1020,17 @@ def _run_planning_phase(goal: str, model: str, planner_timeout: int, complexity:
             continue
         break
     else:
-        print("mu-agent: task-planner did not produce a valid PLAN.md after 3 attempts",
+        print(f"mu-agent: task-planner did not produce a valid {plan_file} after 3 attempts",
               file=sys.stderr)
         return False
-    log("PLAN.md created.")
+    log("%s created.", plan_file)
     print()
-    print(Path('PLAN.md').read_text(), flush=True)
+    print(Path(plan_file).read_text(), flush=True)
     return True
 
 
-def _run_planner(goal: str, model: str, planner_timeout: int) -> None:
+def _run_planner(goal: str, model: str, planner_timeout: int,
+                 plan_file: str = 'PLAN.md') -> None:
     import time
     project_dir = os.getcwd()
     skill = _load_skill('task-planner')
@@ -1065,9 +1152,9 @@ def _run_planner(goal: str, model: str, planner_timeout: int) -> None:
         log("Planner: empty response")
         return
     try:
-        Path('PLAN.md').write_text(content)
+        Path(plan_file).write_text(content)
     except OSError as e:
-        log("Planner: could not write PLAN.md: %s", e)
+        log("Planner: could not write %s: %s", plan_file, e)
 
 
 # ── Writer ────────────────────────────────────────────────────────────────────
@@ -1170,7 +1257,7 @@ def _load_repair_skills(p: Plan, goal: str = '') -> str:
 
 def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
                           autonomous_system: str, writer_timeout: int, goal: str,
-                          ) -> tuple[bool, int]:
+                          plan_file: str = 'PLAN.md') -> tuple[bool, int]:
     """Run the repair loop against the test gate; return (passed, repair_iters)."""
     # Use a LEAN repair system: only the base protocol + language repair skills.
     # The full autonomous_system (with all contextual skills like vue-ts-env,
@@ -1181,20 +1268,54 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
     repair_skills = _load_repair_skills(p, goal)
     lean_system = _build_autonomous_system(os.getcwd())
     system = lean_system + ('\n\n' + repair_skills if repair_skills else '')
-    sess = Session(system + '\n\n' + _REPAIR_LOOP_RULES)
+    sess = Session(system + '\n\n' + _repair_loop_rules(plan_file))
     sess.tool_set = tools.REPAIR
 
     def run_test() -> tuple[bool, str]:
         return _run_cmd(test_cmd, test_log), _tail_file(test_log, 60)
 
     def reapply() -> None:
+        # Remove stale .cs files that are NOT in this stage's plan.
+        # The root .csproj picks up ALL .cs files recursively, so orphaned copies
+        # from previous stages or the repair model cause CS0101/CS0260/CS0234.
+        stage_paths = {Path(t.file_path) for t in p.tasks if t.file_path.endswith('.cs')}
+        stage_dirs = {Path(t.file_path).parent for t in p.tasks if t.file_path.endswith('.cs')}
+        _skip_dirs = {'obj', 'bin', '.git', 'node_modules', '.venv'}
+        for cs_file in list(Path('.').rglob('*.cs')):
+            # Never touch build/dependency output directories
+            if any(part in _skip_dirs for part in cs_file.parts):
+                continue
+            if cs_file in stage_paths:
+                continue
+            # Keep files whose parent directory is an expected stage directory
+            if cs_file.parent in stage_dirs or cs_file.parent == Path('.'):
+                # Only delete if same basename as a stage file (likely duplicate)
+                if any(cs_file.name == sp.name for sp in stage_paths):
+                    try:
+                        cs_file.unlink()
+                        log("Deleted orphaned .cs duplicate: %s", cs_file)
+                    except OSError:
+                        pass
+            else:
+                # Delete .cs in unexpected subdirectory — likely a repair artifact
+                try:
+                    cs_file.unlink()
+                    log("Deleted stale .cs from unexpected subdir: %s", cs_file)
+                except OSError:
+                    pass
         for t in p.tasks:
             if not Path(t.file_path).exists():
                 continue
             if is_build_file(t.file_path) and Path(t.file_path).name.lower() == 'makefile':
                 apply_makefile_reflexes(t.file_path)
                 fix_makefile_binary_name(t.file_path, p.test_command or '')
+            elif t.file_path.lower() == 'cargo.toml':
+                if fix_rust_cargo_toml(t.file_path):
+                    log("Repair reapply: regenerated corrupted Cargo.toml.")
             elif t.file_path.endswith('.cs'):
+                fix_csharp_keyword_prefix_artifacts(t.file_path)
+                fix_csharp_verbatim_string_escape(t.file_path)
+                fix_csharp_using_order(t.file_path)
                 fix_csharp_missing_braces(t.file_path)
             elif Path(t.file_path).suffix.lower() in ('.js', '.jsx', '.mjs'):
                 fix_js_env_data_file(t.file_path)
@@ -1230,6 +1351,10 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
             latest_out = _tail_file(test_log, 60)
             if fix_jest_no_tests_found(latest_out, os.getcwd()):
                 log("Re-applied Jest testRegex (repair: No tests found).")
+            if fix_vitest_watch_mode(os.getcwd()):
+                log("Re-applied vitest run mode in package.json.")
+            if fix_vue_missing_package(os.getcwd()):
+                log("Re-applied: added missing vue package to package.json.")
             if fix_vitest_globals(os.getcwd(), latest_out):
                 log("Re-applied Vitest globals:true (repair: ReferenceError).")
 
@@ -1251,6 +1376,10 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
         log("Added missing pip packages to requirements before repair.")
     if fix_jest_no_tests_found(initial_out, os.getcwd()):
         log("Broadened Jest testRegex in package.json (No tests found).")
+    if fix_vitest_watch_mode(os.getcwd()):
+        log("Changed vitest to vitest run in package.json.")
+    if fix_vue_missing_package(os.getcwd()):
+        log("Added missing vue package to package.json.")
     if fix_vitest_globals(os.getcwd(), initial_out):
         log("Enabled Vitest globals in vite.config.ts.")
     for t in p.tasks:
@@ -1324,7 +1453,8 @@ def _repair_context(p: Plan) -> str:
 
 
 def _run_repair_lint(model: str, lint_cmd: str, file_path: str, lint_log: str, lint_head: str,
-                     autonomous_system: str, writer_timeout: int, goal: str) -> None:
+                     autonomous_system: str, writer_timeout: int, goal: str,
+                     plan_file: str = 'PLAN.md') -> None:
     file_content = ''
     try:
         data = Path(file_path).read_text()
@@ -1354,15 +1484,22 @@ def _run_repair_lint(model: str, lint_cmd: str, file_path: str, lint_log: str, l
     # back, with the file shown and syntax-breaking edits rolled back. Same loop
     # the test gate uses — a one-shot pass couldn't converge on multi-step fixes.
     context = (f"## Fix the lint/compile error in {file_path}. Only edit {file_path}; "
-               f"do not create files.{hint}{file_content}{repair_history()}\n\n")
-    sess = Session(autonomous_system + '\n\n' + _REPAIR_LOOP_RULES)
+               f"do not create files.{hint}{file_content}{repair_history(plan_file)}\n\n")
+    sess = Session(autonomous_system + '\n\n' + _repair_loop_rules(plan_file))
     sess.tool_set = tools.REPAIR
 
     def run_test() -> tuple[bool, str]:
         return _run_cmd(lint_cmd, lint_log), _head_file(lint_log, 60)
 
+    def lint_reapply() -> None:
+        # Re-apply Cargo.toml fix before each lint attempt — the repair model
+        # tends to corrupt Cargo.toml when trying to add dependencies.
+        cargo = Path('Cargo.toml')
+        if cargo.exists() and fix_rust_cargo_toml(str(cargo)):
+            log("Repair reapply (lint): regenerated corrupted Cargo.toml.")
+
     sess.repair_loop(model, goal, _REPAIR_MAX_ITERS, float(writer_timeout),
-                     run_test, None, context, _syntax_check)
+                     run_test, lint_reapply, context, _syntax_check)
 
 
 def _run_mitigation_pass(model: str, p: Plan, challenges: str, goal: str) -> None:
@@ -1391,7 +1528,8 @@ def _run_mitigation_pass(model: str, p: Plan, challenges: str, goal: str) -> Non
 
 
 def _final_test_gate(model: str, p: Optional[Plan], autonomous_system: str,
-                     writer_timeout: int, goal: str) -> tuple[Optional[str], int]:
+                     writer_timeout: int, goal: str,
+                     plan_file: str = 'PLAN.md') -> tuple[Optional[str], int]:
     """Run the final test gate with repair loop; return (error_msg_or_None, repair_iters)."""
     test_cmd = (p.test_command if p else '') or ''
     if not test_cmd:
@@ -1408,18 +1546,285 @@ def _final_test_gate(model: str, p: Optional[Plan], autonomous_system: str,
             return None, 0
     test_log = os.path.join(LOG_DIR, 'tests-final.log')
     ok, iters = _run_test_repair_loop(model, test_cmd, test_log, p, autonomous_system,
-                                      writer_timeout, goal)
+                                      writer_timeout, goal, plan_file)
     if ok:
         return None, iters
-    record_failed_repair("final test gate: repair loop exhausted", _tail_file(test_log, 30))
+    record_failed_repair("final test gate: repair loop exhausted", _tail_file(test_log, 30),
+                         plan_file)
     print("\n  Tests still failing after repair loop. Giving up.\n", flush=True)
     return "final tests failed", iters
 
 
+# ── Architect ─────────────────────────────────────────────────────────────────
+
+def _is_multilayer(goal: str) -> bool:
+    """True when the goal describes a problem with at least two distinct layers.
+
+    Detects: API/server + frontend, or model + API, or backend + frontend.
+    Generic signal — no hardcoded problem names or filenames.
+    """
+    g = goal.lower()
+    has_backend = any(k in g for k in (
+        'api', 'backend', 'server', 'rest', 'endpoint', 'route', 'handler',
+        'flask', 'django', 'express', 'gin', 'fastapi', 'asp.net', 'dotnet',
+        'http', 'crud',
+    ))
+    has_frontend = any(k in g for k in (
+        'frontend', 'vue', 'react', 'svelte', 'angular', 'ui', 'web app',
+        'webapp', 'browser', 'component', 'page', 'vite', 'vitest',
+    ))
+    has_model = any(k in g for k in (
+        'model', 'schema', 'database', 'sqlite', 'migration', 'entity',
+        'table', 'orm', 'ef core', 'entityframework',
+    ))
+    return has_backend and has_frontend
+
+
+def _detect_stages(arch_text: str) -> list[str]:
+    """Parse the '## Stages' section of ARCHITECTURE.md and return stage names."""
+    m = re.search(r'(?m)^## Stages\s*\n(.*?)(?=\n## |\Z)', arch_text, re.DOTALL)
+    if not m:
+        return []
+    return re.findall(r'^(model|backend|frontend):', m.group(1), re.MULTILINE)
+
+
+def _run_stage_planner(stage: str, goal: str, model: str, arch_text: str,
+                       timeout: int) -> bool:
+    """Generate PLAN-{stage}.md using the architecture as context.
+
+    Returns True if a valid plan file was produced.
+    """
+    import time
+    plan_file = f'PLAN-{stage}.md'
+    skill = _load_skill('task-planner')
+    architect_skill = _load_skill('architect')
+
+    stage_constraints = {
+        'model': (
+            "Plan ONLY the data layer described in ARCHITECTURE.md §Stages/model. "
+            "The physical storage is ALWAYS SQLite — use it directly (no ORM unless "
+            "the goal explicitly names one). "
+            "Include a backend test file that exercises the schema — this is how "
+            "the data model will be validated. "
+            "All features named in the GOAL must be reflected in the schema."
+        ),
+        'backend': (
+            "Plan ONLY the backend layer described in ARCHITECTURE.md §Stages/backend. "
+            "Assume all data model files from PLAN-model.md are already implemented "
+            "and correct. "
+            "Include test files that cover both the model and backend routes. "
+            "All features named in the GOAL must have corresponding API endpoints."
+        ),
+        'frontend': (
+            "Plan ONLY the frontend layer described in ARCHITECTURE.md §Stages/frontend. "
+            "Assume the backend API from PLAN-backend.md is already working and stable. "
+            "All features named in the GOAL must be exposed in the UI. "
+            "Do NOT plan backend files — only UI components, pages, and their tests."
+        ),
+    }
+    constraint = stage_constraints.get(stage, '')
+
+    system = (
+        f"You are a planning agent producing {plan_file} for the {stage} stage only.\n"
+        "Output ONLY the raw plan markdown — no preamble, no explanation, no code fences.\n"
+        "Begin with ## Summary, then ## Files, then ## Test Command, then ## Dependencies.\n\n"
+        "HARD CONSTRAINTS:\n"
+        "- No Docker, no containers, no Dockerfiles, no docker-compose files.\n"
+        "- SQLite is the only allowed database.\n"
+        "- Every feature from the GOAL must appear in this stage's files.\n"
+    )
+    if skill:
+        system += '\n\n' + skill
+    if architect_skill:
+        system += '\n\n' + architect_skill
+
+    user_msg = (
+        f"GOAL: {goal}\n\n"
+        f"ARCHITECTURE:\n{arch_text}\n\n"
+        f"STAGE INSTRUCTION: {constraint}\n\n"
+        f"Create {plan_file} for the {stage} stage only. "
+        "The ## Test Command must test ONLY this stage's files. "
+        "Start with ## Summary."
+    )
+
+    msgs = [{'role': 'system', 'content': system},
+            {'role': 'user', 'content': user_msg}]
+    log("Stage planner: %s (timeout=%ds)", stage, timeout)
+    print(f"  Planning {stage} stage...", flush=True)
+    t0 = time.time()
+    try:
+        msg, stats = chat(model, msgs, None, float(timeout))
+        elapsed = time.time() - t0
+        log("chat: prompt=%d gen=%d time=%.1fs",
+            stats.prompt_tokens, stats.generated_tokens, elapsed)
+    except Exception as e:
+        log("Stage planner error (%s): %s", stage, e)
+        return False
+
+    content = extract_plan_content(msg.get('content') or '')
+    if not content or not re.search(r'(?m)^- \[[ x]\] ', content):
+        log("Stage planner (%s): no valid task checklist produced.", stage)
+        return False
+
+    try:
+        Path(plan_file).write_text(content)
+        log("Stage plan written: %s", plan_file)
+        print(f"\n{plan_file}:\n{content}\n", flush=True)
+        return True
+    except OSError as e:
+        log("Stage planner: could not write %s: %s", plan_file, e)
+        return False
+
+
+def _run_architect_pass(goal: str, model: str, timeout: int) -> list[str]:
+    """Generate ARCHITECTURE.md and per-stage plan files.
+
+    Returns the list of stage names that have a generated plan file.
+    """
+    import time
+    skill = _load_skill('architect')
+    system = (
+        "You are a software architect. Output ONLY the ARCHITECTURE.md markdown.\n"
+        "No preamble, no explanation, no code fences around the whole document.\n"
+        "HARD CONSTRAINTS:\n"
+        "- No Docker, no containers, no Dockerfiles, no compose files.\n"
+        "- SQLite is the only allowed data store.\n"
+        "- All features from the GOAL must appear in the architecture.\n"
+    )
+    if skill:
+        system += '\n\n' + skill
+
+    user_msg = (
+        f"GOAL: {goal}\n\n"
+        "Produce ARCHITECTURE.md with ## System Context, ## Containers, "
+        "## Implementation Order, and ## Stages sections. "
+        "The ## Stages section must list each stage on its own line as: "
+        "'model: ...', 'backend: ...', 'frontend: ...' (omit stages that don't apply)."
+    )
+
+    msgs = [{'role': 'system', 'content': system},
+            {'role': 'user', 'content': user_msg}]
+    log("Architect pass (timeout=%ds)", timeout)
+    print("  Architecting...", flush=True)
+    t0 = time.time()
+    try:
+        msg, stats = chat(model, msgs, None, float(timeout))
+        elapsed = time.time() - t0
+        log("chat: prompt=%d gen=%d time=%.1fs",
+            stats.prompt_tokens, stats.generated_tokens, elapsed)
+    except Exception as e:
+        log("Architect error: %s", e)
+        return []
+
+    arch_text = (msg.get('content') or '').strip()
+    if not arch_text:
+        log("Architect: empty response.")
+        return []
+
+    try:
+        Path('ARCHITECTURE.md').write_text(arch_text)
+        log("ARCHITECTURE.md written.")
+    except OSError as e:
+        log("Architect: could not write ARCHITECTURE.md: %s", e)
+        return []
+
+    if strip_thinking_artifacts('ARCHITECTURE.md'):
+        log("WARNING: thinking artifacts stripped from ARCHITECTURE.md")
+        arch_text = Path('ARCHITECTURE.md').read_text()
+
+    if '## Stages' not in arch_text:
+        log("Architect: response missing ## Stages section.")
+        return []
+
+    print(f"\nARCHITECTURE.md:\n{arch_text}\n", flush=True)
+
+    stages = _detect_stages(arch_text)
+    if not stages:
+        log("Architect: no stages detected in ## Stages section.")
+        return []
+
+    log("Detected stages: %s", ', '.join(stages))
+    produced = []
+    for stage in stages:
+        if _run_stage_planner(stage, goal, model, arch_text, timeout):
+            produced.append(stage)
+
+    return produced
+
+
+def run_staged(goal: str, model: str = '', target_dir: str = '',
+               max_iter: int = 10) -> int:
+    """Execute staged plan files sequentially with a hard backend→frontend gate."""
+    if not model:
+        model = os.environ.get('MU_AGENT_MODEL', '') or _select_model()
+        if not model:
+            return 1
+
+    if target_dir:
+        Path(target_dir).mkdir(parents=True, exist_ok=True)
+        os.chdir(target_dir)
+
+    active = [(name, pf) for name, pf in _STAGE_SEQUENCE if Path(pf).exists()]
+    if not active:
+        log("run_staged: no stage plan files found.")
+        return 1
+
+    for i, (stage_name, plan_file) in enumerate(active):
+        log("=== Stage %d/%d: %s (%s) ===", i + 1, len(active), stage_name, plan_file)
+        print(f"\n{'='*60}\n  Stage {i+1}/{len(active)}: {stage_name}\n{'='*60}\n",
+              flush=True)
+
+        rc = run(goal, model, plan_file=plan_file, force=True, max_iter=max_iter)
+        if rc != 0:
+            log("Stage '%s' failed (rc=%d) — halting staged execution.", stage_name, rc)
+            return rc
+
+        # Explicit backend→frontend gate: backend tests must pass before frontend begins.
+        next_stages = active[i + 1:]
+        if stage_name == 'backend' and any(n == 'frontend' for n, _ in next_stages):
+            gate_rc = _inter_stage_gate(plan_file, goal, model)
+            if gate_rc != 0:
+                log("Backend→Frontend gate FAILED — frontend stage will NOT run.")
+                return gate_rc
+            log("Backend gate PASSED — proceeding to frontend.")
+
+    return 0
+
+
+def _inter_stage_gate(plan_file: str, goal: str, model: str) -> int:
+    """Hard gate between backend and frontend stages.
+
+    Closes the _final_test_gate escape hatch: if the backend plan has no test
+    command and no test files, that is a hard failure rather than a silent skip.
+    """
+    p = parse(plan_file)
+    test_cmd = p.test_command.strip() if p.test_command else ''
+
+    if not test_cmd:
+        test_files = [t.file_path for t in p.tasks if is_test_file(t.file_path)]
+        if test_files:
+            test_cmd = 'pytest ' + ' '.join(test_files)
+            log("Inter-stage gate: no test command — inferred: %s", test_cmd)
+        else:
+            log("Inter-stage gate: %s has no test command and no test files.", plan_file)
+            log("Cannot verify backend before frontend. Halting.")
+            return 3
+
+    gate_log = os.path.join(LOG_DIR, 'tests-backend-gate.log')
+    if _run_cmd(test_cmd, gate_log):
+        return 0
+
+    log("Inter-stage gate: backend tests failing — attempting repair before frontend.")
+    auto_system = _build_autonomous_system(os.getcwd(), plan_file)
+    ok, _ = _run_test_repair_loop(model, test_cmd, gate_log, p, auto_system,
+                                  _COMPLEXITY_WRITER['hard'], goal, plan_file)
+    return 0 if ok else 3
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _check_standalone(force: bool) -> Optional[str]:
-    if Path('PLAN.md').exists() or force:
+def _check_standalone(force: bool, plan_file: str = 'PLAN.md') -> Optional[str]:
+    if Path(plan_file).exists() or force:
         return None
     try:
         entries = [e for e in os.scandir('.') if not e.name.startswith('.')]
@@ -1442,33 +1847,33 @@ def _check_standalone(force: bool) -> Optional[str]:
     return None
 
 
-def _validate_existing_plan() -> Optional[str]:
+def _validate_existing_plan(plan_file: str = 'PLAN.md') -> Optional[str]:
     try:
-        content = Path('PLAN.md').read_text()
+        content = Path(plan_file).read_text()
     except OSError as e:
         return str(e)
     if re.search(r'(?m)^### Group ', content):
-        return "PLAN.md uses old '### Group N' format — delete it to re-plan"
+        return f"{plan_file} uses old '### Group N' format — delete it to re-plan"
     if not re.search(r'(?m)^- \[([ x~])\]', content):
-        return "existing PLAN.md has no task checklist — delete it to re-plan"
+        return f"existing {plan_file} has no task checklist — delete it to re-plan"
     return None
 
 
-def _build_autonomous_system(project_dir: str) -> str:
+def _build_autonomous_system(project_dir: str, plan_file: str = 'PLAN.md') -> str:
     return f"""You are a code-writing agent running autonomously in: {project_dir}
 
 ROLE: You receive one task — write a specific file — and execute it immediately.
 
 PROTOCOL:
 1. Call the Write tool exactly once with the requested path and complete file contents.
-2. Derive all implementation details from the GOAL and PLAN.md. Make your own decisions — never ask for clarification.
+2. Derive all implementation details from the GOAL and {plan_file}. Make your own decisions — never ask for clarification.
 3. Stop the moment Write completes. No summary, no explanation, no additional output.
 
 OFF-LIMITS:
 - Never ask questions or request confirmation.
 - Never write files other than the one explicitly requested.
 - No arbitrary network calls (curl, wget, fetch, http, etc.).
-- Only install packages explicitly listed in PLAN.md.
+- Only install packages explicitly listed in {plan_file}.
 - Never read from stdin unless the goal explicitly says "interactive"."""
 
 
@@ -1541,7 +1946,8 @@ def _python_relevant(goal: str, p: Plan) -> bool:
                                    'python', 'requirements.txt'))
 
 
-def _build_write_prompt(goal: str, task, p: Plan, companion: str = '') -> str:
+def _build_write_prompt(goal: str, task, p: Plan, companion: str = '',
+                        plan_file: str = 'PLAN.md') -> str:
     parts = [f"GOAL: {goal}\n\n## Plan\n{p.plan_context}"]
     existing = relevant_files_context(p, task.file_path)
     if existing:
@@ -1567,7 +1973,7 @@ def _build_write_prompt(goal: str, task, p: Plan, companion: str = '') -> str:
     if is_build_file(task.file_path):
         pending = pending_source_files(p, task.file_path)
         if pending:
-            parts.append(f"\n\nCRITICAL — use these EXACT file paths from PLAN.md in "
+            parts.append(f"\n\nCRITICAL — use these EXACT file paths from {plan_file} in "
                          f"`{task.file_path}`:\n{pending}")
     parts.append("""
 
