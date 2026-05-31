@@ -28,8 +28,9 @@ from typing import Optional
 
 from mu import tools
 from mu.archive import AgentSession
-from mu.client import (chat, list_downloaded_llm_paths, list_models, load_catalog,
-                        load_model, preferred_model, recommended_model)
+from mu.client import (LMS_HOST, chat, list_downloaded_llm_paths, list_models, load_backend,
+                        load_catalog, load_model, normalize_model_bare, preferred_model,
+                        recommended_model)
 from mu.plan import (Plan, check_goal_alignment, clear_challenges,
                      drop_minority_languages,
                      drop_runtime_artifacts,
@@ -173,17 +174,26 @@ def log(msg: str, *args) -> None:
     print(f"==> [mu-agent] {msg}", flush=True)
 
 
+def _log_backend(model: str) -> None:
+    """Print the active backend and model to stdout."""
+    cfg = load_backend()
+    backend = cfg.get('backend', 'lmstudio')
+    host = cfg.get('host') or LMS_HOST
+    log("Backend: %s (%s) | Model: %s", backend, host, model)
+
+
 def _match_loaded(loaded: list[str], target: str) -> str:
     """Return the loaded model id matching the catalog id `target`, or ''.
 
-    LM Studio sometimes serves a model under a slightly different id than the
-    catalog uses (org prefix differences), so fall back to a bare-name match.
+    LM Studio sometimes serves a model under a shorter display identifier than
+    the catalog uses (strips quantization suffix and .gguf extension), so fall
+    back to a normalized bare-name match via normalize_model_bare.
     """
     if not target:
         return ''
-    bare = target.split('/')[-1]
+    target_bare = normalize_model_bare(target)
     for m in loaded:
-        if m == target or m.split('/')[-1] == bare:
+        if m == target or normalize_model_bare(m) == target_bare:
             return m
     return ''
 
@@ -205,14 +215,13 @@ def _select_model() -> str:
         return match
     # If another catalog model is already loaded, prefer it over loading a
     # non-installed recommended model (avoids a confusing load error).
-    catalog_bare = {
-        spec['id'].split('/')[-1]
+    catalog_norm = {
+        normalize_model_bare(spec['id'])
         for spec in load_catalog()
         if spec.get('id')
     }
     for m in loaded:
-        bare = m.split('/')[-1].split('@')[0]
-        if bare in catalog_bare:
+        if normalize_model_bare(m) in catalog_norm:
             log("Using loaded catalog model: %s", m)
             return m
     if recommended:
@@ -225,10 +234,9 @@ def _select_model() -> str:
         log("Could not load recommended model — falling back.")
     # Try any downloaded catalog model before giving up.
     catalog_ids = {spec['id'] for spec in load_catalog() if spec.get('id')}
-    catalog_bare = {cid.split('/')[-1] for cid in catalog_ids}
+    catalog_norm = {normalize_model_bare(cid) for cid in catalog_ids}
     for path in list_downloaded_llm_paths():
-        bare = path.split('/')[-1].split('@')[0]
-        if path in catalog_ids or bare in catalog_bare:
+        if path in catalog_ids or normalize_model_bare(path) in catalog_norm:
             log("Loading downloaded catalog model: %s", path)
             if load_model(path):
                 loaded = list_models()
@@ -253,6 +261,7 @@ def split(goal: str = '', model: str = '', target_dir: str = '',
         model = _select_model()
         if not model:
             return 1
+    _log_backend(model)
 
     if target_dir:
         os.chdir(target_dir)
@@ -338,6 +347,7 @@ def flow(goal: str = '', model: str = '', target_dir: str = '',
         model = _select_model()
         if not model:
             return 1
+    _log_backend(model)
 
     if target_dir:
         os.chdir(target_dir)
@@ -432,6 +442,7 @@ def assess(goal: str = '', model: str = '', target_dir: str = '',
         model = _select_model()
         if not model:
             return 1
+    _log_backend(model)
 
     if target_dir:
         os.chdir(target_dir)
@@ -580,6 +591,7 @@ def plan(goal: str, model: str = '', target_dir: str = '', force: bool = False,
         model = _select_model()
         if not model:
             return 1
+    _log_backend(model)
 
     if target_dir:
         Path(target_dir).mkdir(parents=True, exist_ok=True)
@@ -661,6 +673,7 @@ def run(goal: str, model: str = '', target_dir: str = '',
         model = _select_model()
         if not model:
             return 1
+    _log_backend(model)
 
     archive_dir = (os.environ.get('MU_AGENT_ARCHIVE_DIR', '') or
                    str(Path.home() / '.mu' / 'sessions'))

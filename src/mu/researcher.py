@@ -2,7 +2,6 @@
 
 import html as _html
 import json
-import os
 import re
 import sys
 import time
@@ -206,6 +205,7 @@ def research(topic: str, output_file: str, model: str,
 
     print(f"  Researching: {topic}", flush=True)
     deadline = time.time() + timeout
+    wrote_this_run = False
 
     for turn in range(max_turns):
         if time.time() >= deadline:
@@ -219,7 +219,7 @@ def research(topic: str, output_file: str, model: str,
         msgs.append(msg)
 
         if not msg.get('tool_calls'):
-            if Path(output_file).exists():
+            if wrote_this_run and Path(output_file).exists():
                 return 0
             if turn < max_turns - 1:
                 msgs.append({'role': 'user',
@@ -235,6 +235,7 @@ def research(topic: str, output_file: str, model: str,
             msgs.append({'role': 'tool', 'content': result,
                          'tool_call_id': tc.get('id', '')})
             if name == 'Write' and Path(output_file).exists():
+                wrote_this_run = True
                 return 0
 
     print("mu-research: max turns reached without writing report", file=sys.stderr)

@@ -119,8 +119,10 @@ class AgentSession:
         try:
             from mu.enrich import index_session
             index_session(self.archive_path)
-        except Exception:
-            pass
+        except ImportError:
+            pass  # enrich optional dependency not installed
+        except Exception as e:
+            print(f"==> [mu-agent] Warning: enrichment indexing failed: {e}", flush=True)
 
 
 def _copy_dir(src: str, dst: str) -> None:

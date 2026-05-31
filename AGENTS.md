@@ -79,7 +79,7 @@ skills/               skill prompts loaded by the planner at runtime
 
 ## 5. Dojo run config
 
-- Use the most capable model that fits in VRAM. Recommended: `qwen/qwen2.5-coder-7b-instruct` (8 GB) or `mistralai/devstral-small-2507` (16 GB).
+- Use the most capable model that fits in VRAM. Recommended: `qwen/qwen2.5-coder-7b-instruct` (8 GB), `mistralai/devstral-small-2507` (16 GB), or `mistralai/devstral-small-2-24b-instruct-2512` (32 GB).
 - `MU_AGENT_MODEL` overrides auto-detection; default is the first model loaded in LM Studio.
 - `num_ctx` default is 6000. Do not set above 8192 on M2 8 GB — causes swap and ~6× slowdown.
 - Open challenges tracked in [CHALLENGES.md](CHALLENGES.md).
@@ -89,7 +89,7 @@ skills/               skill prompts loaded by the planner at runtime
 ## 6. Build
 
 ```sh
-make deps          # pip install -e .
+make deps          # creates .venv and runs pip install -e .[dev] inside it
 python3 -m mu check
 ```
 

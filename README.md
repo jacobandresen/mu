@@ -1,8 +1,10 @@
 # mu
 
-Local AI coding toolkit. Drives an autonomous coding loop from a plain-English goal using a local LLM via [LM Studio](https://lmstudio.ai).
+Local AI coding toolkit. Drives an autonomous coding loop from a plain-English goal using a local LLM via [LM Studio](https://lmstudio.ai) or [OpenVINO](https://docs.openvino.ai) (CPU inference, no GPU required).
 
-**Requires:** Python 3.11+, LM Studio running at `localhost:1234`
+**Requires:** Python 3.11+, and one of:
+- **LM Studio** running at `localhost:1234` (default), or
+- **OpenVINO GenAI** (`pip install openvino openvino-genai`) with a converted model
 
 ## Quick start
 
@@ -35,7 +37,10 @@ mu agent "write a Flask REST API with SQLite and pytest tests" --dir myproject
 | `mu toolchain check` | Exit 1 if any toolchain is missing (CI-friendly) |
 | `mu setup` | Interactively install missing toolchains |
 | `mu model` | Browse and select LM Studio models |
-| `mu model load <id>` | Load a model via the LM Studio SDK |
+| `mu model load <id>` | Load a model (LM Studio or OpenVINO) |
+| `mu backend openvino` | Switch to OpenVINO inference backend |
+| `mu backend lmstudio` | Switch back to LM Studio backend |
+| `mu serve [model_dir]` | Start a local OpenVINO-backed OpenAI-compatible server |
 | `mu clean` | Report large files |
 | `mu extract <log>` | Salvage files from an agent session log |
 | `mu lint [PLAN.md]` | Report deterministic plan warnings (no LLM) |
@@ -58,19 +63,60 @@ mu agent "write a Flask REST API with SQLite and pytest tests" --dir myproject
 
 **LM Studio** is not a toolchain — download it from [lmstudio.ai](https://lmstudio.ai), load a model, and start the local server. mu connects to `http://localhost:1234` by default (override with `MU_LMSTUDIO_HOST`).
 
+## OpenVINO (CPU inference, no GPU required)
+
+mu can run inference entirely on CPU via [OpenVINO GenAI](https://docs.openvino.ai/latest/openvino_docs_OV_UG_supported_plugins_CPU.html) — no LM Studio or GPU needed.
+
+**Install dependencies:**
+```sh
+pip install openvino openvino-genai
+```
+
+**Convert a model to OpenVINO IR** (using [Optimum Intel](https://github.com/huggingface/optimum-intel)):
+```sh
+pip install optimum[openvino]
+optimum-cli export openvino --model Qwen/Qwen2.5-Coder-7B-Instruct --weight-format int4 ./models/qwen2.5-coder-7b
+```
+
+**Start the server** (uses half the available CPU threads by default):
+```sh
+mu serve ./models/qwen2.5-coder-7b
+```
+
+**Switch mu to the OpenVINO backend:**
+```sh
+mu model load ./models/qwen2.5-coder-7b --backend openvino
+# mu now routes all agent commands to the OpenVINO server automatically
+```
+
+**Switch back to LM Studio:**
+```sh
+mu backend lmstudio
+```
+
+Run `mu check` to see the status of both backends at any time.
+
 ## Recommended models
 
 | VRAM | Model | Notes |
 |------|-------|-------|
 | 8 GB | `qwen/qwen2.5-coder-7b-instruct` | Best 8 GB option; 88.4% HumanEval; native tool calling |
-| 16 GB | `mistralai/devstral-small-2507` | 53.6% SWE-bench (#1 open-source); agentic coding |
-| 32 GB | `unsloth/qwen3-coder-30b-a3b-instruct` | MoE 30B/3B active; 256K context |
+| 16 GB | `mistralai/devstral-small-2507` | 53.6% SWE-bench; agentic coding; 128K context |
+| 32 GB | `mistralai/devstral-small-2-24b-instruct-2512` | **68.0% SWE-bench**; dense 24B; 256K context; European (Mistral AI 🇫🇷) |
 
 See [docs/MODELS.md](docs/MODELS.md) for benchmark data and [docs/TUNING.md](docs/TUNING.md) for context-window tuning.
 
 ## Python dependencies
 
 Declared in `pyproject.toml`; installed automatically by pip or pipx. Dependencies: `lmstudio`, `httpx`, `inquirerpy`, `pyflakes`, `autoflake`. All pure-Python.
+
+### Optional: OpenVINO inference
+
+```sh
+pip install openvino openvino-genai
+```
+
+Enables `mu serve` and the OpenVINO backend. CPU-only; no GPU or LM Studio required.
 
 ### Optional: plan lint (spaCy)
 
@@ -99,7 +145,8 @@ src/mu/                Python package
   session.py           writer loop and repair loop
   toolchain.py         toolchain detection and problem catalog filtering
   plan.py              PLAN.md parsing
-  client.py            LM Studio HTTP client
+  client.py            LM Studio / OpenVINO HTTP client
+  ov_server.py         OpenVINO GenAI OpenAI-compatible server
   archive.py           session tombstones (~/.mu/sessions/)
   __main__.py          CLI and all commands
 models-catalog.json    curated model specs

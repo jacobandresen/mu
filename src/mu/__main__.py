@@ -29,6 +29,7 @@ def _extend_path() -> None:
 
 
 def main() -> int:
+    """Parse CLI arguments and dispatch to the requested mu sub-command."""
     _extend_path()
     parser = argparse.ArgumentParser(
         prog='mu',
@@ -42,12 +43,27 @@ def main() -> int:
     setup_p = sub.add_parser('setup', help='Install system dependencies')
     setup_p.add_argument('-y', '--yes', action='store_true', help='Skip confirmation prompts')
 
-    model_p = sub.add_parser('model', help='Browse and select LM Studio models')
+    model_p = sub.add_parser('model', help='Browse and select models')
     model_sub = model_p.add_subparsers(dest='model_subcmd')
     model_sub.add_parser('status', help='Show loaded models')
-    model_sub.add_parser('list', help='List curated models')
-    load_p = model_sub.add_parser('load', help='Load a model via the lmstudio SDK')
-    load_p.add_argument('model_id', help='Model ID to load')
+    model_sub.add_parser('list', help='List curated models for the current backend')
+    load_p = model_sub.add_parser('load', help='Load a model (LM Studio or OpenVINO)')
+    load_p.add_argument('model_id', help='Model ID (LM Studio) or path to OpenVINO IR directory')
+    load_p.add_argument('--backend', choices=['lmstudio', 'openvino'], default='lmstudio',
+                        help='Backend to load into (default: lmstudio)')
+    load_p.add_argument('--port', type=int, default=8765, metavar='PORT',
+                        help='Port for the OpenVINO server (default: 8765)')
+    load_p.add_argument('--device', default='CPU', metavar='DEVICE',
+                        help='OpenVINO device, e.g. CPU or GPU (default: CPU)')
+
+    backend_p = sub.add_parser('backend', help='Switch inference backend (lmstudio / openvino)')
+    backend_sub = backend_p.add_subparsers(dest='backend_subcmd')
+    backend_sub.add_parser('lmstudio', help='Switch to LM Studio backend')
+    ov_p = backend_sub.add_parser('openvino', help='Switch to OpenVINO backend')
+    ov_p.add_argument('--port', type=int, default=8765, metavar='PORT',
+                      help='Port for the OpenVINO server (default: 8765)')
+    ov_p.add_argument('--device', default='CPU', metavar='DEVICE',
+                      help='OpenVINO device (default: CPU)')
     warm_p = model_sub.add_parser(
         'warm', help='Load a model persistently and run a warm-up generation')
     warm_p.add_argument('model_id', nargs='?', default='',
@@ -160,6 +176,15 @@ def main() -> int:
     extract_p.add_argument('log_file', help='Log file to extract from')
     extract_p.add_argument('--run', action='store_true', help='Execute shell blocks')
 
+    serve_p = sub.add_parser(
+        'serve', help='Start a local OpenVINO-backed OpenAI-compatible server')
+    serve_p.add_argument('model_dir', nargs='?', default='',
+                         help='Path to an OpenVINO IR model directory (default: stored backend model)')
+    serve_p.add_argument('--port', type=int, default=1234, metavar='PORT',
+                         help='Port to listen on (default: 1234)')
+    serve_p.add_argument('--device', default='CPU', metavar='DEVICE',
+                         help='OpenVINO device, e.g. CPU or GPU (default: CPU)')
+
     theme_p = sub.add_parser('theme', help='Pick and apply a base16 colour scheme')
     theme_sub = theme_p.add_subparsers(dest='theme_subcmd')
     theme_list_p = theme_sub.add_parser('list', help=argparse.SUPPRESS)
@@ -182,6 +207,7 @@ def main() -> int:
         'check': _cmd_check,
         'setup': _cmd_setup,
         'model': _cmd_model,
+        'backend': _cmd_backend,
         'research': _cmd_research,
         'deep': _cmd_deep,
         'plan': _cmd_plan,
@@ -197,6 +223,7 @@ def main() -> int:
         'clean': _cmd_clean,
         'extract': _cmd_extract,
         'theme': _cmd_theme,
+        'serve': _cmd_serve,
     }
     return dispatch[args.command](args) or 0
 
@@ -243,6 +270,13 @@ def _cmd_check(args) -> int:
     else:
         print(f"  [!!]  {'LM Studio':<28} start LM Studio and load a model [{client.LMS_HOST}]")
         fail_count += 1
+    try:
+        import openvino as ov  # noqa: F401
+        devices = ov.Core().available_devices
+        print(f"  [OK]  OpenVINO {ov.__version__} (devices: {', '.join(devices)})"
+              "  →  mu serve-ov <model_dir>")
+    except ImportError:
+        print(f"  [--]  {'OpenVINO':<28} pip install openvino openvino-genai  (optional)")
     print()
 
     print("Python packages")
@@ -306,8 +340,11 @@ def _cmd_setup(args) -> int:
         return subprocess.run(cmd).returncode == 0
 
     system = platform.system()
+    dotnet_installed = bool(shutil.which('dotnet'))
     if system == 'Darwin':
-        pkgs = ['make', 'llvm', 'node', 'git', 'fpc', 'SDL2', 'go', 'dotnet', 'rustup']
+        pkgs = ['make', 'llvm', 'node', 'git', 'fpc', 'SDL2', 'go', 'rustup']
+        if not dotnet_installed:
+            pkgs.append('dotnet')
         if not run_cmd('brew', 'install', *pkgs):
             return 1
         if shutil.which('rustup'):
@@ -315,8 +352,9 @@ def _cmd_setup(args) -> int:
     elif system == 'Linux':
         if Path('/etc/arch-release').exists():
             pkgs = ['--needed', 'base-devel', 'make', 'gcc', 'clang', 'go', 'rust',
-                    'nodejs', 'npm', 'python', 'git', 'fpc', 'dotnet-sdk',
-                    'wl-clipboard', 'unzip']
+                    'nodejs', 'npm', 'python', 'git', 'fpc', 'wl-clipboard', 'unzip']
+            if not dotnet_installed:
+                pkgs.append('dotnet-sdk')
             if not run_cmd('sudo', 'pacman', '-S', *pkgs):
                 return 1
         elif Path('/etc/debian_version').exists():
@@ -324,7 +362,9 @@ def _cmd_setup(args) -> int:
                 return 1
             pkgs = ['-y', 'build-essential', 'make', 'gcc', 'clang', 'clang-tidy',
                     'golang', 'cargo', 'nodejs', 'npm', 'python3', 'python3-pip',
-                    'dotnet-sdk-8.0', 'git', 'fpc', 'unzip']
+                    'git', 'fpc', 'unzip']
+            if not dotnet_installed:
+                pkgs.append('dotnet-sdk-8.0')
             if not run_cmd('sudo', 'apt-get', 'install', *pkgs):
                 return 1
         else:
@@ -392,8 +432,11 @@ def _cmd_model(args) -> int:
     if sub == 'status':
         return _model_status()
     if sub == 'load':
+        if getattr(args, 'backend', 'lmstudio') == 'openvino':
+            return _model_load_openvino(args.model_id, args.port, args.device)
         if client.load_model(args.model_id):
             _save_preferred_model(args.model_id)
+            client.save_backend('lmstudio', '', args.model_id)
             return 0
         return 1
     if sub == 'warm':
@@ -466,17 +509,35 @@ def _active_model_ids() -> set[str]:
 
 
 def _model_active(mid: str, active: set[str]) -> bool:
-    """Check if catalog model ID matches an active model (handles org/ prefix differences)."""
+    """Check if catalog model ID matches an active model (handles org/ prefix differences,
+    case differences, and GGUF quantization suffixes in the filename)."""
     if mid in active:
         return True
-    bare = mid.split('/')[-1]
-    return any(bare == a or a.endswith('/' + bare) for a in active)
+    bare = client.normalize_model_bare(mid)
+    return any(client.normalize_model_bare(a) == bare for a in active)
 
 
 def _model_status() -> int:
     recommended = client.recommended_model()
     active = _active_model_ids()
     available = client.list_models()
+    backend = client.load_backend()
+
+    # OpenVINO backend status
+    if backend.get('backend') == 'openvino':
+        host = backend.get('host', '')
+        pid = backend.get('ov_pid', 0)
+        model = backend.get('model', '')
+        running = client.is_running_at(host) if host else False
+        alive = _pid_alive(pid) if pid else False
+        status = 'running' if (running or alive) else 'stopped'
+        print(f"Backend: OpenVINO  [{status}]  {host}")
+        print(f"  Model: {model}")
+        if pid:
+            print(f"  PID:   {pid}")
+        if not running:
+            print("  (server not responding — run: mu model load <model_dir> --backend openvino)")
+        print()
 
     print("Active (loaded in memory):")
     if active:
@@ -547,6 +608,64 @@ def _model_ensure_single() -> int:
     return 1
 
 
+def _pid_alive(pid: int) -> bool:
+    """Return True if a process with the given PID is still running."""
+    try:
+        os.kill(pid, 0)
+        return True
+    except (ProcessLookupError, PermissionError):
+        return False
+    except Exception:
+        return False
+
+
+def _model_load_openvino(model_dir: str, port: int, device: str) -> int:
+    """Launch an OpenVINO server daemon and persist the backend config."""
+    import subprocess
+    from pathlib import Path
+    import importlib
+
+    if importlib.util.find_spec('openvino_genai') is None:
+        print("openvino-genai not installed — run: pip install openvino-genai", file=sys.stderr)
+        return 1
+
+    model_path = Path(model_dir).resolve()
+    if not model_path.is_dir():
+        print(f"Not a directory: {model_dir}", file=sys.stderr)
+        return 1
+
+    log_file = Path.home() / '.mu' / 'ov_server.log'
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+
+    host = f"http://localhost:{port}"
+    cmd = [sys.executable, '-m', 'mu', 'serve', str(model_path),
+           '--port', str(port), '--device', device]
+    proc = subprocess.Popen(
+        cmd,
+        stdout=open(log_file, 'w'),
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+
+    # Give the server a moment to start, then verify
+    import time
+    for _ in range(20):
+        time.sleep(0.5)
+        if client.is_running_at(host):
+            break
+    else:
+        print(f"Server did not start in time. Check log: {log_file}", file=sys.stderr)
+        return 1
+
+    client.save_backend('openvino', host, str(model_path), proc.pid)
+    print(f"OpenVINO server started  PID={proc.pid}  {host}")
+    print(f"Model: {model_path.name}  device={device}")
+    print(f"Log:   {log_file}")
+    print(f"\nmu now routes to {host} automatically.")
+    print("To switch back to LM Studio:  mu model load <model_id>")
+    return 0
+
+
 def _save_preferred_model(model_id: str) -> None:
     client.save_preferred_model(model_id)
 
@@ -556,27 +675,45 @@ def _load_preferred_model() -> str:
 
 
 def _model_list() -> int:
+    backend = client.load_backend().get('backend', 'lmstudio')
     catalog = _load_catalog()
-    active = _active_model_ids()
     recommended = client.recommended_model()
     preferred = _load_preferred_model()
     if not catalog:
-        for m in active:
+        for m in _active_model_ids():
             print(m)
         return 0
-    print("Curated models (load in LM Studio before running mu agent)")
-    for spec in catalog:
-        mid = spec.get('id', '')
-        ctx = f"{spec.get('contextWindow', 0) // 1024}k"
-        tags = []
-        if _model_active(mid, active):
-            tags.append('loaded')
-        if mid == recommended:
-            tags.append('★ recommended for this hardware')
-        if mid == preferred:
-            tags.append('selected')
-        tag_str = f"  [{', '.join(tags)}]" if tags else ''
-        print(f"  {mid:<48} {ctx:>5}  {spec.get('description', '')}{tag_str}")
+    if backend == 'openvino':
+        models_dir = client.ov_models_dir()
+        print(f"OpenVINO models  (stored in {models_dir})")
+        for spec in catalog:
+            mid = spec.get('id', '')
+            ctx = f"{spec.get('contextWindow', 0) // 1024}k"
+            tags = []
+            local = models_dir / mid
+            if local.is_dir():
+                tags.append('downloaded')
+            if mid == recommended:
+                tags.append('★ recommended')
+            if mid == preferred:
+                tags.append('selected')
+            tag_str = f"  [{', '.join(tags)}]" if tags else ''
+            print(f"  {mid:<48} {ctx:>5}  {spec.get('description', '')}{tag_str}")
+    else:
+        active = _active_model_ids()
+        print("Curated models (load in LM Studio before running mu agent)")
+        for spec in catalog:
+            mid = spec.get('id', '')
+            ctx = f"{spec.get('contextWindow', 0) // 1024}k"
+            tags = []
+            if _model_active(mid, active):
+                tags.append('loaded')
+            if mid == recommended:
+                tags.append('★ recommended for this hardware')
+            if mid == preferred:
+                tags.append('selected')
+            tag_str = f"  [{', '.join(tags)}]" if tags else ''
+            print(f"  {mid:<48} {ctx:>5}  {spec.get('description', '')}{tag_str}")
     return 0
 
 
@@ -604,6 +741,9 @@ def _fuzzy_pick(rows: list[tuple[str, object]], prompt: str):
 
 
 def _model_picker() -> int:
+    backend = client.load_backend().get('backend', 'lmstudio')
+    if backend == 'openvino':
+        return _backend_set_openvino()
     catalog = _load_catalog()
     active = _active_model_ids()
     recommended = client.recommended_model()
@@ -622,7 +762,6 @@ def _model_picker() -> int:
                 tags.append('selected')
             suffix = f"  [{', '.join(tags)}]" if tags else ''
             rows.append((f"{mid:<48} {ctx:>5}  {spec.get('description', '')}{suffix}", mid))
-        # Sort: recommended first, then preferred, then rest
         rows.sort(key=lambda r: (r[1] != recommended, r[1] != preferred, r[0]))
     else:
         rows = [(m, m) for m in sorted(active)]
@@ -635,7 +774,117 @@ def _model_picker() -> int:
 
 
 def _load_catalog() -> list[dict]:
-    return client.load_catalog()
+    """Return catalog entries for the current backend."""
+    return client.catalog_for_backend()
+
+
+# ── backend ───────────────────────────────────────────────────────────────────
+
+def _cmd_backend(args) -> int:
+    sub = getattr(args, 'backend_subcmd', None)
+    if sub == 'lmstudio':
+        return _backend_set_lmstudio()
+    if sub == 'openvino':
+        return _backend_set_openvino(getattr(args, 'port', 8765),
+                                     getattr(args, 'device', 'CPU'))
+    return _backend_picker()
+
+
+def _backend_picker() -> int:
+    """Interactive: pick a backend, then start it."""
+    cfg = client.load_backend()
+    current = cfg.get('backend', 'lmstudio')
+    rows = [
+        (f"lmstudio  {'[current]' if current == 'lmstudio' else ''}  "
+         "LM Studio — GPU/GGUF models via local server", 'lmstudio'),
+        (f"openvino  {'[current]' if current == 'openvino' else ''}  "
+         "OpenVINO  — CPU-optimised INT4 models, no LM Studio needed", 'openvino'),
+    ]
+    choice = _fuzzy_pick(rows, "backend> ")
+    if not choice:
+        return 0
+    if choice == 'lmstudio':
+        return _backend_set_lmstudio()
+    return _backend_set_openvino()
+
+
+def _backend_set_lmstudio() -> int:
+    client.save_backend('lmstudio', '', '')
+    print("Backend: lmstudio")
+    print("Use `mu model` to pick a model, then `mu agent` to run.")
+    return 0
+
+
+def _backend_set_openvino(port: int = 8765, device: str = 'CPU') -> int:
+    """Pick an OpenVINO model from the catalog, download if needed, start server."""
+    import importlib
+    if importlib.util.find_spec('openvino_genai') is None:
+        print("openvino-genai not installed — run: pip install openvino-genai", file=sys.stderr)
+        return 1
+
+    catalog = client.catalog_for_backend('openvino')
+    if not catalog:
+        print("No OpenVINO models in catalog.", file=sys.stderr)
+        return 1
+
+    models_dir = client.ov_models_dir()
+    recommended = client.recommended_model()
+    preferred = _load_preferred_model()
+
+    rows = []
+    for spec in catalog:
+        mid = spec.get('id', '')
+        ctx = f"{spec.get('contextWindow', 0) // 1024}k"
+        tags = []
+        local = models_dir / mid
+        if local.is_dir():
+            tags.append('downloaded')
+        if mid == recommended:
+            tags.append('★ recommended')
+        if mid == preferred:
+            tags.append('selected')
+        suffix = f"  [{', '.join(tags)}]" if tags else ''
+        rows.append((f"{mid:<48} {ctx:>5}  {spec.get('description', '')}{suffix}", spec))
+    rows.sort(key=lambda r: (r[1].get('id') != recommended, r[1].get('id') != preferred))
+
+    spec = _fuzzy_pick(rows, "openvino model> ")
+    if not spec:
+        return 0
+
+    mid = spec.get('id', '')
+    local_dir = models_dir / mid
+    if not local_dir.is_dir():
+        print(f"Downloading {mid} from Hugging Face …")
+        if _ov_download(spec, local_dir) != 0:
+            return 1
+
+    return _model_load_openvino(str(local_dir), port, device)
+
+
+def _ov_download(spec: dict, local_dir) -> int:
+    """Download an OpenVINO model from Hugging Face Hub."""
+    try:
+        import huggingface_hub as hf_hub
+    except ImportError:
+        print("huggingface_hub not installed — run: pip install huggingface-hub", file=sys.stderr)
+        return 1
+
+    hf_repo = spec.get('hfRepo', '')
+    if not hf_repo:
+        print(f"No hfRepo in catalog entry for {spec.get('id')}", file=sys.stderr)
+        return 1
+
+    from pathlib import Path
+    local_dir = Path(local_dir)
+    local_dir.parent.mkdir(parents=True, exist_ok=True)
+    print(f"  repo: {hf_repo}  →  {local_dir}")
+    try:
+        hf_hub.snapshot_download(hf_repo, local_dir=str(local_dir))
+        print(f"  Done: {local_dir}")
+        return 0
+    except Exception as e:
+        print(f"  Download failed: {e}", file=sys.stderr)
+        return 1
 
 
 # ── research ──────────────────────────────────────────────────────────────────
@@ -927,6 +1176,19 @@ def _theme_picker() -> int:
         except (OSError, ValueError) as e:
             print(f"Warning: {e}", file=sys.stderr)
 
+    return 0
+
+
+# ── serve-ov ───────────────────────────────────────────────────────────────────
+
+def _cmd_serve(args) -> int:
+    model_dir = args.model_dir or client.load_backend().get('model', '')
+    if not model_dir:
+        print("mu serve: no model specified and no OpenVINO model stored — "
+              "run: mu serve <model_dir>", file=sys.stderr)
+        return 1
+    from mu import ov_server
+    ov_server.serve(model_dir, port=args.port, device=args.device)
     return 0
 
 

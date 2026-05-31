@@ -64,6 +64,7 @@ class Plan:
 
 
 def parse(path: str) -> Plan:
+    """Read and parse a PLAN.md file; return an empty Plan on missing file."""
     try:
         return parse_content(Path(path).read_text())
     except OSError:
@@ -71,26 +72,31 @@ def parse(path: str) -> Plan:
 
 
 def parse_content(content: str) -> Plan:
+    """Parse PLAN.md text into a Plan dataclass."""
     lines = content.splitlines()
-    p = Plan()
+    plan = Plan()
     for line in lines:
-        m = _TASK_RE.match(line)
-        if not m:
+        task_match = _TASK_RE.match(line)
+        if not task_match:
             continue
-        status, fp, rest = m.group(1), m.group(2), m.group(3).strip()
+        status, file_path, raw_desc = (
+            task_match.group(1),
+            task_match.group(2),
+            task_match.group(3).strip(),
+        )
         # Planners sometimes wrap the filename in backticks because the prompt
         # encourages backticks for entity names. Strip so the captured token is
         # a real path the writer can open.
-        fp = fp.strip('`')
+        file_path = file_path.strip('`')
         desc = ''
-        if '—' in rest:
-            desc = rest[rest.index('—') + 1:].strip()
-        elif '-' in rest:
-            desc = rest[rest.index('-') + 1:].strip()
-        p.tasks.append(Task(fp, desc, done=(status == 'x'), in_progress=(status == '~')))
-    p.test_command = _extract_test_command(lines)
-    p.plan_context = _extract_plan_context(lines)
-    return p
+        if '—' in raw_desc:
+            desc = raw_desc[raw_desc.index('—') + 1:].strip()
+        elif '-' in raw_desc:
+            desc = raw_desc[raw_desc.index('-') + 1:].strip()
+        plan.tasks.append(Task(file_path, desc, done=(status == 'x'), in_progress=(status == '~')))
+    plan.test_command = _extract_test_command(lines)
+    plan.plan_context = _extract_plan_context(lines)
+    return plan
 
 
 def _extract_test_command(lines: list[str]) -> str:
@@ -125,18 +131,23 @@ def _extract_plan_context(lines: list[str]) -> str:
 
 
 def next_task(p: Plan) -> Optional[Task]:
+    """Return the first pending (not done, not in-progress) task, or None."""
     return next((t for t in p.tasks if not t.done and not t.in_progress), None)
 
 
 def tasks_remaining(p: Plan) -> bool:
+    """Return True if the plan has at least one task that isn't done."""
     return next_task(p) is not None
 
 
 def count_tasks(p: Plan) -> tuple[int, int]:
+    """Return (total_tasks, completed_tasks) for the plan."""
     return len(p.tasks), sum(1 for t in p.tasks if t.done)
 
 
 def mark_task_done(path: str, file_path: str) -> None:
+    """Rewrite the PLAN.md at *path*, flipping the first pending task for
+    *file_path* from ``- [ ]`` to ``- [x]``."""
     try:
         lines = Path(path).read_text().splitlines(keepends=True)
     except OSError:

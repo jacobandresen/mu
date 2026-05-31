@@ -19,6 +19,91 @@ from mu import tools
 from mu.client import chat_or_retry
 
 
+def _apply_repair_tool_call(
+    tc: dict,
+    seen_states: dict,
+    consecutive_dups: dict,
+    msgs: list,
+    syntax_check,
+) -> bool:
+    """Execute one repair-loop tool call and append the result to *msgs*.
+
+    Handles three safety checks around the dispatch:
+    1. **Snapshot + revert** — if *syntax_check* is provided and the edit
+       introduces a syntax error, the file is restored to its pre-edit state.
+    2. **Duplicate detection** — if the file ends up in a state seen before,
+       a DUPLICATE warning is injected so the model tries something different.
+    3. **requirements.txt reflex** — path-style entries are stripped after a
+       Write to ``requirements.txt``.
+
+    Returns ``True`` when the agent is stuck (same broken state twice in a row),
+    signalling the caller to abort the repair loop.
+    """
+    tools.log_call(tc)
+    fn = tc['function']
+    name, raw_args = fn['name'], fn['arguments']
+    path = tools._as_dict(raw_args).get('path', '')
+
+    # Snapshot the file before writing so we can roll back on syntax errors.
+    snapshot, ok_before = None, True
+    if syntax_check and name in ('Write', 'Edit') and path and Path(path).exists():
+        try:
+            snapshot = Path(path).read_text()
+        except OSError:
+            snapshot = None
+        ok_before, _ = syntax_check(path)
+
+    # Record the pre-dispatch digest for duplicate-edit detection.
+    if name in ('Write', 'Edit') and path and Path(path).exists():
+        try:
+            seen_states.setdefault(path, set()).add(
+                hashlib.sha1(Path(path).read_bytes()).hexdigest())
+        except OSError:
+            pass
+
+    result = tools.dispatch(name, raw_args)
+
+    if name == 'Write' and path and path.endswith('requirements.txt'):
+        if fix_requirements_path_entries(path):
+            result += "\nNOTE: path-style entries removed from requirements.txt"
+
+    # Duplicate-edit check: warn the model if the file is back to a prior state.
+    stuck = False
+    if name in ('Write', 'Edit') and path and Path(path).exists():
+        try:
+            digest = hashlib.sha1(Path(path).read_bytes()).hexdigest()
+            if digest in seen_states.get(path, set()):
+                result += (f"\nDUPLICATE: {path} is now identical to a state you "
+                           f"already tried. This edit did not help before — make a "
+                           f"different change.")
+                print(f"==> [mu-agent] Repair: duplicate edit detected for {path}")
+                consecutive_dups[path] = consecutive_dups.get(path, 0) + 1
+                if consecutive_dups[path] >= 2:
+                    print(f"==> [mu-agent] Repair: stuck on {path} — aborting repair loop.")
+                    stuck = True
+            else:
+                consecutive_dups[path] = 0
+                seen_states.setdefault(path, set()).add(digest)
+        except OSError:
+            pass
+
+    # Revert if the edit introduced a syntax error.
+    if syntax_check and snapshot is not None and ok_before and path:
+        ok_after, serr = syntax_check(path)
+        if not ok_after:
+            try:
+                Path(path).write_text(snapshot)
+                print(f"==> [mu-agent] Repair: reverted syntax-breaking edit to {path}")
+                result = (f"{result}\nREVERTED: that edit left {path} with a syntax "
+                          f"error, so it was undone. Make a different, complete edit "
+                          f"that keeps the file valid. Error:\n{serr}")
+            except OSError:
+                pass
+
+    msgs.append({'role': 'tool', 'content': result, 'tool_call_id': tc.get('id', '')})
+    return stuck
+
+
 class Session:
     def __init__(self, system_prompt: str):
         self.system_prompt = system_prompt
@@ -133,59 +218,9 @@ class Session:
                         continue
                     break
                 for tc in msg['tool_calls']:
-                    tools.log_call(tc)
-                    fn = tc['function']
-                    name, raw_args = fn['name'], fn['arguments']
-                    path = tools._as_dict(raw_args).get('path', '')
-                    snapshot, ok_before = None, True
-                    if (syntax_check and name in ('Write', 'Edit')
-                            and path and Path(path).exists()):
-                        try:
-                            snapshot = Path(path).read_text()
-                        except OSError:
-                            snapshot = None
-                        ok_before, _ = syntax_check(path)
-                    if name in ('Write', 'Edit') and path and Path(path).exists():
-                        try:
-                            seen_states.setdefault(path, set()).add(
-                                hashlib.sha1(Path(path).read_bytes()).hexdigest())
-                        except OSError:
-                            pass
-                    result = tools.dispatch(name, raw_args)
-                    if name == 'Write' and path and path.endswith('requirements.txt'):
-                        if fix_requirements_path_entries(path):
-                            result += "\nNOTE: path-style entries removed from requirements.txt"
-                    if name in ('Write', 'Edit') and path and Path(path).exists():
-                        try:
-                            digest = hashlib.sha1(Path(path).read_bytes()).hexdigest()
-                            if digest in seen_states.get(path, set()):
-                                result += (f"\nDUPLICATE: {path} is now identical to a state you "
-                                           f"already tried. This edit did not help before — make a "
-                                           f"different change.")
-                                print(f"==> [mu-agent] Repair: duplicate edit detected for {path}")
-                                consecutive_dups[path] = consecutive_dups.get(path, 0) + 1
-                                if consecutive_dups[path] >= 2:
-                                    print(f"==> [mu-agent] Repair: stuck on {path} "
-                                          f"— aborting repair loop.")
-                                    stuck = True
-                            else:
-                                consecutive_dups[path] = 0
-                                seen_states.setdefault(path, set()).add(digest)
-                        except OSError:
-                            pass
-                    if syntax_check and snapshot is not None and ok_before and path:
-                        ok_after, serr = syntax_check(path)
-                        if not ok_after:
-                            try:
-                                Path(path).write_text(snapshot)
-                                print(f"==> [mu-agent] Repair: reverted syntax-breaking edit to {path}")
-                                result = (f"{result}\nREVERTED: that edit left {path} with a syntax "
-                                          f"error, so it was undone. Make a different, complete edit "
-                                          f"that keeps the file valid. Error:\n{serr}")
-                            except OSError:
-                                pass
-                    msgs.append({'role': 'tool', 'content': result,
-                                 'tool_call_id': tc.get('id', '')})
+                    if _apply_repair_tool_call(tc, seen_states, consecutive_dups,
+                                               msgs, syntax_check):
+                        stuck = True
                 edited = True
                 break
             if connection_dead:

@@ -103,6 +103,11 @@ def _as_dict(args) -> dict:
 
 
 def dispatch(name: str, args) -> str:
+    """Route a model tool-call by name to the correct implementation.
+
+    Returns the result as a string — tool results are always text so they can
+    be appended to the conversation as a ``tool`` role message.
+    """
     args = _as_dict(args)
     if name == 'Write':
         return _write(args.get('path', ''), args.get('content', ''))
@@ -117,9 +122,10 @@ def dispatch(name: str, args) -> str:
 
 
 def log_call(tc: dict) -> None:
-    fn = tc['function']
-    args = _as_dict(fn['arguments'])
-    name = fn['name']
+    """Print a one-line summary of a tool call to stdout for the user to follow."""
+    tool_call_fn = tc['function']
+    args = _as_dict(tool_call_fn['arguments'])
+    name = tool_call_fn['name']
     if name in ('Write', 'Edit'):
         print(f"==> [mu-agent] tool: {name}({args.get('path', '')!r})")
     elif name == 'Bash':
@@ -191,6 +197,12 @@ def _read(path: str) -> str:
 
 
 def extract_code_block(content: str, file_path: str) -> tuple[str, bool]:
+    """Extract the first fenced code block from *content* that matches *file_path*'s language.
+
+    Tries language-tagged fences first (e.g. ```python); falls back to a bare
+    ``` fence. Returns ``(code, True)`` on success, ``('', False)`` if no
+    matching fence was found.
+    """
     ext = Path(file_path).suffix.lstrip('.').lower() or Path(file_path).name.lower()
     langs_map = {
         'py': ['python', 'py'], 'go': ['go'], 'c': ['c'], 'h': ['c', 'h'],

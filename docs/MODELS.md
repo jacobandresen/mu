@@ -1,6 +1,6 @@
 # Model Research: Dojo Benchmark Candidates
 
-Last updated: 2026-05-23
+Last updated: 2026-05-31
 
 ## What the dojo requires
 
@@ -83,6 +83,9 @@ iterate on test failures, and write patches across multiple files. The 53.6% SWE
 means it solves roughly half of real GitHub bug reports autonomously; that's exactly the dojo
 repair-loop problem. 24B parameters, ~14.3 GB Q4_K_M.
 
+**Note:** If you have 32 GB RAM, skip this model and use Devstral Small 2 (below) — same
+file size, significantly higher quality.
+
 **Runner-up: `DeepSeek-Coder-V2-Lite-Instruct` Q4_K_M (~10 GB)**
 
 MoE architecture: 16B total params, only 2.4B active per forward pass — fast inference.
@@ -96,11 +99,29 @@ HuggingFace:
 
 ### Tier 3 — 32 GB VRAM
 
-**`Qwen3-Coder-30B-A3B-Instruct` Q4_K_M (~18 GB)**
+**Winner: `Devstral-Small-2` Q4_K_M (~15 GB) — December 2025**
+
+| Benchmark | Score |
+|---|---|
+| SWE-bench Verified | **68.0%** |
+| SWE-bench Multilingual | 55.7% |
+| Tool calling | Purpose-built for agentic coding; Mistral function-calling format |
+| Context | 256K tokens |
+
+HuggingFace:
+- [`unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF`](https://huggingface.co/unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF) (recommended)
+- [`mistralai/Devstral-Small-2-24B-Instruct-2512`](https://huggingface.co/mistralai/Devstral-Small-2-24B-Instruct-2512) (official weights)
+
+Devstral Small 2 is the successor to Devstral-Small-2507, released December 2025 by Mistral AI
+(France). Same 24B dense architecture, but upgraded to Mistral-Small-3.1 with vision support,
+improved tool-call reliability, and 14 points higher SWE-bench. At Q4_K_M (~15 GB) it fits
+easily on 32 GB hardware with ample KV-cache headroom. European model, Apache 2.0 license.
+
+**Runner-up: `Qwen3-Coder-30B-A3B-Instruct` Q4_K_M (~18 GB)**
 
 MoE: 30B total, ~3B active. Purpose-built coding agent model from Qwen team; 256K context;
 strong agentic tool use per benchmark. Comparable compute cost to a 3B dense model but retains
-30B knowledge.
+30B knowledge. Faster token generation than Devstral Small 2 due to MoE sparse activation.
 
 HuggingFace: [`unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF`](https://huggingface.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF)
 
@@ -113,7 +134,8 @@ HuggingFace: [`unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF`](https://huggingface.c
 | `google/gemma-4-e2b` | Repair agent never calls tools (CHALLENGES #1, #9) | Fast but unreliable; fails P2/P7 every run |
 | `mistralai/mistral-7b-instruct-v0.3` | General model, pre-2025, no code specialization | Likely worse than Qwen2.5-Coder on multi-lang code |
 | `Qwen2.5-Coder-7B-Instruct` | Best 8GB option | **Recommended for 8GB** |
-| `Devstral-Small-2507` | Agentic, SWE-bench #1 open-source | **Recommended for 16GB** |
+| `Devstral-Small-2507` | Agentic, 53.6% SWE-bench | **Recommended for 16GB** |
+| `Devstral-Small-2` | Agentic, **68.0% SWE-bench** | **Recommended for 32GB** |
 
 ---
 
@@ -155,6 +177,28 @@ To use a model with mu:
 
 If `--model` and `MU_AGENT_MODEL` are both unset, mu uses the first model loaded in LM Studio.
 
+### OpenVINO (CPU-only, no LM Studio required)
+
+mu also supports inference via OpenVINO GenAI — useful on CPU-only machines or when LM Studio is not available.
+
+1. Install: `pip install openvino openvino-genai`
+2. Convert a model to OpenVINO IR format (e.g. with `optimum-cli export openvino`)
+3. Start the server:
+   ```sh
+   mu serve ./path/to/model
+   ```
+   The server listens on `localhost:1234` by default and uses half the available CPU threads.
+4. Register the backend so mu routes to it automatically:
+   ```sh
+   mu model load ./path/to/model --backend openvino
+   ```
+5. Switch back to LM Studio at any time:
+   ```sh
+   mu backend lmstudio
+   ```
+
+`mu check` shows the status of both backends.
+
 ---
 
 ## Sources
@@ -165,6 +209,7 @@ If `--model` and `MU_AGENT_MODEL` are both unset, mu uses the first model loaded
 - [Qwen3 vs Qwen2.5-Coder comparison](https://docs.bswen.com/blog/2026-03-27-qwen3-vs-qwen25-coder-programming/)
 - [Best Coding LLMs 2026: Qwen vs DeepSeek vs Llama](https://www.promptquorum.com/local-llms/best-local-llms-for-coding)
 - [Codestral guide and benchmark context](https://ucstrategies.com/news/codestral-guide-specs-benchmarks-local-deployment-2026/)
+- [Devstral Small 2 announcement (Mistral AI)](https://mistral.ai/news/devstral-2-vibe-cli)
 - [Devstral run & fine-tune guide (Unsloth)](https://unsloth.ai/docs/models/tutorials/devstral-how-to-run-and-fine-tune)
 - [Qwen3-Coder GitHub](https://github.com/QwenLM/Qwen3-Coder)
 - [SWE-bench Verified leaderboard](https://www.swebench.com/verified.html)
@@ -172,4 +217,5 @@ If `--model` and `MU_AGENT_MODEL` are both unset, mu uses the first model loaded
 - [bartowski/Qwen2.5-Coder-7B-Instruct-GGUF](https://huggingface.co/bartowski/Qwen2.5-Coder-7B-Instruct-GGUF)
 - [bartowski/DeepSeek-Coder-V2-Lite-Instruct-GGUF](https://huggingface.co/bartowski/DeepSeek-Coder-V2-Lite-Instruct-GGUF)
 - [mistralai/Devstral-Small-2507_gguf](https://huggingface.co/mistralai/Devstral-Small-2507_gguf)
+- [unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF](https://huggingface.co/unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF)
 - [unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF](https://huggingface.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF)

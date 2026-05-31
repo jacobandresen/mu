@@ -99,6 +99,11 @@ if [[ -z "${SIT_NO_SHUFFLE:-}" ]] && command -v shuf >/dev/null 2>&1; then
 fi
 
 MU_CMD="mu"
+# Prefer the project venv's mu if available so sit.sh works without activating the venv.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -x "${SCRIPT_DIR}/.venv/bin/mu" ]]; then
+  MU_CMD="${SCRIPT_DIR}/.venv/bin/mu"
+fi
 
 run_problem() {
   local folder="$1"

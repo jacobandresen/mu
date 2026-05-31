@@ -34,6 +34,7 @@ dependencies = [
     "inquirerpy>=0.3",
     "pyflakes>=3.0",
     "autoflake>=2.0",
+    "huggingface-hub>=0.23",
 ]
 
 [project.optional-dependencies]
@@ -48,6 +49,10 @@ enrich = [
 ]
 lint = [
     "spacy>=3.7",
+]
+openvino = [
+    "openvino>=2025.4",
+    "openvino-genai>=2025.4",
 ]
 
 [project.urls]
