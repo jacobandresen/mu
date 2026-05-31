@@ -24,6 +24,12 @@ mu agent "write a Flask REST API with SQLite and pytest tests" --dir myproject
 | Command | Description |
 |---|---|
 | `mu agent "goal"` | Autonomous goal-to-code loop |
+| `mu architect "goal"` | Generate ARCHITECTURE.md and staged plan files for hard multi-layer problems |
+| `mu plan "goal"` | Generate PLAN.md only (no code writing) |
+| `mu iterate` | Continue executing an existing PLAN.md |
+| `mu split` | Split broad plan tasks into smaller, actionable files |
+| `mu flow` | Pair each plan task with a testable step |
+| `mu assess` | Assess each plan task for goal alignment |
 | `mu check` | Verify all dependencies are installed |
 | `mu toolchain` | Show status of all compiler toolchains |
 | `mu toolchain check` | Exit 1 if any toolchain is missing (CI-friendly) |
@@ -33,6 +39,7 @@ mu agent "write a Flask REST API with SQLite and pytest tests" --dir myproject
 | `mu clean` | Report large files |
 | `mu extract <log>` | Salvage files from an agent session log |
 | `mu lint [PLAN.md]` | Report deterministic plan warnings (no LLM) |
+| `mu reflect` | Distil recent failed sessions into CHALLENGES.md |
 | `mu version` | Print mu version |
 
 ## Toolchains

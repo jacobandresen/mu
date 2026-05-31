@@ -101,6 +101,39 @@ Tracks the most frequent or significant challenges encountered while running the
 31. **ANSI escape codes inflate repair context**
    - Test runners like Vitest emit ANSI color codes that dramatically inflate the token count of test output passed to the repair model (e.g., 2KB of actual content → 20KB with ANSI). Fixed by stripping ANSI codes in `_read_file_lines` before feeding to model. See `_strip_ansi` in `agent.py`.
 
+33. **p7 (Flask) test pattern mismatch: ORM method vs HTTP client assertions**
+   - Model writes test calling `todo_manager.add_todo({'task': 'x'})` but then asserts `response.status_code == 201` — treating an ORM return value as an HTTP response. `add_todo()` returns None; `None.status_code` raises AttributeError. The repair model targets `app.py` (making it return an HTTP response object) rather than rewriting the test to use Flask's `app.test_client()`. Repair loop stalls after 2 identical edits. Model-limited: the architectural mismatch requires rewriting the test file, which the repair model doesn't attempt.
+
+34. **Writer 400 Bad Request on large skill system prompts**
+   - When 3+ skills are loaded (vue-ts-env + node-env + makefile-writer = ~12KB), the first writer call gets HTTP 400 from LM Studio. The retry with lean system (no skills, ~800 chars) succeeds. Root cause unclear (not token overflow by estimate); may be a LM Studio model-specific system-prompt size limit. Fixed: outer retry uses `_build_autonomous_system` without skills; `Session.run()` nudges on prose even when watch_file is set (previously returned False immediately).
+
+35. **Lean-system retry writes files to wrong paths**
+   - The lean retry (no skills) often writes to subdirectories (e.g., `src/vite.config.ts`, `backend/Program.cs`) instead of the plan-specified path. Fixed: (a) file relocation runs after both first attempt and retry; (b) `reapply()` deletes stale `.cs` files from unexpected subdirectories (skipping `obj/`, `bin/`) to prevent duplicate class compilation errors.
+
+36. **`vitest` in package.json scripts runs in watch mode**
+   - `"test": "vitest"` starts Vitest in interactive watch mode; never exits. The test runner hangs and eventually times out, masking a passing test suite. Fixed: `fix_vitest_watch_mode` replaces `"vitest"` with `"vitest run"` in package.json scripts.
+
+37. **Missing `vue` peer dependency**
+   - Lean-system retry writes package.json with `@vitejs/plugin-vue` and `@vue/test-utils` but omits `vue` itself. `@vue/compiler-sfc` then fails to find its companion module at runtime. Fixed: `fix_vue_missing_package` reflex adds `"vue": "^3.4.0"` whenever `@vue/...` packages are present but `vue` is absent.
+
+38. **Makefile escape artifacts: `\n`, `\t`, `\@`, `\$(npm)`**
+   - Lean-system retry writes Makefiles with literal `\n` (newlines as escape sequences), `\@` (backslash before silent @), and `\$(npm)` (escaped dollar in command substitution). Each breaks `make` in a different way. Fixed by: `fix_makefile_literal_newline_escape` (converts `\n\n` → blank line, `\n` → recipe continuation), extended `fix_makefile_literal_tab_escape` for `\@`, and `fix_makefile_escaped_dollar` for `\$(cmd)` → `cmd`.
+
+39. **C# `using` after top-level statements (CS1529)**
+   - Models sometimes write `using Microsoft.EntityFrameworkCore;` after `var builder = ...` top-level statements. Fixed: `fix_csharp_using_order` reflex moves all `using` directives to the file top.
+
+40. **C# verbatim string with backslash escaping (CS1056)**
+   - Model writes `@"{\"id\":1,...}"` (verbatim string with `\"` inside). In C# verbatim strings, `\"` is not an escape — the `"` terminates the string. Fixed: `fix_csharp_verbatim_string_escape` converts `@"...\"..."` to regular strings by removing the `@` prefix.
+
+41. **C# keyword prefix artifacts (CS1513)**
+   - Model occasionally emits `tnamespace` (stray `t` fused to `namespace`) or similar single-character prefixes to C# keywords, causing cascading parse errors. Fixed: `fix_csharp_keyword_prefix_artifacts` detects 1-2 lowercase letters or a symbol directly prefixed to a keyword at line start and strips the prefix.
+
+42. **xUnit test project missing .csproj (dotnet test failure)**
+   - `dotnet test ./Tests` fails with "no project file found" when the test folder has `.cs` files but no `Tests.csproj`. Model generates test code but not the project file. Fixed: `ground_plan` now auto-creates `Tests/Tests.csproj` with xUnit + WebApplicationFactory package references when `Tests/*.cs` files exist.
+
+43. **EF Core packages absent from auto-generated .csproj**
+   - The grounding-generated `.csproj` uses the minimal SDK template without package references. Files using `DbContext`, `UseSqlite`, etc. then fail with CS0234. Fixed: `_csproj_content(include_ef_core=True)` is used when the plan text mentions EntityFramework/DbContext/WebApplicationFactory, adding EF Core + SQLite + ASP.NET packages.
+
 ## Resolved
 
 - **Missing `fix_sqlite_in_memory` function** — obsolete. AST fixer pass and the orphaned sqlite sensor removed in commit `07717cc`.

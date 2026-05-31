@@ -30,18 +30,30 @@ Results are written to `~/.mu/sessions/` and cleaned from `dojo/` after each run
 
 ## Current baseline
 
-**7/7** — qwen2.5-coder-7b-instruct, num_ctx=6000 (2026-05-30), p1–p7 only
+**9/10** — qwen2.5-coder-7b-instruct, num_ctx=8192 (2026-05-31), SKIP_CLEAN runs
 
-**6/10** — qwen2.5-coder-7b-instruct, num_ctx=6000 (2026-05-31), all 10 problems (2 confirmed runs)
+**7/10** — qwen2.5-coder-7b-instruct, num_ctx=8192 (2026-05-31), fresh full run
 
-- p1–p5: consistently pass
-- p6: stochastic (passes ~50% of runs; Rust module reference error)
-- p7: model-limited (flask_sqlalchemy instead of sqlite3; oscillates in repair)
-- p8: intermittent (Jest naming convention; fix_jest_no_tests_found reflex helps)
-- p9: stochastic (Vue Vitest; passes ~50% of runs; writer context or test structure)
-- p10: model-limited + context overflow (multi-project .NET structure; needs larger context)
+- p1–p6: consistently pass
+- p7: model-limited (test mixes HTTP client with ORM method; repair loop stuck)
+- p8: passes on SKIP_CLEAN; stochastic on fresh plans (Jest test file naming)
+- p9: passes on SKIP_CLEAN; stochastic on fresh plans (Vue compiler-sfc peer deps)
+- p10: model stage passes; backend stage stochastic (C# code quality issues in repair)
 
-See CHALLENGES.md items 25–31.
+### What improved (6→9/10)
+
+| Area | Change |
+|------|--------|
+| Architect workflow | `mu architect` generates ARCHITECTURE.md + staged plan files for hard multi-layer problems |
+| Plan parsing | `mark_task_done` handles backtick-wrapped filenames; fenced test commands extracted correctly |
+| Context trimming | Lean system on writer retry; relevant_files_context capped at 3000 chars |
+| Rust | Cargo.toml grounding with explicit `[[bin]]` path; duplicate-use reflex; corruption fix |
+| Makefile | `\n`, `\t`, `\@`, `\$(npm)`, bare `vitest` — all normalized deterministically |
+| C# | using-order fix; verbatim string escape fix; keyword-prefix artifact stripping; EF Core in csproj |
+| Vue/Node | `vitest` → `vitest run` in package.json; missing `vue` peer dep added automatically |
+| Repair loop | Duplicate-edit early exit; prose-response nudge; post-retry file relocation |
+
+See CHALLENGES.md for open items.
 
 Open challenges tracked in [CHALLENGES.md](CHALLENGES.md).
 
