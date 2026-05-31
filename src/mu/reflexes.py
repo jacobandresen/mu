@@ -329,8 +329,15 @@ def fix_sqlite_test_isolation(file_path: str) -> bool:
         text = Path(file_path).read_text()
     except OSError:
         return False
-    # Replace quoted .db / .sqlite file paths with ':memory:'
-    new_text = re.sub(r'''(['"])(?:[^'"]*(?:\.db|\.sqlite3?))\1''', "':memory:'", text)
+    # Replace SQLAlchemy-style connection strings first (sqlite:///filename.db)
+    # SQLAlchemy in-memory URL is 'sqlite:///:memory:', not ':memory:'.
+    new_text = re.sub(
+        r"sqlite:///[^'\"]*(?:\.db|\.sqlite3?)",
+        'sqlite:///:memory:',
+        text,
+    )
+    # Replace quoted .db / .sqlite file paths with ':memory:' for direct sqlite3
+    new_text = re.sub(r'''(['"])(?:[^'"]*(?:\.db|\.sqlite3?))\1''', "':memory:'", new_text)
     if new_text == text:
         return False
     Path(file_path).write_text(new_text)
@@ -715,6 +722,121 @@ def fix_vitest_globals(project_dir: str, test_output: str) -> bool:
     return True
 
 
+def fix_js_env_data_file(file_path: str) -> bool:
+    """Convert module-level process.env file-path constants to getter functions.
+
+    A module-level `const DATA_FILE = process.env.X || 'default'` is captured
+    once at load time. Jest's `beforeEach` changes to `process.env.X` have no
+    effect — the constant never updates. Converting to a getter function
+    `function getDataFile() { return process.env.X || 'default'; }` evaluates
+    the env var on every call, enabling per-test isolation with temp files.
+    General: applies to any CommonJS file that needs env-var-driven test isolation.
+    """
+    ext = Path(file_path).suffix.lower()
+    if ext not in ('.js', '.jsx', '.mjs'):
+        return False
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+    # Match: const X = process.env.Y || 'default';
+    m = re.search(
+        r'^(const\s+(\w+)\s*=\s*process\.env\.(\w+)\s*\|\|\s*[\'"][^\'"]+[\'"])\s*;',
+        text, re.MULTILINE,
+    )
+    if not m:
+        return False
+    const_line, var_name = m.group(1) + ';', m.group(2)
+    full_expr = m.group(1).split('=', 1)[1].strip()  # process.env.Y || 'default'
+    # Skip if this is already inside a function (indented)
+    line_start = text.rfind('\n', 0, m.start()) + 1
+    if text[line_start:m.start()].strip():
+        return False  # indented — already inside a block
+    # Skip if it's a test file (test files shouldn't define the data source)
+    stem = Path(file_path).stem.lower()
+    if stem.startswith('test_') or stem.endswith('_test') or stem.endswith('.test'):
+        return False
+    # Convert SCREAMING_SNAKE to camelCase getter: DATA_FILE → getDataFile
+    parts = var_name.split('_')
+    camel = parts[0].lower() + ''.join(p.capitalize() for p in parts[1:])
+    getter_name = 'get' + camel[0].upper() + camel[1:]
+    getter_fn = f'function {getter_name}() {{ return {full_expr}; }}'
+    # Replace the const declaration with the getter function
+    new_text = text.replace(const_line, getter_fn, 1)
+    # Replace all remaining usages of the variable with the getter call
+    new_text = re.sub(rf'\b{re.escape(var_name)}\b', f'{getter_name}()', new_text)
+    if new_text == text:
+        return False
+    Path(file_path).write_text(new_text)
+    print(f"==> [mu-agent] Reflex: converted {var_name} to {getter_name}() in {file_path}")
+    return True
+
+
+_JS_NODE_BUILTINS: dict[str, str] = {
+    'path': "const path = require('path');",
+    'os': "const os = require('os');",
+    'fs': "const fs = require('fs');",
+    'crypto': "const crypto = require('crypto');",
+    'url': "const url = require('url');",
+    'http': "const http = require('http');",
+    'https': "const https = require('https');",
+    'util': "const util = require('util');",
+    'assert': "const assert = require('assert');",
+    'events': "const events = require('events');",
+    'stream': "const stream = require('stream');",
+    'child_process': "const child_process = require('child_process');",
+}
+
+# Patterns that indicate a module is being used (mod.method or mod[...)
+_JS_MODULE_USE_RE = {
+    mod: re.compile(rf'\b{re.escape(mod)}\s*\.')
+    for mod in _JS_NODE_BUILTINS
+}
+
+
+def fix_js_missing_requires(file_path: str) -> bool:
+    """Add missing Node.js built-in require() calls to CommonJS JS files.
+
+    Models often use `path.join()`, `os.tmpdir()`, `fs.readFileSync()` etc.
+    without the corresponding `require()` at the top of the file, causing
+    `ReferenceError: path is not defined` at runtime. Detects usage via
+    `module.method` patterns and adds the missing require statements.
+    General: applies to any CommonJS Node.js file.
+    """
+    ext = Path(file_path).suffix.lower()
+    if ext not in ('.js', '.jsx', '.mjs'):
+        return False
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+    # Skip ESM files (import/export syntax)
+    if re.search(r'^\s*(?:import|export)\s', text, re.MULTILINE):
+        return False
+    to_add = []
+    for mod, stmt in _JS_NODE_BUILTINS.items():
+        if re.search(rf'require\([\'\"]{re.escape(mod)}[\'\"]\)', text):
+            continue  # already required
+        if _JS_MODULE_USE_RE[mod].search(text):
+            to_add.append(stmt)
+    if not to_add:
+        return False
+    lines = text.splitlines()
+    insert_at = 0
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith('const ') and 'require(' in stripped:
+            insert_at = i + 1
+        elif stripped and not stripped.startswith('//') and not stripped.startswith('/*') \
+                and insert_at > 0:
+            break
+    for stmt in reversed(to_add):
+        lines.insert(insert_at, stmt)
+    Path(file_path).write_text('\n'.join(lines) + '\n')
+    print(f"==> [mu-agent] Reflex: added {len(to_add)} missing Node.js require(s) to {file_path}")
+    return True
+
+
 def fix_js_extra_closing_brace(file_path: str, test_output: str = '') -> bool:
     """Fix unbalanced braces in JS/TS files when the parser reports a mismatch.
 
@@ -980,6 +1102,34 @@ def fix_literal_newlines(file_path: str, lint_error: str = '') -> bool:
         print(f"==> [mu-agent] Reflex: replaced {literal_newlines} literal \\n "
               f"with real newlines in {file_path}")
         return True
+
+    # JS/TS mode: even one literal \n outside a string is a syntax error.
+    # JavaScript has no line-continuation character, so any \n in code is wrong.
+    ext = Path(file_path).suffix.lower()
+    is_js = ext in ('.js', '.jsx', '.ts', '.tsx')
+    if is_js:
+        lines = text.splitlines(keepends=True)
+        changed = False
+        result = []
+        for line in lines:
+            idx = line.find('\\n')
+            if idx == -1:
+                result.append(line)
+                continue
+            prefix = line[:idx]
+            # Heuristic: if even number of unescaped quotes before \n, we're outside a string.
+            if (prefix.count('"') - prefix.count('\\"')) % 2 == 0 and \
+                    (prefix.count("'") - prefix.count("\\'")) % 2 == 0 and \
+                    prefix.count('`') % 2 == 0:
+                new_lines = line.replace('\\n', '\n')
+                result.append(new_lines)
+                changed = True
+            else:
+                result.append(line)
+        if changed:
+            Path(file_path).write_text(''.join(result))
+            print(f"==> [mu-agent] Reflex: fixed literal \\n in JS/TS file {file_path}")
+            return True
 
     # Targeted mode: mixed file with a 'line continuation' syntax error.
     # Replace \\n only on lines where it appears outside of a string literal
@@ -1893,9 +2043,12 @@ def fix_makefile_missing_compile_rule(f: str) -> bool:
                         if p not in declared and '.' not in p and not p.startswith('.')]
     if not missing_binaries:
         return False
-    # Find C source files to use as dependencies
+    # Find C source files to use as dependencies. If there are no .c files this
+    # Makefile is not for a C project — don't add a bogus compile rule.
     c_sources = list(Path(f).parent.glob('*.c'))
-    src_dep = ' '.join(s.name for s in c_sources) if c_sources else 'main.c'
+    if not c_sources:
+        return False
+    src_dep = ' '.join(s.name for s in c_sources)
     additions = []
     for binary in missing_binaries:
         additions.append(f'\n{binary}: {src_dep}')
@@ -1978,6 +2131,65 @@ def fix_requirements_path_entries(f: str) -> bool:
     return True
 
 
+def fix_makefile_recipe_is_prerequisite_list(f: str) -> bool:
+    """Fix a target whose recipe line consists solely of declared target names.
+
+    When `all:` has a recipe `\tinstall test` instead of prerequisites
+    `all: install test`, make executes `install test` as a shell command, which
+    fails because `install` is a real POSIX binary unrelated to the Makefile.
+    This reflex detects recipe lines made up entirely of words that are
+    declared targets and converts them to prerequisites on the target line.
+    General: applies to any Makefile with this structural mistake.
+    """
+    try:
+        content = Path(f).read_text()
+    except OSError:
+        return False
+    # Find all declared target names.
+    declared = set(re.findall(r'^([A-Za-z0-9_.-]+)\s*:', content, re.MULTILINE))
+    if not declared:
+        return False
+    # Scan each target: if it has no prerequisites and its FIRST recipe line
+    # consists entirely of declared target names, promote them to prerequisites.
+    top_re = re.compile(r'^([A-Za-z0-9_.-]+)\s*:\s*$', re.MULTILINE)
+    lines = content.splitlines(keepends=True)
+    changed = False
+    result = []
+    i = 0
+    while i < len(lines):
+        m = top_re.match(lines[i])
+        if m:
+            target = m.group(1)
+            # Peek at the next (recipe) line.
+            j = i + 1
+            while j < len(lines) and not lines[j].strip():
+                j += 1
+            if j < len(lines) and lines[j].startswith('\t'):
+                recipe = lines[j].strip()
+                words = recipe.split()
+                # All words must be declared targets AND there must be >0 words.
+                if words and all(w in declared for w in words) and words != [target]:
+                    # Replace the target line with prerequisites and remove recipe.
+                    result.append(f'{target}: {recipe}\n')
+                    i += 1  # skip old target line
+                    # Skip blank lines
+                    while i < len(lines) and not lines[i].strip():
+                        result.append(lines[i])
+                        i += 1
+                    # Skip the recipe line we just promoted.
+                    if i < len(lines) and lines[i].startswith('\t'):
+                        i += 1
+                    changed = True
+                    continue
+        result.append(lines[i])
+        i += 1
+    if not changed:
+        return False
+    Path(f).write_text(''.join(result))
+    print(f"==> [mu-agent] Reflex: promoted recipe to prerequisites in {f}")
+    return True
+
+
 def apply_makefile_reflexes(f: str) -> None:
     for fn in [fix_makefile_literal_tab_escape, fix_makefile_wrong_c_compiler,
                fix_makefile_sdl2_config_typo, fix_makefile_double_colon_target,
@@ -1985,6 +2197,7 @@ def apply_makefile_reflexes(f: str) -> None:
                fix_orphan_top_level_commands, fix_no_targets,
                fix_inline_recipe, fix_binary_target_runs_itself,
                fix_makefile_missing_compile_rule,
+               fix_makefile_recipe_is_prerequisite_list,
                fix_duplicate_var, fix_python_venv_cmd, fix_makefile_pip_no_venv,
                fix_makefile_bare_pytest, fix_makefile_npm_test_jest,
                fix_missing_venv_rule,

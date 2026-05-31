@@ -104,7 +104,40 @@ module.exports = { addTodo, listTodos, deleteTodo };
 **Do NOT use `jest.mock('fs', ...)`.** Mocking the fs module in the factory
 function is error-prone — Jest hoists mocks to the top of the file where
 outer variables are not yet initialized, causing `ReferenceError`. Instead,
-use a real temp file via `os.tmpdir()`:
+use a real temp file via `os.tmpdir()`.
+
+**CRITICAL — read the file path at call time, not module load time.** If the
+implementation captures the path as a module-level constant:
+```js
+const DATA_FILE = process.env.TODO_FILE || 'data.json';  // WRONG: captured once at load
+```
+then `beforeEach` changes to `process.env.TODO_FILE` have no effect — the
+constant never updates. Instead, read the env var inside each function:
+
+```js
+// todo.js — CJS, reads/writes from path determined at call time
+const fs = require('fs');
+
+function getDataFile() { return process.env.TODO_FILE || 'data.json'; }
+
+function addTodo(task) {
+  const todos = listTodos();
+  todos.push({ task, id: Date.now() });
+  fs.writeFileSync(getDataFile(), JSON.stringify(todos, null, 2));
+}
+
+function listTodos() {
+  try { return JSON.parse(fs.readFileSync(getDataFile(), 'utf8')) || []; }
+  catch (e) { return []; }
+}
+
+function deleteTodo(id) {
+  const todos = listTodos().filter(t => t.id !== id);
+  fs.writeFileSync(getDataFile(), JSON.stringify(todos, null, 2));
+}
+
+module.exports = { addTodo, listTodos, deleteTodo };
+```
 
 ```js
 // todo.test.js — CJS, uses a real temp file
@@ -130,4 +163,4 @@ test('adds a todo', () => {
 });
 ```
 
-This pattern works for any file-backed store without mocking.
+This pattern gives each test its own isolated file, no shared state between tests.

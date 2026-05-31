@@ -77,6 +77,9 @@ Tracks the most frequent or significant challenges encountered while running the
 24. **Invalid requirement**
   - A package name is expected at the start of a dependency specifier; avoid using paths directly in requirements.
 
+32. **p8 (Node todo) stochastic: test isolation design**
+   - The model sometimes writes test files without `beforeEach/afterEach` cleanup. When tests run sequentially without isolation, `test('lists todos')` expects `[]` but the previous `addTodo` test left data in `todo.json`. The repair model then targets `index.js` (not the test file), mangling it with duplicate declarations. Fixed partially: `fix_js_env_data_file` converts module-level env-var constants to getter functions (enabling `process.env.TODO_FILE`-based isolation when the model does write proper `beforeEach/afterEach`). The node-env skill now shows the correct isolation pattern and getter function approach. Passes ~50% of runs when model follows the skill; fails when it doesn't.
+
 25. **Context overflow in repair loop (400 errors)**
    - When the writer system prompt includes many large skills (vue-ts-env + node-env + test-isolation + no-server + dotnet skills), the combined system + repair context + test output exceeds the model's 6000-token context. Fixed by: (a) using a lean repair system (base + lang-repair only), (b) not re-adding contextual skills already in auto_system, (c) trimming skills loaded for combined stacks. See `_load_repair_skills` and `_contextual_skills`.
 
@@ -89,8 +92,8 @@ Tracks the most frequent or significant challenges encountered while running the
 28. **Vitest globals not enabled**
    - Without `globals: true` in vite.config.ts, calling `test(...)` / `expect(...)` raises `ReferenceError: test is not defined`. Fixed by vue-ts-env skill showing `globals: true` + `fix_vitest_globals` reflex that detects the ReferenceError and adds the config. See `fix_vitest_globals` in `reflexes.py`.
 
-29. **p7 (Flask) model-limited: uses flask_sqlalchemy**
-   - The model reaches for Flask-SQLAlchemy ORM even for simple SQLite tasks. flask_sqlalchemy is not installed in the venv, causing `ModuleNotFoundError`. Added guidance to python-writer skill: "Use plain sqlite3, not Flask-SQLAlchemy." Partially mitigated but model still oscillates in test repair.
+29. **p7 (Flask) model-limited: per-operation sqlite3 connection lifecycle**
+   - Even after updating python-writer skill to forbid SQLAlchemy (which stopped the model using SQLAlchemy), the model generates per-operation sqlite3 connections: each method does `with sqlite3.connect(self.db_path) as conn:`. When `fix_sqlite_test_isolation` replaces `'todos.db'` with `':memory:'`, each method call sees a fresh empty database — data inserted in `add_task` is destroyed on return, `get_tasks` sees nothing. The repair model then "fixes" it by reverting to file-based, causing state accumulation. The correct fix requires an architectural rewrite (persistent `self.conn` in `__init__`, or per-test temp-file fixture), which is beyond the 7B model's repair loop capability. Model-limited; a larger model is needed.
 
 30. **p10 (dotnet+Vue blog) model-limited**
    - qwen2.5-coder-7b cannot reliably produce a compiling multi-file ASP.NET Core + EF Core app. Each repair iteration reveals a new compile error (CS0841, CS0246, CS1513, CS1022). The repair loop oscillates and exhausts. Hard constraint: encoding the correct Program.cs structure in grounding violates the honesty rule. Verdict: model-limited for this task complexity. A larger model or higher context is needed.
@@ -107,5 +110,14 @@ Tracks the most frequent or significant challenges encountered while running the
 - **Duplicate dojo cleaning logic** — `sit.sh` now has a single cleanup block guarded by `SKIP_CLEAN`.
 - **p8 (Node todo) "No tests found"** — model uses `_test.js` naming; fixed by `fix_jest_no_tests_found` reflex + node-env skill guidance.
 - **p9 (Vue todo) TypeScript lint before npm install** — tsc ran before deps installed; fixed by skipping tsc when node_modules absent + `fix_vitest_globals` reflex.
+- **Makefile recipe instead of prerequisites** — model writes `all:\n\tinstall test` (recipe, shell command) instead of `all: install test` (prerequisites). Fixed by `fix_makefile_recipe_is_prerequisite_list` reflex; applies to any Makefile where recipe lines consist solely of declared target names.
+- **Python venv never created when Makefile broken** — repair loop never created `.venv` when the Makefile failed before the venv setup step. Fixed by `reapply()` creating `.venv` from `requirements.txt` when `.venv/bin/pip` is absent. Mirrors the existing npm-install pattern for Node.
+- **Jest/Vitest config reverted by repair model** — repair model would rewrite `package.json`/`vite.config.ts`, removing `testRegex`/`globals:true` added in the pre-flight pass. Fixed by calling `fix_jest_no_tests_found` + `fix_vitest_globals` inside `reapply()` on every repair iteration.
+- **Literal `\n` in JS/TS source** — model occasionally writes the last line(s) of a JS file with literal `\n` instead of real newlines, causing "Expecting Unicode escape sequence \uXXXX". `fix_literal_newlines` extended with a JS/TS mode that fires for any literal `\n` outside a string literal.
+- **Missing Node.js built-in requires** — model uses `path.join`, `os.tmpdir`, `fs.readFileSync` etc. without importing them. Added `fix_js_missing_requires` reflex (mirrors Python/Go equivalents); driven by usage patterns, not problem-specific.
+- **Module-level env-var constant breaks test isolation** — `const DATA_FILE = process.env.TODO_FILE || 'data.json'` is captured once at module load; `beforeEach` changes have no effect. Added `fix_js_env_data_file` reflex that converts module-level env-var constants to getter functions.
+- **`fix_makefile_missing_compile_rule` adds bogus C rules for non-C projects** — when `all: build test` is missing targets and no `.c` files exist, the reflex would add `cc -o build main.c` (nonsensical for Python/Node). Fixed: reflex now returns False when no `.c` sources are present.
+- **SQLAlchemy URL not converted to in-memory** — `fix_sqlite_test_isolation` replaced `todos.db` with `:memory:` but left SQLAlchemy URLs like `sqlite:///todos.db` unchanged. Fixed: reflex now replaces SQLAlchemy URLs with `sqlite:///:memory:` first.
+- **python-writer skill allowed plain SQLAlchemy** — skill said "no Flask-SQLAlchemy" but didn't mention plain SQLAlchemy. Model used `SQLAlchemy` ORM. Updated skill to explicitly forbid any ORM: "Use sqlite3 directly — no SQLAlchemy, no ORM."
 
 *This file is intended to be updated continuously as new challenges arise.*

@@ -47,7 +47,9 @@ from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
                          fix_csharp_duplicate_classes,
                          fix_csharp_missing_braces,
                          fix_jest_no_tests_found,
+                         fix_js_env_data_file,
                          fix_js_extra_closing_brace,
+                         fix_js_missing_requires,
                          fix_vitest_globals,
                          fix_literal_newlines,
                          fix_makefile_binary_name,
@@ -787,6 +789,12 @@ def run(goal: str, model: str = '', target_dir: str = '',
                             if fix_sqlite_test_isolation(str(sib)):
                                 log("Fixed sibling %s: replaced SQLite file path with :memory:.", str(sib))
 
+            if Path(task.file_path).suffix.lower() in ('.js', '.jsx', '.mjs'):
+                if fix_js_env_data_file(task.file_path):
+                    log("Fixed %s: converted env-var constant to getter function.", task.file_path)
+                if fix_js_missing_requires(task.file_path):
+                    log("Fixed %s: added missing Node.js require(s).", task.file_path)
+
             if task.file_path.endswith('.go') or task.file_path.endswith('go.mod'):
                 if apply_go_reflexes():
                     log("Resolved Go module dependencies (go mod tidy).")
@@ -1188,6 +1196,10 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
                 fix_makefile_binary_name(t.file_path, p.test_command or '')
             elif t.file_path.endswith('.cs'):
                 fix_csharp_missing_braces(t.file_path)
+            elif Path(t.file_path).suffix.lower() in ('.js', '.jsx', '.mjs'):
+                fix_js_env_data_file(t.file_path)
+                fix_js_missing_requires(t.file_path)
+                fix_literal_newlines(t.file_path)
         apply_go_reflexes()  # resolve Go module deps before each build attempt
         # If any package.json exists but its node_modules is absent, run npm install.
         # The repair loop may rewrite package.json but never re-runs install.
@@ -1197,6 +1209,29 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
                 if not (pkg_dir / 'node_modules').exists():
                     subprocess.run(['npm', 'install'], cwd=str(pkg_dir),
                                    capture_output=True, timeout=120)
+        # If a requirements.txt exists, ensure .venv is set up and packages are installed.
+        # Symmetric with npm install above. If the venv doesn't exist yet (e.g. the
+        # Makefile is broken and never ran 'python3 -m venv .venv'), create it now
+        # so the test command's '.venv/bin/pytest' invocation can succeed.
+        req = Path('requirements.txt')
+        if req.exists():
+            venv_pip = Path('.venv/bin/pip')
+            if not venv_pip.exists():
+                subprocess.run(['python3', '-m', 'venv', '.venv'],
+                               capture_output=True, timeout=60)
+            if venv_pip.exists():
+                subprocess.run([str(venv_pip), 'install', '-r', str(req), 'pytest', '-q'],
+                               capture_output=True, timeout=120)
+        # Re-apply Jest/Vitest reflexes — the repair model may have rewritten
+        # package.json or vite.config.ts, removing a testRegex or globals:true
+        # that was added during the pre-flight pass. Read the latest test log
+        # to check whether those fixes are still needed.
+        if Path(test_log).exists():
+            latest_out = _tail_file(test_log, 60)
+            if fix_jest_no_tests_found(latest_out, os.getcwd()):
+                log("Re-applied Jest testRegex (repair: No tests found).")
+            if fix_vitest_globals(os.getcwd(), latest_out):
+                log("Re-applied Vitest globals:true (repair: ReferenceError).")
 
     # Run the test once before pre-flight reflexes so the log exists and is current.
     # _final_test_gate creates a fresh log path; without this first run the log
