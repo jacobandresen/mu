@@ -111,7 +111,8 @@ def serve(model_dir: str, port: int = 1234, device: str = "CPU",
           num_threads: int = 0) -> None:
     """Load the OpenVINO model and start the server (blocks until Ctrl-C).
 
-    num_threads: CPU inference threads (0 = half of os.cpu_count()).
+    num_threads: CPU inference threads (0 = half of os.cpu_count()); ignored
+    for non-CPU devices such as GPU or NPU.
     """
     try:
         import openvino_genai as ov_genai
@@ -120,16 +121,19 @@ def serve(model_dir: str, port: int = 1234, device: str = "CPU",
             "openvino-genai not installed — run: pip install openvino-genai"
         )
 
-    if num_threads <= 0:
-        num_threads = max(1, (os.cpu_count() or 2) // 2)
-
     model_path = str(Path(model_dir).resolve())
     model_name = Path(model_dir).name
 
-    print(f"Loading {model_name} on {device} (threads={num_threads}) …")
-    pipeline = ov_genai.LLMPipeline(
-        model_path, device, {"INFERENCE_NUM_THREADS": num_threads}
-    )
+    props: dict = {}
+    if device.upper() == "CPU":
+        if num_threads <= 0:
+            num_threads = max(1, (os.cpu_count() or 2) // 2)
+        props["INFERENCE_NUM_THREADS"] = num_threads
+        print(f"Loading {model_name} on {device} (threads={num_threads}) …")
+    else:
+        print(f"Loading {model_name} on {device} …")
+
+    pipeline = ov_genai.LLMPipeline(model_path, device, props)
     print("Model loaded.")
 
     handler = _build_handler(pipeline, model_name)

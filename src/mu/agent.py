@@ -204,7 +204,28 @@ def _select_model() -> str:
     Resolution order: user-persisted preference → hardware-recommended →
     already-loaded catalog model. Loads the target model if needed.
     Returns '' on failure (caller should abort).
+
+    For the openvino backend the model is already served by the background
+    OpenVINO process, so LM Studio SDK calls are skipped entirely.
     """
+    cfg = load_backend()
+    if cfg.get('backend') == 'openvino':
+        device = cfg.get('ov_device', 'CPU')
+        loaded = list_models()
+        if loaded:
+            log("Using OpenVINO model: %s  [device=%s]", loaded[0], device)
+            return loaded[0]
+        model = cfg.get('model', '')
+        if model:
+            log("Using persisted OpenVINO model: %s  [device=%s]", model, device)
+            return model
+        print(
+            "mu-agent: OpenVINO server not running — start with: "
+            "mu model load <model_dir> --backend openvino",
+            file=sys.stderr,
+        )
+        return ''
+
     loaded = list_models()
     # Prefer explicitly saved selection over hardware recommendation.
     preferred = preferred_model()

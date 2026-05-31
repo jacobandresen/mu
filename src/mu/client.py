@@ -271,13 +271,15 @@ def save_preferred_model(model_id: str) -> None:
     p.write_text(json.dumps(cfg, indent=2))
 
 
-def save_backend(backend: str, host: str, model: str = '', pid: int = 0) -> None:
+def save_backend(backend: str, host: str, model: str = '', pid: int = 0,
+                 device: str = '') -> None:
     """Persist backend selection to ~/.mu/config.json.
 
     backend: 'lmstudio' | 'openvino'
     host:    API base URL (e.g. 'http://localhost:8765')
     model:   model path / ID
     pid:     PID of background server process (0 for external servers like LM Studio)
+    device:  OpenVINO device string, e.g. 'CPU' or 'NPU'
     """
     p = _mu_config_path()
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -293,6 +295,10 @@ def save_backend(backend: str, host: str, model: str = '', pid: int = 0) -> None
         cfg['ov_pid'] = pid
     elif 'ov_pid' in cfg and backend == 'lmstudio':
         del cfg['ov_pid']
+    if device:
+        cfg['ov_device'] = device
+    elif 'ov_device' in cfg and backend == 'lmstudio':
+        del cfg['ov_device']
     p.write_text(json.dumps(cfg, indent=2))
 
 
@@ -302,13 +308,14 @@ def load_backend() -> dict:
         p = _mu_config_path()
         cfg = json.loads(p.read_text(encoding='utf-8')) if p.exists() else {}
         return {
-            'backend': cfg.get('backend', 'lmstudio'),
-            'host':    cfg.get('host', ''),
-            'model':   cfg.get('model', ''),
-            'ov_pid':  cfg.get('ov_pid', 0),
+            'backend':   cfg.get('backend', 'lmstudio'),
+            'host':      cfg.get('host', ''),
+            'model':     cfg.get('model', ''),
+            'ov_pid':    cfg.get('ov_pid', 0),
+            'ov_device': cfg.get('ov_device', 'CPU'),
         }
     except Exception:
-        return {'backend': 'lmstudio', 'host': '', 'model': '', 'ov_pid': 0}
+        return {'backend': 'lmstudio', 'host': '', 'model': '', 'ov_pid': 0, 'ov_device': 'CPU'}
 
 
 def _fuzzy_match_model(query: str, candidates: list[str]) -> str | None:
