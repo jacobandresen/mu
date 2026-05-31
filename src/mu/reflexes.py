@@ -977,14 +977,17 @@ def fix_vitest_globals(project_dir: str, test_output: str) -> bool:
 
 
 def fix_js_env_data_file(file_path: str) -> bool:
-    """Convert module-level process.env file-path constants to getter functions.
+    """Convert hardcoded JSON file paths to env-var getter functions for test isolation.
 
-    A module-level `const DATA_FILE = process.env.X || 'default'` is captured
-    once at load time. Jest's `beforeEach` changes to `process.env.X` have no
-    effect — the constant never updates. Converting to a getter function
-    `function getDataFile() { return process.env.X || 'default'; }` evaluates
-    the env var on every call, enabling per-test isolation with temp files.
-    General: applies to any CommonJS file that needs env-var-driven test isolation.
+    Two patterns handled:
+    A. Module-level `const DATA_FILE = process.env.X || 'default'` — captured at
+       load time so Jest beforeEach changes to process.env.X have no effect.
+    B. Hardcoded `'./data.json'` or `'todos.json'` etc. inline in function bodies
+       with no env-var indirection at all — tests can't override the path.
+
+    Both are converted to `function getDataFile() { return process.env.TODO_FILE || 'data.json'; }`
+    with call-sites rewritten to `getDataFile()`, enabling per-test temp-file isolation.
+    General: applies to any CommonJS source file used by a test suite.
     """
     ext = Path(file_path).suffix.lower()
     if ext not in ('.js', '.jsx', '.mjs'):
@@ -993,36 +996,64 @@ def fix_js_env_data_file(file_path: str) -> bool:
         text = Path(file_path).read_text()
     except OSError:
         return False
-    # Match: const X = process.env.Y || 'default';
+    # Skip test files
+    stem = Path(file_path).stem.lower()
+    if stem.startswith('test_') or stem.endswith('_test') or '.test' in stem or '.spec' in stem:
+        return False
+    # Skip if already has a getDataFile() or similar getter
+    if 'getDataFile' in text or 'getData_file' in text:
+        return False
+
+    changed = False
+    new_text = text
+
+    # Pattern A: module-level const with env var
     m = re.search(
         r'^(const\s+(\w+)\s*=\s*process\.env\.(\w+)\s*\|\|\s*[\'"][^\'"]+[\'"])\s*;',
-        text, re.MULTILINE,
+        new_text, re.MULTILINE,
     )
-    if not m:
-        return False
-    const_line, var_name = m.group(1) + ';', m.group(2)
-    full_expr = m.group(1).split('=', 1)[1].strip()  # process.env.Y || 'default'
-    # Skip if this is already inside a function (indented)
-    line_start = text.rfind('\n', 0, m.start()) + 1
-    if text[line_start:m.start()].strip():
-        return False  # indented — already inside a block
-    # Skip if it's a test file (test files shouldn't define the data source)
-    stem = Path(file_path).stem.lower()
-    if stem.startswith('test_') or stem.endswith('_test') or stem.endswith('.test'):
-        return False
-    # Convert SCREAMING_SNAKE to camelCase getter: DATA_FILE → getDataFile
-    parts = var_name.split('_')
-    camel = parts[0].lower() + ''.join(p.capitalize() for p in parts[1:])
-    getter_name = 'get' + camel[0].upper() + camel[1:]
-    getter_fn = f'function {getter_name}() {{ return {full_expr}; }}'
-    # Replace the const declaration with the getter function
-    new_text = text.replace(const_line, getter_fn, 1)
-    # Replace all remaining usages of the variable with the getter call
-    new_text = re.sub(rf'\b{re.escape(var_name)}\b', f'{getter_name}()', new_text)
-    if new_text == text:
+    if m:
+        const_line, var_name = m.group(1) + ';', m.group(2)
+        full_expr = m.group(1).split('=', 1)[1].strip()
+        line_start = new_text.rfind('\n', 0, m.start()) + 1
+        if not new_text[line_start:m.start()].strip():  # not indented
+            parts = var_name.split('_')
+            camel = parts[0].lower() + ''.join(p.capitalize() for p in parts[1:])
+            getter_name = 'get' + camel[0].upper() + camel[1:]
+            getter_fn = f'function {getter_name}() {{ return {full_expr}; }}'
+            new_text = new_text.replace(const_line, getter_fn, 1)
+            new_text = re.sub(rf'\b{re.escape(var_name)}\b', f'{getter_name}()', new_text)
+            changed = True
+            print(f"==> [mu-agent] Reflex: converted {var_name} to {getter_name}() in {file_path}")
+
+    # Pattern B: hardcoded .json path string used in ≥2 function bodies with no env-var override
+    if not changed:
+        json_paths = re.findall(r'''['"](\.?/?[\w./]*\.json)['"]\s*[,)]''', new_text)
+        # Only fire when the same literal path appears multiple times (used in multiple functions)
+        from collections import Counter
+        counts = Counter(json_paths)
+        target = next((p for p, c in counts.items() if c >= 2), None)
+        if target:
+            env_var = 'TODO_FILE' if 'todo' in target.lower() else 'DATA_FILE'
+            getter_fn = f"function getDataFile() {{ return process.env.{env_var} || '{target}'; }}"
+            # Replace occurrences in the original text FIRST, then insert getter
+            replaced = re.sub(
+                rf'''(['"]){re.escape(target)}\1''',
+                'getDataFile()',
+                new_text,
+            )
+            replaced = replaced.replace("'getDataFile()'", 'getDataFile()')
+            replaced = replaced.replace('"getDataFile()"', 'getDataFile()')
+            # Insert getter after the last require() line
+            insert_after = max((m.end() for m in re.finditer(r'^.*require\s*\(.*\)\s*;?$', replaced, re.MULTILINE)), default=0)
+            insert_pos = replaced.find('\n', insert_after) + 1 if insert_after else 0
+            new_text = replaced[:insert_pos] + getter_fn + '\n' + replaced[insert_pos:]
+            changed = True
+            print(f"==> [mu-agent] Reflex: converted hardcoded '{target}' to getDataFile() in {file_path}")
+
+    if not changed or new_text == text:
         return False
     Path(file_path).write_text(new_text)
-    print(f"==> [mu-agent] Reflex: converted {var_name} to {getter_name}() in {file_path}")
     return True
 
 
@@ -1276,6 +1307,42 @@ def fix_csharp_missing_braces(file_path: str) -> bool:
     return True
 
 
+def fix_python_method_indent(file_path: str) -> bool:
+    """Fix a `def` that lost its indentation after a class-level decorator.
+
+    When a model writes `    @staticmethod\\ndef foo():` (decorator indented,
+    def at column 0), Python raises IndentationError. This reflex re-indents
+    the def line to match the decorator immediately above it.
+    General: applies whenever an indented @decorator is followed by an unindented def.
+    """
+    if not file_path.lower().endswith('.py'):
+        return False
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+    lines = text.splitlines()
+    result = []
+    changed = False
+    for i, line in enumerate(lines):
+        stripped = line.lstrip()
+        if (i > 0 and stripped.startswith('def ') and not line[0].isspace()):
+            prev = result[-1] if result else ''
+            prev_stripped = prev.lstrip()
+            if prev_stripped.startswith('@'):
+                # Re-indent the def to match the decorator
+                indent = prev[:len(prev) - len(prev_stripped)]
+                result.append(indent + stripped)
+                changed = True
+                continue
+        result.append(line)
+    if not changed:
+        return False
+    Path(file_path).write_text('\n'.join(result) + '\n')
+    print(f"==> [mu-agent] Reflex: fixed method indentation after decorator in {file_path}")
+    return True
+
+
 def fix_python_decorator_colon(file_path: str) -> bool:
     """Remove spurious trailing colon from Python decorator lines.
 
@@ -1296,6 +1363,98 @@ def fix_python_decorator_colon(file_path: str) -> bool:
         return False
     Path(file_path).write_text(new_text)
     print(f"==> [mu-agent] Reflex: removed {count} spurious colon(s) from decorator(s) in {file_path}")
+    return True
+
+
+def fix_jest_fs_mock(file_path: str) -> bool:
+    """Complete a jest.mock('fs', ...) factory that is missing jest.fn() entries.
+
+    When a test does `jest.mock('fs', () => ({ writeFileSync: jest.fn() }))` but
+    later calls `fs.readFileSync.mockReturnValue(...)`, the test fails because
+    readFileSync wasn't mocked. This reflex detects incomplete fs mock factories
+    and ensures all accessed fs methods are included as jest.fn().
+    """
+    ext = Path(file_path).suffix.lower()
+    if ext not in ('.js', '.jsx', '.mjs', '.ts', '.tsx'):
+        return False
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+    # Only process files with jest.mock('fs', ...) factory form
+    if "jest.mock('fs'" not in text and 'jest.mock("fs"' not in text:
+        return False
+    # Find which fs methods the test calls .mockReturnValue / .mockResolvedValue / .mockImplementation on
+    called_mocks = set(re.findall(r'\bfs\.(\w+)\.mock', text))
+    if not called_mocks:
+        return False
+    # Find the mock factory body and check what's already there
+    m = re.search(r"jest\.mock\(['\"]fs['\"],\s*\(\)\s*=>\s*\{(.*?)\}\s*\)",
+                  text, re.DOTALL)
+    if not m:
+        return False
+    factory_body = m.group(1)
+    missing = [fn for fn in called_mocks if fn not in factory_body]
+    if not missing:
+        return False
+    # Add missing entries before the closing brace of the factory
+    additions = ',\n    '.join(f'{fn}: jest.fn()' for fn in sorted(missing))
+    # Insert before the last non-whitespace content in the factory body
+    new_factory = factory_body.rstrip()
+    if new_factory.endswith(','):
+        new_factory += f'\n    {additions}'
+    else:
+        new_factory += f',\n    {additions}'
+    new_text = text[:m.start(1)] + new_factory + text[m.end(1):]
+    if new_text == text:
+        return False
+    Path(file_path).write_text(new_text)
+    print(f"==> [mu-agent] Reflex: added missing jest.fn() to fs mock in {file_path}")
+    return True
+
+
+def fix_vue_test_utils_import(file_path: str) -> bool:
+    """Replace wrong Vue test utility import sources with @vue/test-utils.
+
+    Models occasionally import `mount` or `shallowMount` from non-existent
+    packages like `vue-router-dom`, `@testing-library/vue`, or bare `vue`.
+    In Vue 3 + Vitest projects the correct import is always `@vue/test-utils`.
+    Fires on any TypeScript/JavaScript test file that mounts Vue components.
+    """
+    ext = Path(file_path).suffix.lower()
+    if ext not in ('.ts', '.tsx', '.js', '.jsx'):
+        return False
+    stem = Path(file_path).stem.lower()
+    if not (stem.endswith('.test') or stem.endswith('.spec') or
+            'test' in stem or 'spec' in stem):
+        return False
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+    # Only fix if the file imports mount/shallowMount/flushPromises from a wrong source
+    wrong_sources = (
+        r"'vue-router-dom'",
+        r'"vue-router-dom"',
+        r"'@testing-library/vue'",
+        r'"@testing-library/vue"',
+        r"from\s+['\"]vue['\"]",   # bare `from 'vue'` when used for mount
+    )
+    # Check that mount or shallowMount is being imported
+    if not re.search(r'\b(mount|shallowMount|flushPromises)\b', text):
+        return False
+    new_text = text
+    for pattern in wrong_sources[:4]:  # literal string replacements
+        for fn in ('mount', 'shallowMount', 'flushPromises'):
+            new_text = re.sub(
+                rf"""(import\s*\{{[^}}]*\b{fn}\b[^}}]*\}})\s*from\s+{pattern}""",
+                r"\1 from '@vue/test-utils'",
+                new_text,
+            )
+    if new_text == text:
+        return False
+    Path(file_path).write_text(new_text)
+    print(f"==> [mu-agent] Reflex: fixed Vue test-utils import in {file_path}")
     return True
 
 
@@ -1418,6 +1577,14 @@ def fix_literal_newlines(file_path: str, lint_error: str = '') -> bool:
     literal_newlines = text.count('\\n')
     if literal_newlines == 0:
         return False
+
+    # JSON mode: ANY literal \n outside a JSON string value is invalid — fire on even 1.
+    if Path(file_path).suffix.lower() == '.json' and literal_newlines >= 1:
+        fixed = text.replace('\\n', '\n')
+        Path(file_path).write_text(fixed)
+        print(f"==> [mu-agent] Reflex: replaced {literal_newlines} literal \\n "
+              f"with real newlines in {file_path}")
+        return True
 
     # Bulk mode: nearly all newlines are literal (whole-file collapse).
     if literal_newlines >= 3 and literal_newlines > real_newlines:
@@ -2270,6 +2437,10 @@ def fix_makefile_literal_tab_escape(f: str) -> bool:
             changed = True
         elif line.startswith('\\t'):
             out.append('\t' + line[2:])
+            changed = True
+        elif line.startswith('\t\\@'):
+            # Real tab followed by \@ — convert \@ to @ (already has proper indent)
+            out.append('\t@' + line[3:])
             changed = True
         elif '\\t' in line:
             new_line = line.replace('\\t', ' ')

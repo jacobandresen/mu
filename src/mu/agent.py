@@ -53,11 +53,14 @@ from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
                          fix_vitest_globals,
                          fix_vitest_watch_mode,
                          fix_vue_missing_package,
+                         fix_jest_fs_mock,
+                         fix_vue_test_utils_import,
                          fix_literal_newlines,
                          fix_makefile_binary_name,
                          fix_missing_close_paren, fix_missing_pip_packages,
                          fix_multiline_single_quote,
                          fix_python_decorator_colon,
+                         fix_python_method_indent,
                          fix_python_missing_def,
                          fix_python_missing_project_imports,
                          fix_python_missing_stdlib_imports,
@@ -102,10 +105,13 @@ def _repair_loop_rules(plan_file: str = 'PLAN.md') -> str:
         "and the new output is shown to you.\n"
         f"3. Only modify files that already exist. Do not create new files. "
         f"Do not touch {plan_file}.\n"
-        "4. Never modify files inside generated directories: .venv/, node_modules/, "
+        "4. Never modify build configuration files: Cargo.toml, package.json, "
+        "go.mod, go.sum, pyproject.toml, setup.py. Fix errors in source files, "
+        "not build files — the build system is correct.\n"
+        "5. Never modify files inside generated directories: .venv/, node_modules/, "
         "__pycache__/, target/, .cargo/, dist/, build/. "
         "These are managed by package managers, not by you.\n"
-        "5. Call the tool immediately — no prose, no explanation. Stop after one tool call."
+        "6. Call the tool immediately — no prose, no explanation. Stop after one tool call."
     )
 
 
@@ -842,6 +848,8 @@ def run(goal: str, model: str = '', target_dir: str = '',
                     log("Fixed %s: removed duplicate class definitions.", task.file_path)
 
             if task.file_path.endswith('.py'):
+                if fix_python_method_indent(task.file_path):
+                    log("Fixed %s: re-indented def after class decorator.", task.file_path)
                 if fix_python_missing_def(task.file_path):
                     log("Fixed %s: inserted missing def after orphaned decorator.", task.file_path)
                 if fix_python_decorator_colon(task.file_path):
@@ -862,6 +870,12 @@ def run(goal: str, model: str = '', target_dir: str = '',
                         if not sib.stem.startswith('test_') and sib.name != fp.name:
                             if fix_sqlite_test_isolation(str(sib)):
                                 log("Fixed sibling %s: replaced SQLite file path with :memory:.", str(sib))
+
+            if Path(task.file_path).suffix.lower() in ('.ts', '.tsx', '.js', '.jsx', '.mjs'):
+                if fix_jest_fs_mock(task.file_path):
+                    log("Fixed %s: added missing jest.fn() to fs mock.", task.file_path)
+                if fix_vue_test_utils_import(task.file_path):
+                    log("Fixed %s: corrected Vue test-utils import.", task.file_path)
 
             if Path(task.file_path).suffix.lower() in ('.js', '.jsx', '.mjs'):
                 if fix_js_env_data_file(task.file_path):
@@ -1081,12 +1095,7 @@ def _run_planner(goal: str, model: str, planner_timeout: int,
     # list and test command before locking them in.
     has_dotnet = any(k in goal_lower for k in ('asp.net', 'dotnet', 'c#', 'csharp', 'xunit', 'ef core'))
     has_vue = any(k in goal_lower for k in ('vue', 'vite', 'vitest'))
-    if has_dotnet and has_vue:
-        # dotnet-vue-blog: flat backend/frontend layout, Makefile with npm install
-        dvb = _load_skill('dotnet-vue-blog')
-        if dvb:
-            extra_skills.append(dvb)
-    elif has_dotnet:
+    if has_dotnet:
         for sname in ('dotnet-minimal-api', 'dotnet-xunit'):
             ds = _load_skill(sname)
             if ds:
@@ -1200,24 +1209,18 @@ def _contextual_skills(goal: str, p: Plan) -> list[tuple[str, str]]:
     domain, test patterns, server type — as opposed to per-language repair
     skills which are driven by the file extensions present in the plan.
     """
-    is_dotnet_vue = _dotnet_vue_relevant(goal, p)
     is_dotnet = _dotnet_relevant(goal, p)
     is_python = _python_relevant(goal, p)
-    # For dotnet+vue fullstack: dotnet-vue-blog already covers layout, Makefile,
-    # and frontend structure. Skip redundant skills to stay within context limits.
     candidates: list[tuple[str, bool]] = [
-        ('makefile-writer',    _makefile_relevant(goal, p) and not is_dotnet_vue),
+        ('makefile-writer',    _makefile_relevant(goal, p)),
         ('python-env',         is_python),
         ('python-writer',      is_python),
         ('node-env',           _node_relevant(goal, p)),
         ('go-writer',          any(t.file_path.endswith('.go') for t in p.tasks)),
         ('sdl2-writer',        bool(re.search(r'(?i)\bSDL2?\b', goal))),
-        # For dotnet+vue, dotnet-vue-blog covers the frontend; skip standalone vue-ts-env.
-        ('vue-ts-env',         _vue_relevant(goal, p) and not is_dotnet_vue),
+        ('vue-ts-env',         _vue_relevant(goal, p)),
         ('dotnet-minimal-api', is_dotnet),
         ('dotnet-xunit',       is_dotnet),
-        ('dotnet-vue-blog',    is_dotnet_vue),
-        # For dotnet+vue, dotnet-xunit covers test isolation and no-server patterns.
         ('test-isolation',     _test_isolation_relevant(goal, p) and not is_python and not is_dotnet),
         ('no-server-in-tests', _no_server_relevant(goal, p) and not is_python and not is_dotnet),
     ]
@@ -1306,6 +1309,8 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
         for t in p.tasks:
             if not Path(t.file_path).exists():
                 continue
+            # Always un-escape literal \n in any source file before testing
+            fix_literal_newlines(t.file_path)
             if is_build_file(t.file_path) and Path(t.file_path).name.lower() == 'makefile':
                 apply_makefile_reflexes(t.file_path)
                 fix_makefile_binary_name(t.file_path, p.test_command or '')
@@ -1492,11 +1497,32 @@ def _run_repair_lint(model: str, lint_cmd: str, file_path: str, lint_log: str, l
         return _run_cmd(lint_cmd, lint_log), _head_file(lint_log, 60)
 
     def lint_reapply() -> None:
-        # Re-apply Cargo.toml fix before each lint attempt — the repair model
-        # tends to corrupt Cargo.toml when trying to add dependencies.
+        # Always regenerate Cargo.toml to the minimal grounded version before
+        # each lint attempt. The repair model tends to add external crate deps
+        # (e.g., `fibonacci = "0.1.1"`) that fail to compile. The fix_rust_cargo_toml
+        # reflex only triggers on corrupted TOML; here we force-regenerate regardless.
         cargo = Path('Cargo.toml')
-        if cargo.exists() and fix_rust_cargo_toml(str(cargo)):
-            log("Repair reapply (lint): regenerated corrupted Cargo.toml.")
+        if cargo.exists() and '.rs' in (file_path or ''):
+            proj = Path(os.getcwd()).name or 'app'
+            main_rs = next(
+                (str(f) for f in Path('.').rglob('main.rs')
+                 if 'target' not in str(f) and '.cargo' not in str(f)),
+                None)
+            bin_section = (
+                f'\n[[bin]]\nname = "{proj}"\npath = "{main_rs}"\n'
+                if main_rs and not main_rs.startswith('src/') else ''
+            )
+            clean = (
+                '[package]\n'
+                f'name = "{proj}"\n'
+                'version = "0.1.0"\n'
+                'edition = "2021"\n'
+                + bin_section
+            )
+            current = cargo.read_text()
+            if current.strip() != clean.strip():
+                cargo.write_text(clean)
+                log("Repair reapply (lint): reset Cargo.toml to minimal.")
 
     sess.repair_loop(model, goal, _REPAIR_MAX_ITERS, float(writer_timeout),
                      run_test, lint_reapply, context, _syntax_check)
@@ -1920,11 +1946,6 @@ def _dotnet_relevant(goal: str, p: Plan) -> bool:
     return has_dotnet and has_api
 
 
-def _dotnet_vue_relevant(goal: str, p: Plan) -> bool:
-    """True when the task is a .NET + Vue fullstack app."""
-    return _dotnet_relevant(goal, p) and _vue_relevant(goal, p)
-
-
 def _makefile_relevant(goal: str, p: Plan) -> bool:
     if any(Path(t.file_path).name == 'Makefile' for t in p.tasks):
         return True
@@ -2005,6 +2026,12 @@ def _lint_command(file_path: str, p: Plan) -> str:
         return 'go vet .' if d == '.' else f"go vet ./{d}/..."
     if ext == '.rs':
         if has_cargo:
+            # Don't lint with cargo check until all .rs files from the plan are written —
+            # a missing sibling module file causes E0583 that the repair loop can't fix
+            # (it can't create new files) and the real file will arrive in a later iteration.
+            rs_tasks = [t for t in p.tasks if t.file_path.endswith('.rs')]
+            if any(not Path(t.file_path).exists() for t in rs_tasks):
+                return ''
             return 'cargo check'
         stem = Path(file_path).stem
         return (f"rustc --edition=2021 -Dwarnings {file_path} "
