@@ -93,8 +93,9 @@ each stage's files do and what its test command verifies.
 
 ```
 backend/
-  Models/          ← entities + AppDb (model phase only)
-  Controllers/     ← API controllers  (backend phase only)
+  Models/          ← entities only             (model phase only)
+  Infrastructure/  ← AppDb DbContext           (model phase only)
+  Controllers/     ← API controllers           (backend phase only)
   Program.cs       ← DI wiring, EnsureCreated, MapControllers
   backend.csproj
 tests/
@@ -102,11 +103,13 @@ tests/
   tests.csproj
 ```
 
-- `Models/` files are created **only** in the model phase. The backend phase must not
-  add new model files — it only adds controllers that use the already-created models.
+- `Models/` contains entity classes only — one file per entity.
+- `Infrastructure/` contains `AppDb` (the EF Core DbContext) — created in the model phase.
 - `Controllers/` files are created **only** in the backend phase.
+- The model phase creates `Models/` and `Infrastructure/` only. The backend phase must not
+  add new model or infrastructure files — it only adds controllers that use them.
 - The frontend phase writes no C# at all. It communicates with the backend **exclusively
-  via HTTP calls to controller endpoints** — it must not reference `Models/` types,
+  via HTTP calls to controller endpoints** — it must not reference `Models/`, `Infrastructure/`,
   `AppDb`, or any server-side assembly directly.
 
 model: [list the Models/ entity files and AppDb; describe the xUnit test that validates

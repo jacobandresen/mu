@@ -7,8 +7,9 @@ description: ASP.NET Core Web API rules — EF Core SQLite, Models/ folder for e
 
 ```
 backend/
-  Models/          ← entities + AppDb (created in model phase)
-  Controllers/     ← API controllers (created in backend phase)
+  Models/          ← entities, one file per entity (model phase)
+  Infrastructure/  ← AppDb DbContext              (model phase)
+  Controllers/     ← API controllers              (backend phase)
   Program.cs
   backend.csproj
 tests/
@@ -65,20 +66,9 @@ public partial class Program { }   // required for WebApplicationFactory
 - The `public partial class Program {}` line must be the last line — WebApplicationFactory needs it.
 - All routes go in controller classes in `Controllers/`. Do NOT use inline `app.MapGet` / `app.MapPost`.
 
-## 3. Models/ — entities and DbContext
+## 3. Models/ — entities
 
-Place each entity and the DbContext in `Models/`. Example:
-
-```csharp
-// Models/AppDb.cs
-using Microsoft.EntityFrameworkCore;
-
-public class AppDb : DbContext
-{
-    public AppDb(DbContextOptions<AppDb> options) : base(options) { }
-    public DbSet<Item> Items => Set<Item>();
-}
-```
+Place each entity in `Models/`, one file per class. Example:
 
 ```csharp
 // Models/Item.cs
@@ -89,7 +79,22 @@ public class Item
 }
 ```
 
-## 4. Controllers/ — API controllers
+## 4. Infrastructure/ — DbContext
+
+Place `AppDb` in `Infrastructure/`. Example:
+
+```csharp
+// Infrastructure/AppDb.cs
+using Microsoft.EntityFrameworkCore;
+
+public class AppDb : DbContext
+{
+    public AppDb(DbContextOptions<AppDb> options) : base(options) { }
+    public DbSet<Item> Items => Set<Item>();
+}
+```
+
+## 5. Controllers/ — API controllers
 
 Place each controller in `Controllers/`. Inject AppDb via the constructor. Example:
 
