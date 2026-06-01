@@ -124,12 +124,35 @@ def serve(model_dir: str, port: int = 1234, device: str = "CPU",
     model_path = str(Path(model_dir).resolve())
     model_name = Path(model_dir).name
 
+    # Fail fast — check port before spending time loading the model.
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as _s:
+        _s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            _s.bind(("localhost", port))
+        except OSError:
+            raise SystemExit(
+                f"mu serve: port {port} is already in use — "
+                f"stop the existing server or choose another port with --port"
+            )
+
     props: dict = {}
     if device.upper() == "CPU":
         if num_threads <= 0:
             num_threads = max(1, (os.cpu_count() or 2) // 2)
         props["INFERENCE_NUM_THREADS"] = num_threads
         print(f"Loading {model_name} on {device} (threads={num_threads}) …")
+    elif device.upper() == "NPU":
+        cache_dir = Path.home() / '.mu' / 'ov_cache'
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        props = {
+            "MAX_PROMPT_LEN": 1024,
+            "MIN_RESPONSE_LEN": 128,
+            "GENERATE_HINT": "BEST_PERF",
+            "CACHE_DIR": str(cache_dir),
+        }
+        print(f"Loading {model_name} on {device} (max_prompt=1024, cache={cache_dir}) …")
+        print("  Note: first load compiles model shapes — this may take 1–2 minutes.")
     else:
         print(f"Loading {model_name} on {device} …")
 

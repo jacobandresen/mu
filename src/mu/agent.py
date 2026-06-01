@@ -29,8 +29,8 @@ from typing import Optional
 from mu import tools
 from mu.archive import AgentSession
 from mu.client import (LMS_HOST, chat, list_downloaded_llm_paths, list_models, load_backend,
-                        load_catalog, load_model, normalize_model_bare, preferred_model,
-                        recommended_model)
+                        load_catalog, load_model, max_prompt_tokens, normalize_model_bare,
+                        preferred_model, recommended_model)
 from mu.plan import (Plan, check_goal_alignment, clear_challenges,
                      drop_minority_languages,
                      drop_runtime_artifacts,
@@ -788,9 +788,12 @@ def run(goal: str, model: str = '', target_dir: str = '',
 
         project_dir = os.getcwd()
         auto_system = _build_autonomous_system(project_dir, plan_file)
-        for _skill_name, _skill_content in _contextual_skills(goal, p):
-            auto_system += '\n\n' + _skill_content
-            log("Loaded %s skill.", _skill_name)
+        if max_prompt_tokens() >= 2000:
+            for _skill_name, _skill_content in _contextual_skills(goal, p):
+                auto_system += '\n\n' + _skill_content
+                log("Loaded %s skill.", _skill_name)
+        else:
+            log("Skipping contextual skills (constrained token budget: %d tokens).", max_prompt_tokens())
 
         for i in range(1, max_iter + 1):
             task = next_task(p)
@@ -1141,7 +1144,40 @@ def _run_planner(goal: str, model: str, planner_timeout: int,
         if vs:
             extra_skills.append(vs)
 
-    if os.environ.get('MU_PROMPT_CACHE') == '1':
+    # Estimate token budget (4 chars ≈ 1 token).  On constrained backends (e.g.
+    # OpenVINO NPU, hard limit 1024 tokens), the full skill + challenges would
+    # exceed the limit and crash the inference server with a C++ assertion.
+    # Use a compact prompt that fits within the budget, leaving ~40 % for output.
+    token_budget = max_prompt_tokens()
+    _COMPACT_THRESHOLD = 2000  # tokens; below this, skip heavy skill/challenges
+    use_compact = token_budget < _COMPACT_THRESHOLD
+
+    if use_compact:
+        # Stripped-down prompt: system header + goal only.  No skill, no
+        # challenges, no example.  Keeps the total well under 1024 tokens.
+        log("Planner: compact prompt (budget=%d tokens)", token_budget)
+        system = (
+            "You are a planning agent. "
+            "Output ONLY raw PLAN.md markdown with exactly these sections: "
+            "## Summary, ## Files, ## Test Command, ## Dependencies. "
+            "No preamble, no explanation, no code fences."
+        )
+        user_msg = (
+            f"DIR: {project_dir}\n"
+            f"GOAL: {goal}\n\n"
+            "CRITICAL: Each file in ## Files MUST use exactly this format:\n"
+            "- [ ] filename.ext — short description\n\n"
+            "No backticks around filenames. No colon. Use `- [ ]` checkbox and ` — ` separator.\n\n"
+            "Example:\n"
+            "## Summary\nImplement the goal using idiomatic patterns.\n\n"
+            "## Files\n"
+            "- [ ] main.py — entry point implementing the core logic\n"
+            "- [ ] test_main.py — pytest tests for main.py\n\n"
+            "## Test Command\npytest\n\n"
+            "## Dependencies\npython>=3.11, pytest>=7\n\n"
+            f"Now write the PLAN.md for the GOAL above. Start with ## Summary."
+        )
+    elif os.environ.get('MU_PROMPT_CACHE') == '1':
         # Cache-friendly layout: all stable content (instructions, skill, rules,
         # challenges, example) goes in the system message as a byte-identical
         # prefix across problems, so LM Studio reuses its KV cache instead of
@@ -1218,7 +1254,12 @@ def _run_writer(model: str, target_file: str, prompt: str,
                  "Complete, runnable content. Stop immediately after. Nothing else.")
     sess = Session(autonomous_system + '\n\n' + rules)
     sess.tool_set = tools.WRITER
-    ok, err = sess.run(model, prompt, 'Writing', 15, target_file, float(writer_timeout))
+    # On constrained backends (e.g. OpenVINO NPU, 1024-token limit) the stateful
+    # pipeline accumulates history across turns.  Any nudge/follow-up turn will
+    # push the total past the hard limit and crash with HTTP 500.  Use a single
+    # turn so the session never sends a second request.
+    max_turns = 1 if max_prompt_tokens() < 2000 else 15
+    ok, err = sess.run(model, prompt, 'Writing', max_turns, target_file, float(writer_timeout))
     if err:
         log("Writer: %s", err)
     return ok
@@ -2003,6 +2044,9 @@ def _python_relevant(goal: str, p: Plan) -> bool:
 
 def _build_write_prompt(goal: str, task, p: Plan, companion: str = '',
                         plan_file: str = 'PLAN.md') -> str:
+    # On constrained backends (e.g. OpenVINO NPU, 1024-token hard limit) keep
+    # the prompt minimal so the model has enough budget to write the file.
+    compact = max_prompt_tokens() < 2000
     parts = [f"GOAL: {goal}\n\n## Plan\n{p.plan_context}"]
     existing = relevant_files_context(p, task.file_path)
     if existing:
@@ -2015,21 +2059,22 @@ def _build_write_prompt(goal: str, task, p: Plan, companion: str = '',
                      f"function prototypes) before writing the implementation.")
     if task.description:
         parts.append(f"\nPurpose: {task.description}")
-    if is_test_file(task.file_path):
-        parts.append("\n\nTEST ISOLATION: give each test its own fresh state. Construct the "
-                     "code under test with an in-memory or per-test temporary store (e.g. a "
-                     "`:memory:` database, or a tmp file/dir via a fixture), or reset state in "
-                     "setup/teardown. Never assert exact row counts or contents against a store "
-                     "that other tests in the file also write — they will accumulate and fail.")
-    if Path(task.file_path).name.lower() == 'makefile':
-        parts.append("\n\nMAKEFILE RULES: every name used as a prerequisite must have its own "
-                     "`target:` rule or be a real file — if you write `all: run`, you must also "
-                     "define a `run:` rule. Recipe lines are tab-indented.")
-    if is_build_file(task.file_path):
-        pending = pending_source_files(p, task.file_path)
-        if pending:
-            parts.append(f"\n\nCRITICAL — use these EXACT file paths from {plan_file} in "
-                         f"`{task.file_path}`:\n{pending}")
+    if not compact:
+        if is_test_file(task.file_path):
+            parts.append("\n\nTEST ISOLATION: give each test its own fresh state. Construct the "
+                         "code under test with an in-memory or per-test temporary store (e.g. a "
+                         "`:memory:` database, or a tmp file/dir via a fixture), or reset state in "
+                         "setup/teardown. Never assert exact row counts or contents against a store "
+                         "that other tests in the file also write — they will accumulate and fail.")
+        if Path(task.file_path).name.lower() == 'makefile':
+            parts.append("\n\nMAKEFILE RULES: every name used as a prerequisite must have its own "
+                         "`target:` rule or be a real file — if you write `all: run`, you must also "
+                         "define a `run:` rule. Recipe lines are tab-indented.")
+        if is_build_file(task.file_path):
+            pending = pending_source_files(p, task.file_path)
+            if pending:
+                parts.append(f"\n\nCRITICAL — use these EXACT file paths from {plan_file} in "
+                              f"`{task.file_path}`:\n{pending}")
     parts.append("""
 
 ## Steps

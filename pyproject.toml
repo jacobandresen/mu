@@ -53,6 +53,9 @@ lint = [
 openvino = [
     "openvino>=2025.4",
     "openvino-genai>=2025.4",
+    "openvino-tokenizers>=2025.4",
+    "optimum-intel>=1.25.2",
+    "transformers>=4.51.3",
 ]
 
 [project.urls]

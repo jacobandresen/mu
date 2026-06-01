@@ -33,31 +33,49 @@ around the whole document. Use the exact sections below.
 
 ## System Context
 
-A C4 context diagram showing: the end user, the system boundary, and any external
-systems the solution depends on (e.g. filesystem for SQLite).
+A C4 context diagram as a plain ASCII box drawing. Show the end user, the system
+boundary, and any external systems (e.g. filesystem for SQLite). Use this style:
 
-```mermaid
-C4Context
-    title System Context
-    Person(user, "User", "Interacts with the application")
-    System(system, "Application", "Brief description")
-    Rel(user, system, "Uses")
+```
+  +----------+          +-------------------------+
+  |   User   | -------> |      Application        |
+  +----------+  uses    |  (brief description)    |
+                        +-------------------------+
+                                   |
+                                   v reads/writes
+                        +-------------------------+
+                        |   SQLite (filesystem)   |
+                        +-------------------------+
 ```
 
 ## Containers
 
-A C4 container diagram showing the data store, backend, and frontend containers.
-Annotate each with its implementation order ("implement first", "implement second",
-"implement third"). Add dependency arrows.
+A C4 container diagram as a plain ASCII box drawing. Show the data store, backend, and
+frontend containers. Annotate each with its implementation order. Add dependency arrows.
+Use this style:
 
-```mermaid
-C4Container
-    title Containers
-    ContainerDb(db, "SQLite Database", "SQLite", "Persistent storage — implement first")
-    Container(backend, "Backend", "Language/Framework", "API layer — implement second")
-    Container(frontend, "Frontend", "Framework", "UI layer — implement third")
-    Rel(backend, db, "reads/writes")
-    Rel(frontend, backend, "HTTP API calls")
+```
+  +----------------------------+
+  | SQLite Database            |
+  | [implement first]          |
+  | Persistent storage         |
+  +----------------------------+
+             ^
+             | reads/writes
+  +----------------------------+
+  | Backend                    |
+  | Language/Framework         |
+  | [implement second]         |
+  | API layer                  |
+  +----------------------------+
+             ^
+             | HTTP API calls
+  +----------------------------+
+  | Frontend                   |
+  | Framework                  |
+  | [implement third]          |
+  | UI layer                   |
+  +----------------------------+
 ```
 
 ## Implementation Order

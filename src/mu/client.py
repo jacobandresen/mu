@@ -1,8 +1,10 @@
 """HTTP client for the LM Studio / OpenVINO OpenAI-compatible API."""
 
+import itertools
 import json
 import os
 import re
+import threading
 import time
 from dataclasses import dataclass
 from typing import Optional
@@ -293,7 +295,7 @@ def save_backend(backend: str, host: str, model: str = '', pid: int = 0,
         cfg['model'] = model
     if pid:
         cfg['ov_pid'] = pid
-    elif 'ov_pid' in cfg and backend == 'lmstudio':
+    elif 'ov_pid' in cfg:
         del cfg['ov_pid']
     if device:
         cfg['ov_device'] = device
@@ -316,6 +318,19 @@ def load_backend() -> dict:
         }
     except Exception:
         return {'backend': 'lmstudio', 'host': '', 'model': '', 'ov_pid': 0, 'ov_device': 'CPU'}
+
+
+def max_prompt_tokens() -> int:
+    """Return the effective max prompt token budget for the current backend.
+
+    The OpenVINO stateful NPU pipeline asserts that the full conversation
+    (system + user messages combined) must not exceed 1024 tokens.  All other
+    backends use _NUM_CTX (default 6000).
+    """
+    cfg = load_backend()
+    if cfg.get('backend') == 'openvino' and cfg.get('ov_device') == 'NPU':
+        return 1024
+    return _NUM_CTX
 
 
 def _fuzzy_match_model(query: str, candidates: list[str]) -> str | None:
@@ -404,18 +419,32 @@ def load_model(model_id: str, _retry: bool = True) -> bool:
             # Unload all currently loaded models before loading the new one.
             _unload_others(client, handles, '')
 
+        bar_len = 30
+        progress_received = threading.Event()
+
         def _on_progress(prog):
             pct = getattr(prog, 'progress', None)
             if pct is not None:
-                bar_len = 30
+                progress_received.set()
                 filled = int(bar_len * pct)
                 bar = '█' * filled + '░' * (bar_len - filled)
-                print(f"\r  [{bar}] {pct:.0%}", end='', flush=True)
+                print(f"\r  [{bar}] {pct:.0%}  ", end='', flush=True)
+
+        def _spinner():
+            frames = itertools.cycle('⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏')
+            while not progress_received.wait(timeout=0.1):
+                print(f"\r  {next(frames)} waiting for LM Studio…", end='', flush=True)
+            # clear spinner line; progress bar will overwrite
+            print(f"\r  {' ' * (bar_len + 20)}", end='', flush=True)
 
         print(f"Loading {model_id} …")
+        spin = threading.Thread(target=_spinner, daemon=True)
+        spin.start()
         handle = _lms_client().llm.load_new_instance(
             model_id, ttl=None, on_load_progress=_on_progress
         )
+        progress_received.set()  # stop spinner if no progress events fired
+        spin.join(timeout=1)
         print()  # newline after progress bar
         info = handle.get_info()
         print(f"Loaded: {getattr(info, 'identifier', model_id)}")
@@ -484,10 +513,13 @@ def chat(model: str, messages: list[dict], tools: Optional[list[dict]],
         # prefix across requests (default-on upstream; sent explicitly here, and
         # ignored harmlessly by endpoints that don't recognize it).
         'cache_prompt': True,
-        # Override the LM Studio UI context setting so the right value is used
-        # regardless of what was set when the model was loaded.
-        'num_ctx': _NUM_CTX,
     }
+    # Override the LM Studio UI context setting so the right value is used
+    # regardless of what was set when the model was loaded.
+    # Skipped for non-lmstudio backends (e.g. OpenVINO) where the parameter is
+    # either ignored or misinterpreted, causing truncated generation.
+    if load_backend().get('backend', 'lmstudio') == 'lmstudio':
+        body['num_ctx'] = _NUM_CTX
     if tools:
         body['tools'] = tools
         body['tool_choice'] = 'auto'

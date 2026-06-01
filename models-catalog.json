@@ -46,6 +46,7 @@
       "id": "Qwen2.5-Coder-7B-Instruct-int4-ov",
       "backend": "openvino",
       "hfRepo": "OpenVINO/Qwen2.5-Coder-7B-Instruct-int4-ov",
+      "preferredDevice": "CPU",
       "contextWindow": 32768,
       "input": ["text"],
       "description": "Best CPU option. Qwen2.5-Coder-7B INT4 for OpenVINO. ~4 GB RAM. 88.4% HumanEval."
@@ -54,6 +55,7 @@
       "id": "Qwen2.5-Coder-3B-Instruct-int4-ov",
       "backend": "openvino",
       "hfRepo": "OpenVINO/Qwen2.5-Coder-3B-Instruct-int4-ov",
+      "preferredDevice": "CPU",
       "contextWindow": 32768,
       "input": ["text"],
       "description": "Lightweight CPU option. Qwen2.5-Coder-3B INT4 for OpenVINO. ~2 GB RAM."
@@ -62,9 +64,37 @@
       "id": "Qwen2.5-Coder-14B-Instruct-int4-ov",
       "backend": "openvino",
       "hfRepo": "OpenVINO/Qwen2.5-Coder-14B-Instruct-int4-ov",
+      "preferredDevice": "CPU",
       "contextWindow": 131072,
       "input": ["text"],
       "description": "High-capability CPU option. Qwen2.5-Coder-14B INT4 for OpenVINO. ~8 GB RAM. 128K context."
+    },
+    {
+      "id": "Mistral-7B-Instruct-v0.3-int4-cw-ov",
+      "backend": "openvino",
+      "hfRepo": "OpenVINO/Mistral-7B-Instruct-v0.3-int4-cw-ov",
+      "preferredDevice": "NPU",
+      "contextWindow": 32768,
+      "input": ["text"],
+      "description": "NPU-optimised Mistral-7B INT4 channel-wise. ~3.5 GB RAM. Requires Meteor Lake NPU driver."
+    },
+    {
+      "id": "Mistral-7B-Instruct-v0.3-int4-ov",
+      "backend": "openvino",
+      "hfRepo": "OpenVINO/Mistral-7B-Instruct-v0.3-int4-ov",
+      "preferredDevice": "CPU",
+      "contextWindow": 32768,
+      "input": ["text"],
+      "description": "Mistral-7B INT4 asymmetric. ~3.6 GB RAM. CPU/iGPU, general-purpose."
+    },
+    {
+      "id": "Mistral-7B-Instruct-v0.3-int8-ov",
+      "backend": "openvino",
+      "hfRepo": "OpenVINO/Mistral-7B-Instruct-v0.3-int8-ov",
+      "preferredDevice": "CPU",
+      "contextWindow": 32768,
+      "input": ["text"],
+      "description": "Mistral-7B INT8. ~7 GB RAM. Near-FP16 quality on CPU."
     }
   ]
 }
