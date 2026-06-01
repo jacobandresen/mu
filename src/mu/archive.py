@@ -123,6 +123,31 @@ class AgentSession:
             pass  # enrich optional dependency not installed
         except Exception as e:
             print(f"==> [mu-agent] Warning: enrichment indexing failed: {e}", flush=True)
+        try:
+            from mu.client import flush_token_log
+            token_entries = flush_token_log()
+            if token_entries:
+                tokens_path = Path(self.archive_path) / 'tokens.jsonl'
+                tokens_path.write_text(
+                    '\n'.join(json.dumps(e) for e in token_entries) + '\n',
+                    encoding='utf-8',
+                )
+                # Append per-phase summary to meta.json
+                phase_totals: dict[str, dict[str, int]] = {}
+                for e in token_entries:
+                    ph = e.get('phase') or 'unknown'
+                    bucket = phase_totals.setdefault(ph, {'prompt': 0, 'generated': 0})
+                    bucket['prompt'] += e.get('prompt_tokens', 0)
+                    bucket['generated'] += e.get('generated_tokens', 0)
+                total_prompt = sum(b['prompt'] for b in phase_totals.values())
+                total_generated = sum(b['generated'] for b in phase_totals.values())
+                meta['total_prompt_tokens'] = total_prompt
+                meta['total_generated_tokens'] = total_generated
+                meta['tokens_by_phase'] = phase_totals
+                Path(os.path.join(self.archive_path, 'meta.json')).write_text(
+                    json.dumps(meta, indent=2) + '\n')
+        except Exception as e:
+            print(f"==> [mu-agent] Warning: token log save failed: {e}", flush=True)
 
 
 def _copy_dir(src: str, dst: str) -> None:

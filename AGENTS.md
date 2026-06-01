@@ -2,7 +2,7 @@
 
 Operating guide for AI agents (and humans) working on the **mu** codebase.
 mu is a local AI coding toolkit: `mu agent "<goal>"` drives an autonomous
-plan → write → verify loop on top of a local LLM via LM Studio.
+plan → write → verify loop on top of a local LLM via LM Studio or OpenVINO.
 
 This file is the source of truth for how to work on mu. If it conflicts with other docs, this file wins.
 
@@ -94,3 +94,39 @@ python3 -m mu check
 ```
 
 Keep commits atomic. mu drives LM Studio via its OpenAI-compatible API (`client.py`).
+
+---
+
+## 7. Starting the inference backend
+
+### OpenVINO (CPU/NPU — no LM Studio required)
+
+```sh
+# Start the server (loads model, serves on http://localhost:8765)
+mu serve ~/.mu/models/Qwen2.5-Coder-14B-Instruct-int4-ov --port 8765 --device CPU &
+
+# Save the backend config so mu agent routes to it automatically
+python3 -c "
+from mu import client
+import subprocess, os
+pid = int(subprocess.check_output(['pgrep','-f','mu serve']).split()[0])
+client.save_backend('openvino','http://localhost:8765',
+    str(client.ov_models_dir()/'Qwen2.5-Coder-14B-Instruct-int4-ov'), pid, 'CPU')
+"
+```
+
+Or use the interactive picker (downloads model if needed, starts server, saves config in one step):
+
+```sh
+mu backend openvino
+```
+
+### LM Studio
+
+Load a model in LM Studio's UI (or via `mu model`), then run `mu agent` as normal.
+
+### Verify the backend is up
+
+```sh
+mu model warm   # prints "OpenVINO backend selected" or pings LM Studio
+```

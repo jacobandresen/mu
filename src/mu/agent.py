@@ -30,7 +30,7 @@ from mu import tools
 from mu.archive import AgentSession
 from mu.client import (LMS_HOST, chat, list_downloaded_llm_paths, list_models, load_backend,
                         load_catalog, load_model, max_prompt_tokens, normalize_model_bare,
-                        preferred_model, recommended_model)
+                        preferred_model, recommended_model, set_chat_context)
 from mu.plan import (Plan, check_goal_alignment, clear_challenges,
                      drop_minority_languages,
                      drop_runtime_artifacts,
@@ -112,7 +112,8 @@ def _repair_loop_rules(plan_file: str = 'PLAN.md') -> str:
         "5. Never modify files inside generated directories: .venv/, node_modules/, "
         "__pycache__/, target/, .cargo/, dist/, build/. "
         "These are managed by package managers, not by you.\n"
-        "6. Call the tool immediately — no prose, no explanation. Stop after one tool call."
+        "6. YOUR FIRST OUTPUT MUST BE a tool call (Edit or Write). "
+        "Zero prose before the tool call. No thinking, no explanation — tool call first, nothing else."
     )
 
 
@@ -326,6 +327,7 @@ def split(goal: str = '', model: str = '', target_dir: str = '',
             {'role': 'user', 'content': user}]
     print("  Splitting...", flush=True)
     t0 = time.time()
+    set_chat_context('split')
     try:
         msg, stats = chat(model, msgs, None, float(timeout))
     except Exception as e:
@@ -421,6 +423,7 @@ def flow(goal: str = '', model: str = '', target_dir: str = '',
             {'role': 'user', 'content': user}]
     print("  Flowing...", flush=True)
     t0 = time.time()
+    set_chat_context('flow')
     try:
         msg, stats = chat(model, msgs, None, float(timeout))
     except Exception as e:
@@ -515,6 +518,7 @@ def assess(goal: str = '', model: str = '', target_dir: str = '',
             {'role': 'user', 'content': user}]
     print("  Assessing...", flush=True)
     t0 = time.time()
+    set_chat_context('assess')
     try:
         msg, stats = chat(model, msgs, None, float(timeout))
     except Exception as e:
@@ -1217,6 +1221,7 @@ def _run_planner(goal: str, model: str, planner_timeout: int,
     ]
     print("  Planning...", flush=True)
     t0 = time.time()
+    set_chat_context('planner')
     try:
         msg, stats = chat(model, msgs, None, float(planner_timeout))
         elapsed = time.time() - t0
@@ -1259,6 +1264,7 @@ def _run_writer(model: str, target_file: str, prompt: str,
     # push the total past the hard limit and crash with HTTP 500.  Use a single
     # turn so the session never sends a second request.
     max_turns = 1 if max_prompt_tokens() < 2000 else 15
+    set_chat_context('writer', target_file)
     ok, err = sess.run(model, prompt, 'Writing', max_turns, target_file, float(writer_timeout))
     if err:
         log("Writer: %s", err)
@@ -1348,6 +1354,7 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
     system = lean_system + ('\n\n' + repair_skills if repair_skills else '')
     sess = Session(system + '\n\n' + _repair_loop_rules(plan_file))
     sess.tool_set = tools.REPAIR
+    set_chat_context('repair')
 
     def run_test() -> tuple[bool, str]:
         return _run_cmd(test_cmd, test_log), _tail_file(test_log, 60)
@@ -1567,6 +1574,7 @@ def _run_repair_lint(model: str, lint_cmd: str, file_path: str, lint_log: str, l
                f"do not create files.{hint}{file_content}{repair_history(plan_file)}\n\n")
     sess = Session(autonomous_system + '\n\n' + _repair_loop_rules(plan_file))
     sess.tool_set = tools.REPAIR
+    set_chat_context('lint-repair', file_path)
 
     def run_test() -> tuple[bool, str]:
         return _run_cmd(lint_cmd, lint_log), _head_file(lint_log, 60)
@@ -1753,6 +1761,7 @@ def _run_stage_planner(stage: str, goal: str, model: str, arch_text: str,
     log("Stage planner: %s (timeout=%ds)", stage, timeout)
     print(f"  Planning {stage} stage...", flush=True)
     t0 = time.time()
+    set_chat_context('stage-planner', stage)
     try:
         msg, stats = chat(model, msgs, None, float(timeout))
         elapsed = time.time() - t0
@@ -1808,6 +1817,7 @@ def _run_architect_pass(goal: str, model: str, timeout: int) -> list[str]:
     log("Architect pass (timeout=%ds)", timeout)
     print("  Architecting...", flush=True)
     t0 = time.time()
+    set_chat_context('architect')
     try:
         msg, stats = chat(model, msgs, None, float(timeout))
         elapsed = time.time() - t0
@@ -1975,7 +1985,8 @@ OFF-LIMITS:
 - Never write files other than the one explicitly requested.
 - No arbitrary network calls (curl, wget, fetch, http, etc.).
 - Only install packages explicitly listed in {plan_file}.
-- Never read from stdin unless the goal explicitly says "interactive"."""
+- Programs you write must NOT read from stdin (Console.ReadLine, input(), sys.stdin, scanf, etc.)
+  unless the goal explicitly says "interactive". Use hard-coded sample values or CLI arguments instead."""
 
 
 def _node_relevant(goal: str, p: Plan) -> bool:
@@ -2334,6 +2345,7 @@ def _lint_critique_pass(plan_path: str, goal: str, model: str,
                 f"{render_warnings(warnings)}")
     msgs = [{'role': 'system', 'content': system},
             {'role': 'user', 'content': user_msg}]
+    set_chat_context('lint-critique')
     try:
         msg, _ = chat(model, msgs, None, float(planner_timeout))
     except Exception as e:

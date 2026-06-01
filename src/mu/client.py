@@ -60,6 +60,35 @@ class ChatStats:
     generated_tokens: int = 0
 
 
+# ---------------------------------------------------------------------------
+# Per-session token log
+# ---------------------------------------------------------------------------
+# Records one entry per chat() call. Cleared by flush_token_log() which is
+# called from AgentSession.finalize so each session gets its own snapshot.
+
+_token_log: list[dict] = []
+_chat_phase: str = ''
+_chat_task: str = ''
+
+
+def set_chat_context(phase: str, task_file: str = '') -> None:
+    """Tag subsequent chat() calls with a phase label and optional task file.
+
+    Call this before each logical phase boundary (planner, writer, repair …)
+    so the token log can break down usage by phase.
+    """
+    global _chat_phase, _chat_task
+    _chat_phase = phase
+    _chat_task = task_file
+
+
+def flush_token_log() -> list[dict]:
+    """Return and clear the accumulated token log for this session."""
+    global _token_log
+    out, _token_log = _token_log, []
+    return out
+
+
 def is_running() -> bool:
     try:
         import httpx
@@ -530,6 +559,13 @@ def chat(model: str, messages: list[dict], tools: Optional[list[dict]],
     msg = data['choices'][0]['message']
     usage = data.get('usage', {})
     stats = ChatStats(usage.get('prompt_tokens', 0), usage.get('completion_tokens', 0))
+    _token_log.append({
+        'phase': _chat_phase,
+        'task_file': _chat_task,
+        'prompt_tokens': stats.prompt_tokens,
+        'generated_tokens': stats.generated_tokens,
+        'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+    })
     tool_calls = []
     for tc in msg.get('tool_calls') or []:
         fn = tc.get('function', {})

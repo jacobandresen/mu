@@ -60,3 +60,37 @@ Open challenges tracked in [CHALLENGES.md](CHALLENGES.md).
 ## Model / tuning
 
 See [docs/MODELS.md](docs/MODELS.md) and [docs/TUNING.md](docs/TUNING.md).
+
+## Token Tracking
+
+Every dojo run records token usage to the session archive. The data is rooted in `~/.mu/sessions/<session-id>/`.
+
+**`tokens.jsonl`** — one JSON record per LLM call:
+
+```json
+{"phase": "planner", "task_file": "", "prompt_tokens": 2134, "generated_tokens": 318, "ts": "2026-06-01T18:30:00Z"}
+{"phase": "writer",  "task_file": "app.py", "prompt_tokens": 3812, "generated_tokens": 441, "ts": "..."}
+{"phase": "repair",  "task_file": "", "prompt_tokens": 4201, "generated_tokens": 187, "ts": "..."}
+```
+
+Recorded phases: `planner`, `writer`, `repair`, `lint-repair`, `architect`, `stage-planner`, `split`, `flow`, `assess`, `lint-critique`.
+
+**`meta.json`** — end-of-session summary fields added alongside the existing utility record:
+
+```json
+"total_prompt_tokens":    10147,
+"total_generated_tokens": 946,
+"tokens_by_phase": {
+  "planner":  {"prompt": 2134, "generated": 318},
+  "writer":   {"prompt": 5801, "generated": 441},
+  "repair":   {"prompt": 2212, "generated": 187}
+}
+```
+
+**Interpreting the data**
+
+- High `repair` prompt share relative to `writer` means the model is generating code that fails tests; invest in prompt rules or reflexes for that language.
+- High `writer` prompt share with many turns means the model is not calling the Write tool on the first try; the writer nudge loop is expensive.
+- Compare `tokens_by_phase.repair.prompt` across problems to find which goals trigger the most repair work.
+
+See [docs/token-usage-report.md](docs/token-usage-report.md) for a full analysis of where tokens go and how to reduce them.
