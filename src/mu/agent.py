@@ -1133,7 +1133,7 @@ def _run_planner(goal: str, model: str, planner_timeout: int,
     has_dotnet = any(k in goal_lower for k in ('asp.net', 'dotnet', 'c#', 'csharp', 'xunit', 'ef core'))
     has_vue = any(k in goal_lower for k in ('vue', 'vite', 'vitest'))
     if has_dotnet:
-        for sname in ('dotnet-minimal-api', 'dotnet-xunit'):
+        for sname in ('dotnet-mvc', 'dotnet-xunit'):
             ds = _load_skill(sname)
             if ds:
                 extra_skills.append(ds)
@@ -1294,7 +1294,7 @@ def _contextual_skills(goal: str, p: Plan) -> list[tuple[str, str]]:
         ('go-writer',          any(t.file_path.endswith('.go') for t in p.tasks)),
         ('sdl2-writer',        bool(re.search(r'(?i)\bSDL2?\b', goal))),
         ('vue-ts-env',         _vue_relevant(goal, p)),
-        ('dotnet-minimal-api', is_dotnet),
+        ('dotnet-mvc',         is_dotnet),
         ('dotnet-xunit',       is_dotnet),
         ('test-isolation',     _test_isolation_relevant(goal, p) and not is_python and not is_dotnet),
         ('no-server-in-tests', _no_server_relevant(goal, p) and not is_python and not is_dotnet),
@@ -1339,7 +1339,7 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
     """Run the repair loop against the test gate; return (passed, repair_iters)."""
     # Use a LEAN repair system: only the base protocol + language repair skills.
     # The full autonomous_system (with all contextual skills like vue-ts-env,
-    # node-env, dotnet-minimal-api) is too large to combine with the project
+    # node-env, dotnet-mvc) is too large to combine with the project
     # files and test output without overflowing the model's context window.
     # The repair loop reads current files directly — it doesn't need write-time
     # guidance on how to structure a new Vue project.

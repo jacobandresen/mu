@@ -89,9 +89,32 @@ Use this style:
 Describe each stage in terms of file ROLES, not filenames. Be specific about what
 each stage's files do and what its test command verifies.
 
-model: [describe the schema/entity files and the backend test file that validates them]
-backend: [describe the route/handler files and the test file that covers model+routes]
-frontend: [describe the UI component/page files and their test file]
+**For .NET projects** (skill: `dotnet-mvc`), enforce this exact folder layout:
+
+```
+backend/
+  Models/          ← entities + AppDb (model phase only)
+  Controllers/     ← API controllers  (backend phase only)
+  Program.cs       ← DI wiring, EnsureCreated, MapControllers
+  backend.csproj
+tests/
+  ApiTests.cs
+  tests.csproj
+```
+
+- `Models/` files are created **only** in the model phase. The backend phase must not
+  add new model files — it only adds controllers that use the already-created models.
+- `Controllers/` files are created **only** in the backend phase.
+- The frontend phase writes no C# at all. It communicates with the backend **exclusively
+  via HTTP calls to controller endpoints** — it must not reference `Models/` types,
+  `AppDb`, or any server-side assembly directly.
+
+model: [list the Models/ entity files and AppDb; describe the xUnit test that validates
+        schema creation and basic CRUD using an in-memory SQLite database]
+backend: [list the Controllers/ files; describe the routes and request/response shapes;
+          describe the xUnit test that covers the full HTTP API via WebApplicationFactory]
+frontend: [describe the UI component/page files; all data fetching uses HTTP calls to
+           the controller routes — no C# references, no direct model types]
 
 If the goal has no frontend (CLI tool, backend-only), omit the frontend stage.
 If the goal has no distinct data model layer, omit the model stage.
