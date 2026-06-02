@@ -73,6 +73,8 @@ from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
                          fix_python_missing_stdlib_imports,
                          fix_python_undefined_imports,
                          fix_requirements_path_entries,
+                         fix_requirements_stdlib_entries,
+                         fix_makefile_pip_install_empty,
                          fix_csharp_keyword_prefix_artifacts,
                          fix_csharp_verbatim_string_escape,
                          fix_csharp_using_order,
@@ -955,6 +957,8 @@ def run(goal: str, model: str = '', target_dir: str = '',
             if task.file_path.endswith('requirements.txt'):
                 if fix_requirements_path_entries(task.file_path):
                     log("Fixed %s: removed path entries from requirements.", task.file_path)
+                if fix_requirements_stdlib_entries(task.file_path):
+                    log("Fixed %s: removed stdlib entries from requirements.", task.file_path)
 
             if (is_build_file(task.file_path) and
                     Path(task.file_path).name.lower() == 'makefile'):
@@ -1446,13 +1450,20 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
         # so the test command's '.venv/bin/pytest' invocation can succeed.
         req = Path('requirements.txt')
         if req.exists():
+            # Strip stdlib module names before installing — they are not on PyPI and
+            # would cause the entire pip invocation to fail (blocking pytest install).
+            fix_requirements_stdlib_entries(str(req))
             venv_pip = Path('.venv/bin/pip')
             if not venv_pip.exists():
                 subprocess.run(['python3', '-m', 'venv', '.venv'],
                                capture_output=True, timeout=60)
             if venv_pip.exists():
-                subprocess.run([str(venv_pip), 'install', '-r', str(req), 'pytest', '-q'],
+                # Install requirements first, then pytest separately so a bad entry
+                # in requirements.txt cannot block the test runner from installing.
+                subprocess.run([str(venv_pip), 'install', '-r', str(req), '-q'],
                                capture_output=True, timeout=120)
+                subprocess.run([str(venv_pip), 'install', 'pytest', '-q'],
+                               capture_output=True, timeout=60)
         # Re-apply package.json bare-jest fix — repair model may rewrite scripts.test
         if fix_package_json_bare_jest(os.getcwd()):
             log("Re-applied: replaced bare jest with npx jest in package.json.")

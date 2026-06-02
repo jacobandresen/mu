@@ -189,29 +189,6 @@ _PY_STDLIB_IMPORTS = {
 }
 
 
-def fix_c_sdl_header(file_path: str) -> bool:
-    """Fix wrong SDL2 include path in C files.
-
-    `#include <SDL.h>` does not exist on macOS/Linux SDL2 installs — the
-    correct header is `#include <SDL2/SDL.h>`. Also fixes SDL_image, SDL_ttf etc.
-    General: applies to any C/C++ file using SDL2.
-    """
-    if not file_path.lower().endswith(('.c', '.cpp', '.cc', '.h')):
-        return False
-    try:
-        text = Path(file_path).read_text()
-    except OSError:
-        return False
-    # Fix <SDL.h> → <SDL2/SDL.h>, <SDL_image.h> → <SDL2/SDL_image.h>, etc.
-    pattern = re.compile(r'#include\s*<(SDL[^2/][^>]*)>')
-    new_text, count = pattern.subn(r'#include <SDL2/\1>', text)
-    if not count:
-        return False
-    Path(file_path).write_text(new_text)
-    print(f"==> [mu-agent] Reflex: fixed SDL include path(s) in {file_path}")
-    return True
-
-
 def _sibling_py_sources(file_path: str) -> dict[str, str]:
     """Return {stem: source} for non-test .py siblings of file_path."""
     fp = Path(file_path)
@@ -538,115 +515,6 @@ def fix_rust_duplicate_use(file_path: str) -> bool:
     return True
 
 
-def fix_csharp_undefined_types(file_path: str, test_output: str) -> bool:
-    """Replace undefined C# type names with ones defined in sibling .cs files.
-
-    CS0246 'type not found' means the file references a class/struct that doesn't
-    exist in the project. This often happens when the model uses placeholder names
-    from example code (e.g. `Item` instead of `Post`). The reflex looks for types
-    named in CS0246 errors, finds the actual type names in sibling .cs files, and
-    renames them. General: applies to any C# project with a type naming mismatch.
-    """
-    if not file_path.endswith('.cs'):
-        return False
-    if 'CS0246' not in test_output and 'type or namespace name' not in test_output:
-        return False
-    undefined = re.findall(r"error CS0246: The type or namespace name '(\w+)'", test_output)
-    if not undefined:
-        return False
-    path = Path(file_path)
-    try:
-        text = path.read_text()
-    except OSError:
-        return False
-    # Collect class/struct/record names from sibling .cs files
-    sibling_types: set[str] = set()
-    for sib in path.parent.glob('*.cs'):
-        if sib == path:
-            continue
-        try:
-            src = sib.read_text()
-        except OSError:
-            continue
-        for m in re.finditer(r'\b(?:class|struct|record)\s+(\w+)', src):
-            sibling_types.add(m.group(1))
-    if not sibling_types:
-        return False
-    changed = False
-    for undef in undefined:
-        if undef in sibling_types:
-            continue  # type IS defined — not our problem
-        # Find a sibling type whose name is similar (heuristic: contains or starts with similar chars)
-        candidates = [t for t in sibling_types if (
-            undef.lower() in t.lower() or t.lower() in undef.lower() or
-            undef[:3].lower() == t[:3].lower()
-        )]
-        if not candidates:
-            continue
-        # Pick the shortest candidate (most likely to be the base model type)
-        replacement = min(candidates, key=len)
-        new_text = re.sub(rf'\b{re.escape(undef)}\b', replacement, text)
-        if new_text != text:
-            text = new_text
-            changed = True
-            print(f"==> [mu-agent] Reflex: renamed undefined type '{undef}' → '{replacement}' in {file_path}")
-    if not changed:
-        return False
-    path.write_text(text)
-    return True
-
-
-def fix_csharp_app_used_before_declared(file_path: str, test_output: str = '') -> bool:
-    """Fix C# Program.cs where `app` is used before `var app = builder.Build()`.
-
-    CS0841 'Cannot use local variable before it is declared' on `app` means the
-    model called `app.MapGet(...)` or `app.Run()` before `builder.Build()`. The
-    fix: move `var app = builder.Build();` to immediately before the first `app.`
-    usage. General: applies to any ASP.NET Core minimal API file with this ordering
-    bug, not specific to any dojo task.
-    """
-    if not file_path.endswith('.cs'):
-        return False
-    if test_output and 'CS0841' not in test_output and 'before it is declared' not in test_output:
-        return False
-    try:
-        text = Path(file_path).read_text()
-    except OSError:
-        return False
-
-    build_pattern = re.compile(r'^(var\s+app\s*=\s*builder\.Build\(\)\s*;)\s*$', re.MULTILINE)
-    app_use_pattern = re.compile(r'^\s*app\.', re.MULTILINE)
-
-    build_match = build_pattern.search(text)
-    if not build_match:
-        return False
-
-    # Find position of first `app.` usage
-    first_use = app_use_pattern.search(text)
-    if not first_use:
-        return False
-
-    build_pos = build_match.start()
-    if build_pos < first_use.start():
-        return False  # already in correct order
-
-    # Remove the build line from its current position
-    build_line = build_match.group(0)
-    new_text = text[:build_match.start()] + text[build_match.end():]
-    # Re-find the first app. usage in the modified text
-    first_use2 = app_use_pattern.search(new_text)
-    if not first_use2:
-        return False
-    # Insert build line before the first app. usage
-    insert_at = first_use2.start()
-    # Find the start of that line
-    line_start = new_text.rfind('\n', 0, insert_at) + 1
-    new_text = new_text[:line_start] + build_line + '\n' + new_text[line_start:]
-    Path(file_path).write_text(new_text)
-    print(f"==> [mu-agent] Reflex: moved 'var app = builder.Build()' before first app. usage in {file_path}")
-    return True
-
-
 def fix_vue_missing_package(project_dir: str) -> bool:
     """Add `vue` to package.json devDependencies when it is missing.
 
@@ -795,7 +663,7 @@ def fix_csharp_duplicate_classes(file_path: str) -> bool:
     changed = False
     for name in sibling_names:
         pattern = re.compile(
-            rf'(?m)^[ \t]*(?:public|internal|private|protected|static|sealed|abstract|partial\s+)*'
+            rf'(?m)^[ \t]*(?:(?:public|internal|private|protected|static|sealed|abstract|partial)\s+)*'
             rf'(?:class|struct|record)\s+{re.escape(name)}\b[^{{]*\{{',
         )
         m = pattern.search(text)
@@ -860,6 +728,43 @@ _PIP_NAME: dict[str, str] = {
     'uvicorn': 'uvicorn',
     'sqlalchemy': 'sqlalchemy',
 }
+
+
+def fix_requirements_stdlib_entries(req_path: str) -> bool:
+    """Remove Python stdlib module names from requirements.txt.
+
+    Models sometimes list stdlib modules (e.g. sqlite3, os, sys, json) in
+    requirements.txt. These are not pip-installable and cause the entire
+    ``pip install -r requirements.txt`` invocation to fail with "Could not
+    find a version that satisfies <module>". When pytest is in the same
+    invocation, pytest also fails to install, leaving .venv/bin/pytest absent.
+    Generic: stdlib modules are never on PyPI, for any project.
+    """
+    if not str(req_path).endswith('requirements.txt'):
+        return False
+    try:
+        text = Path(req_path).read_text()
+    except OSError:
+        return False
+    lines = text.splitlines()
+    cleaned = []
+    removed = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith('#'):
+            cleaned.append(line)
+            continue
+        # Strip version specifiers to get bare package name
+        pkg_name = re.split(r'[>=<!;\[]', stripped)[0].strip().lower().replace('-', '_')
+        if pkg_name in _STDLIB_MODULES:
+            removed.append(stripped)
+        else:
+            cleaned.append(line)
+    if not removed:
+        return False
+    Path(req_path).write_text('\n'.join(cleaned) + '\n')
+    print(f"==> [mu-agent] Reflex: removed stdlib entries from requirements.txt: {removed}")
+    return True
 
 
 def fix_missing_pip_packages(test_output: str, project_dir: str) -> bool:
@@ -1859,19 +1764,34 @@ def fix_missing_flask_client_fixture(file_path: str, test_output: str) -> bool:
     # Only fix if this file has test functions that use `client`
     if not re.search(r'def test_\w+\(client', text):
         return False
+    # Only fire for Flask projects: find a sibling .py file that imports Flask
+    parent = Path(file_path).parent
+    flask_module = None
+    for candidate in ['app.py', 'main.py', 'server.py', 'api.py']:
+        cand = parent / candidate
+        if cand.exists():
+            try:
+                if 'Flask' in cand.read_text():
+                    flask_module = cand.stem  # 'app', 'main', etc.
+                    break
+            except OSError:
+                pass
+    if flask_module is None:
+        return False
     # Don't add if fixture already exists
     if re.search(r'@pytest\.fixture\s*\ndef client', text):
         return False
     # Determine what app-level reset is needed (reset app._conn if app uses _conn pattern)
-    app_py = Path(file_path).parent / 'app.py'
-    has_conn_pattern = app_py.exists() and '_conn' in app_py.read_text()
+    flask_path = parent / (flask_module + '.py')
+    has_conn_pattern = flask_path.exists() and '_conn' in flask_path.read_text()
     conn_reset = '    app._conn = None  # force fresh db per test\n' if has_conn_pattern else ''
     conn_teardown = '    app._conn = None  # cleanup\n' if has_conn_pattern else ''
     # Build the preamble (import app if not already there)
-    needs_import = 'from app import app' not in text and 'import app' not in text
+    needs_import = (f'from {flask_module} import app' not in text
+                    and f'import {flask_module}' not in text)
     preamble = 'import pytest\n'
     if needs_import:
-        preamble += 'from app import app\n'
+        preamble += f'from {flask_module} import app\n'
     preamble += '\n\n'
     fixture_block = (
         preamble +
@@ -2441,22 +2361,26 @@ def fix_jest_no_tests_found(test_output: str, project_dir: str) -> bool:
     except Exception:
         return False
     all_deps = {**data.get('dependencies', {}), **data.get('devDependencies', {})}
-    if 'jest' not in all_deps:
+    jest_in_scripts = any('jest' in str(v) for v in data.get('scripts', {}).values())
+    if 'jest' not in all_deps and not jest_in_scripts:
         return False
     # Already has testRegex or testMatch configured — don't override.
     jest_cfg = data.get('jest', {})
     if jest_cfg.get('testRegex') or jest_cfg.get('testMatch'):
         return False
     # Find actual test files in the project dir to figure out their naming.
+    # Match both suffix-style (todo.test.js) and prefix-style (test_todo.js).
     existing = [
         p.name for p in Path(project_dir).iterdir()
-        if p.is_file() and re.search(r'[._](test|spec)\.[jt]sx?$', p.name)
+        if p.is_file() and (
+            re.search(r'[._](test|spec)\.[jt]sx?$', p.name)
+            or (re.match(r'^test_', p.name) and p.suffix.lower() in ('.js', '.jsx', '.mjs', '.ts', '.tsx'))
+        )
     ]
     if not existing:
         return False
-    # Match both dot-separated (.test.js, .spec.js) and underscore-separated
-    # (_test.js, _spec.js) conventions. `[._]` covers both separators.
-    data.setdefault('jest', {})['testRegex'] = r'.*[._](test|spec)\.[jt]sx?$'
+    # Match suffix-style (.test.js, _test.js) and prefix-style (test_*.js).
+    data.setdefault('jest', {})['testRegex'] = r'(test_.*|.*[._](test|spec))\.[jt]sx?$'
     pkg_path.write_text(_json.dumps(data, indent=2) + '\n')
     print(f"==> [mu-agent] Reflex: added Jest testRegex to {pkg_path} (No tests found)")
     return True
@@ -2517,10 +2441,11 @@ def fix_package_json_bare_jest(project_dir: str) -> bool:
     except Exception:
         return False
     all_deps = {**data.get('dependencies', {}), **data.get('devDependencies', {})}
-    if 'jest' not in all_deps:
+    scripts = data.get('scripts', {})
+    jest_in_scripts = any('jest' in str(v) for v in scripts.values())
+    if 'jest' not in all_deps and not jest_in_scripts:
         return False
     changed = False
-    scripts = data.get('scripts', {})
     test_script = scripts.get('test', '')
     # Replace bare `jest` (with or without flags, but not already prefixed with npx)
     if test_script and 'npx' not in test_script and re.match(r'^jest\b', test_script):
@@ -2530,9 +2455,9 @@ def fix_package_json_bare_jest(project_dir: str) -> bool:
         data.setdefault('scripts', {})['test'] = new_script
         print(f"==> [mu-agent] Reflex: replaced bare jest with npx jest in {pkg_path}")
         changed = True
-    # Also proactively add testRegex to handle _test.js naming (Python-style)
+    # Also proactively add testRegex to handle _test.js and test_*.js naming conventions
     jest_cfg = data.get('jest', {})
-    correct_regex = r'.*[._](test|spec)\.[jt]sx?$'
+    correct_regex = r'(test_.*|.*[._](test|spec))\.[jt]sx?$'
     if not jest_cfg.get('testRegex') or jest_cfg.get('testRegex') == '':
         data.setdefault('jest', {})['testRegex'] = correct_regex
         print(f"==> [mu-agent] Reflex: added testRegex to jest config in {pkg_path}")
@@ -2644,6 +2569,36 @@ def fix_makefile_pip_no_venv(f: str) -> bool:
 
     Path(f).write_text(new_data)
     print(f"==> [mu-agent] Reflex: rewrote Makefile to use .venv in {f}")
+    return True
+
+
+def fix_makefile_pip_install_empty(f: str) -> bool:
+    """Replace bare `pip install` (no packages, no -r) in Makefile recipes.
+
+    Models sometimes write `.venv/bin/pip install ` or `pip install ` with no
+    arguments or just whitespace. This raises "You must give at least one
+    requirement to install". If a requirements.txt exists, replace with
+    `pip install -r requirements.txt`; otherwise add `pytest` as a fallback.
+    General: any pip install with no arguments will fail.
+    """
+    try:
+        data = Path(f).read_text()
+    except OSError:
+        return False
+    # Match tab-indented pip install lines that have nothing meaningful after 'install'
+    pattern = re.compile(r'(?m)^(\t[^\n]*pip\s+install)\s*$')
+    if not pattern.search(data):
+        return False
+    req_file = 'requirements.txt' if Path(f).parent.joinpath('requirements.txt').exists() else ''
+    if req_file:
+        replacement = rf'\1 -r {req_file}'
+    else:
+        replacement = r'\1 pytest'
+    new_data = pattern.sub(replacement, data)
+    if new_data == data:
+        return False
+    Path(f).write_text(new_data)
+    print(f"==> [mu-agent] Reflex: added package args to bare pip install in {f}")
     return True
 
 
@@ -3098,6 +3053,7 @@ def apply_makefile_reflexes(f: str) -> None:
                fix_makefile_missing_compile_rule,
                fix_makefile_recipe_is_prerequisite_list,
                fix_duplicate_var, fix_python_venv_cmd, fix_makefile_pip_no_venv,
+               fix_makefile_pip_install_empty,
                fix_makefile_bare_pytest, fix_makefile_npm_test_jest,
                fix_makefile_bare_vitest,
                fix_missing_venv_rule,
