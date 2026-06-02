@@ -50,6 +50,7 @@ from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
                          fix_csharp_missing_using,
                          fix_jest_config_js,
                          fix_jest_no_tests_found,
+                         fix_json_unclosed_brackets,
                          fix_package_json_bare_jest,
                          fix_flask_test_route_decorators,
                          fix_flask_init_db_import,
@@ -890,6 +891,8 @@ def run(goal: str, model: str = '', target_dir: str = '',
 
             if fix_tool_call_artifacts(task.file_path):
                 log("Fixed %s: stripped tool-call artifact lines.", task.file_path)
+            if fix_json_unclosed_brackets(task.file_path):
+                log("Fixed %s: closed unclosed JSON brackets.", task.file_path)
             if fix_literal_newlines(task.file_path):
                 log("Fixed %s: replaced literal \\n with real newlines.", task.file_path)
 
@@ -987,6 +990,7 @@ def run(goal: str, model: str = '', target_dir: str = '',
                         log("Lint auto-fixed (autoflake): %s", task.file_path)
                     else:
                         lint_head = _head_file(lint_log, 60)
+                        lint_tail = _tail_file(lint_log, 60)
                         det_fixed = (
                             (fix_multiline_single_quote(task.file_path, lint_head) or
                              fix_missing_close_paren(task.file_path, lint_head) or
@@ -994,8 +998,8 @@ def run(goal: str, model: str = '', target_dir: str = '',
                              fix_python_undefined_imports(task.file_path, lint_head) or
                              fix_rust_duplicate_use(task.file_path) or
                              fix_rust_println_missing_arg(task.file_path) or
-                             fix_rust_missing_trait_import(task.file_path, lint_head) or
-                             fix_rust_unbalanced_braces(task.file_path, lint_head)) and
+                             fix_rust_missing_trait_import(task.file_path, lint_tail) or
+                             fix_rust_unbalanced_braces(task.file_path, lint_tail)) and
                             _run_cmd(lint_cmd, lint_log)
                         )
                         if det_fixed:

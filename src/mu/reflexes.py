@@ -601,7 +601,7 @@ def fix_rust_missing_trait_import(file_path: str, build_output: str) -> bool:
     """
     if not file_path.endswith('.rs'):
         return False
-    if 'E0599' not in build_output and 'not in scope' not in build_output:
+    if not any(c in build_output for c in ('E0599', 'E0425', 'not in scope', 'not found in this scope')):
         return False
     # Parse suggested `use X::Y;` lines: both inline backtick format and diff-style "N + use ..."
     suggestions = re.findall(r'`(use [^`]+;)`', build_output)
@@ -1655,6 +1655,64 @@ def fix_tool_call_artifacts(file_path: str) -> bool:
         return False
     Path(file_path).write_text(''.join(cleaned))
     print(f"==> [mu-agent] Reflex: stripped tool-call artifact line(s) from {file_path}")
+    return True
+
+
+def fix_json_unclosed_brackets(file_path: str) -> bool:
+    """Close unclosed JSON arrays or objects by appending missing brackets.
+
+    Models sometimes truncate JSON files (tsconfig.json, package.json, etc.)
+    mid-array or mid-object, causing 'Expected "," in JSON but found end of file'
+    or 'Unterminated string' errors. This reflex counts open brackets and appends
+    the missing closing ones in reverse order.
+    General: applies to any .json file with unbalanced brackets.
+    """
+    if not file_path.lower().endswith('.json'):
+        return False
+    try:
+        text = Path(file_path).read_text()
+        json.loads(text)
+        return False  # already valid
+    except (json.JSONDecodeError, OSError):
+        pass
+    # Count brackets outside strings
+    depth_sq = 0  # [ ]
+    depth_cu = 0  # { }
+    stack = []
+    i = 0
+    while i < len(text):
+        c = text[i]
+        if c == '"':
+            i += 1
+            while i < len(text):
+                if text[i] == '\\':
+                    i += 2
+                    continue
+                if text[i] == '"':
+                    break
+                i += 1
+        elif c == '[':
+            stack.append(']')
+        elif c == '{':
+            stack.append('}')
+        elif c == ']':
+            if stack and stack[-1] == ']':
+                stack.pop()
+        elif c == '}':
+            if stack and stack[-1] == '}':
+                stack.pop()
+        i += 1
+    if not stack:
+        return False  # brackets balanced — issue is something else
+    # Append missing closing brackets in reverse order
+    suffix = '\n' + ''.join(reversed(stack))
+    new_text = text.rstrip() + suffix + '\n'
+    try:
+        json.loads(new_text)
+    except json.JSONDecodeError:
+        return False  # couldn't fix it
+    Path(file_path).write_text(new_text)
+    print(f"==> [mu-agent] Reflex: closed {len(stack)} unclosed bracket(s) in {file_path}")
     return True
 
 
