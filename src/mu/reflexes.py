@@ -1527,7 +1527,7 @@ def fix_python_missing_def(file_path: str) -> bool:
     return True
 
 
-_CODE_EXTS = {'.py', '.cs', '.rs', '.go', '.c', '.cpp', '.h', '.java', '.js', '.ts'}
+_CODE_EXTS = {'.py', '.cs', '.rs', '.go', '.c', '.cpp', '.h', '.java', '.js', '.ts', '.jsx', '.tsx'}
 
 
 def fix_tool_call_artifacts(file_path: str) -> bool:
@@ -1538,10 +1538,11 @@ def fix_tool_call_artifacts(file_path: str) -> bool:
     producing immediate syntax errors. Generic: any such line in any source file
     is wrong.
     """
-    if Path(file_path).suffix.lower() not in _CODE_EXTS:
+    p = Path(file_path)
+    if p.suffix.lower() not in _CODE_EXTS and p.name.lower() not in ('makefile', 'requirements.txt'):
         return False
     try:
-        text = Path(file_path).read_text()
+        text = p.read_text()
     except OSError:
         return False
     lines = text.splitlines(keepends=True)
@@ -1651,6 +1652,261 @@ def fix_literal_newlines(file_path: str, lint_error: str = '') -> bool:
         return False
     Path(file_path).write_text(''.join(result))
     print(f"==> [mu-agent] Reflex: fixed literal \\n (line continuation) in {file_path}")
+    return True
+
+
+# ── Flask / pytest reflexes ───────────────────────────────────────────────────
+
+def fix_sqlite_missing_row_factory(file_path: str) -> bool:
+    """Add conn.row_factory = sqlite3.Row after sqlite3.connect() calls.
+
+    When a Flask app uses `dict(cursor.fetchone())` or `[dict(r) for r in ...]`
+    on sqlite3 results but `conn.row_factory = sqlite3.Row` is not set, the
+    result is a tuple and `dict(tuple)` raises TypeError. This reflex adds the
+    row_factory assignment immediately after each sqlite3.connect() call.
+    Generic: fires on any Python file that uses sqlite3.connect without row_factory.
+    """
+    if not file_path.lower().endswith('.py'):
+        return False
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+    # Only fire if dict() is used on cursor results and row_factory is missing
+    if 'row_factory' in text:
+        return False  # already set
+    if 'sqlite3.connect' not in text:
+        return False
+    if not re.search(r'\bdict\([^)]*\b(?:fetch|conn|cursor|row|todo|result)', text, re.IGNORECASE):
+        # Also check for list comprehension with dict: [dict(r) for r in ...]
+        if 'dict(r)' not in text and 'dict(t)' not in text and 'dict(row)' not in text:
+            return False
+    # Insert `conn.row_factory = sqlite3.Row` after each `sqlite3.connect(...)` assignment
+    # Match patterns like: `    self.conn = sqlite3.connect(...)` or `conn = sqlite3.connect(...)`
+    def _add_row_factory(m: re.Match) -> str:
+        full = m.group(0)
+        # Extract indentation and variable name
+        indent_m = re.match(r'^([ \t]*)((?:self\.\w+|\w+))\s*=\s*sqlite3\.connect', full)
+        if not indent_m:
+            return full
+        indent, varname = indent_m.group(1), indent_m.group(2)
+        return full + f'{indent}{varname}.row_factory = sqlite3.Row\n'
+
+    new_text = re.sub(
+        r'[ \t]*(?:self\.\w+|\w+)\s*=\s*sqlite3\.connect\([^\n]*\)\n',
+        _add_row_factory,
+        text
+    )
+    if new_text == text:
+        return False
+    Path(file_path).write_text(new_text)
+    print(f"==> [mu-agent] Reflex: added row_factory = sqlite3.Row after sqlite3.connect in {file_path}")
+    return True
+
+
+def fix_flask_post_missing_201(file_path: str) -> bool:
+    """Add HTTP 201 status code to Flask POST route returns missing it.
+
+    REST convention: POST endpoints that create a resource should return 201.
+    When a model writes `return jsonify(...)` in a POST handler without a
+    status code, Flask defaults to 200, but tests that check `r.status_code == 201`
+    fail. This reflex adds `, 201` to bare `return jsonify(...)` calls inside
+    POST route handlers.
+    Generic: applies to any Flask app with POST routes.
+    """
+    if not file_path.lower().endswith('.py'):
+        return False
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+    if "@app.route" not in text or "methods=['POST']" not in text and 'methods=["POST"]' not in text:
+        return False
+    lines = text.splitlines()
+    in_post_handler = False
+    changed = False
+    out = []
+    for i, line in enumerate(lines):
+        # Detect @app.route with POST
+        if re.search(r"@\w+\.route\([^)]*methods=[^\)]*'POST'", line) or \
+           re.search(r'@\w+\.route\([^)]*methods=[^\)]*"POST"', line):
+            in_post_handler = True
+        elif line.startswith('@') and 'route' in line:
+            in_post_handler = False  # different decorator
+        elif re.match(r'^def \w+', line):
+            # New function def — if we were in a post handler, keep flag until a return is seen
+            pass
+        elif in_post_handler and re.match(r'\s+return jsonify\(', line):
+            # Check if already has a status code (comma after the closing paren)
+            stripped = line.rstrip()
+            if not re.search(r'\bstatus\b', stripped) and not re.search(r'jsonify\(.*\),\s*\d+', stripped):
+                # No status code — add 201
+                stripped = re.sub(r'(return jsonify\(.*\))$', r'\1, 201', stripped)
+                line = stripped + '\n' if line.endswith('\n') else stripped
+                changed = True
+                in_post_handler = False  # only fix the first return in the handler
+        out.append(line)
+    if not changed:
+        return False
+    Path(file_path).write_text('\n'.join(out))
+    print(f"==> [mu-agent] Reflex: added 201 status to POST route jsonify return in {file_path}")
+    return True
+
+
+def fix_flask_test_route_decorators(file_path: str) -> bool:
+    """Strip @app.route decorators from pytest test files.
+
+    Models sometimes write Flask route handlers (`@app.route(...)`) inside test
+    files that also import the Flask app. This causes two problems:
+    1. "View function mapping is overwriting an existing endpoint function" — the
+       test file re-registers routes already defined in app.py.
+    2. The decorated functions are treated as Flask handlers, not pytest tests,
+       so the `client` fixture parameter is misunderstood.
+
+    Fires only on files whose name starts with `test_` or ends with `_test.py`.
+    Generic: driven by the conflict pattern, not by any specific project.
+    """
+    if not file_path.lower().endswith('.py'):
+        return False
+    name = Path(file_path).name.lower()
+    if not (name.startswith('test_') or name.endswith('_test.py')):
+        return False
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+    if 'app.route' not in text:
+        return False
+    # Remove @app.route(...) lines (possibly multi-line with methods=[...])
+    new_text = re.sub(r'@app\.route\([^\)]*\)\n', '', text)
+    if new_text == text:
+        return False
+    Path(file_path).write_text(new_text)
+    print(f"==> [mu-agent] Reflex: stripped @app.route decorators from test file {file_path}")
+    return True
+
+
+def fix_flask_init_db_import(file_path: str) -> bool:
+    """Remove `init_db` from Flask test imports when app.py doesn't define it.
+
+    Models sometimes write `from app import app, init_db` in test files because
+    the test client fixture calls `init_db()`. When `init_db` is not defined in
+    app.py, pytest collection fails with ImportError. This reflex removes the
+    `init_db` import AND any bare `init_db()` calls from the fixture body.
+    Generic: fires whenever the imported symbol is absent in the source module.
+    """
+    if not file_path.lower().endswith('.py'):
+        return False
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+    # Only act on test files importing init_db from app
+    if 'init_db' not in text:
+        return False
+    # Check if init_db is defined in app.py
+    app_py = Path(file_path).parent / 'app.py'
+    if not app_py.exists():
+        return False
+    app_text = app_py.read_text()
+    if 'def init_db' in app_text:
+        return False  # already defined, nothing to fix
+    # Remove init_db from import line: `from app import app, init_db` → `from app import app`
+    new_text = re.sub(
+        r'(from\s+app\s+import\s+[^,\n]*)(?:,\s*init_db|init_db\s*,\s*)([^\n]*)',
+        lambda m: m.group(1).rstrip(', ') + (' ' + m.group(2).strip() if m.group(2).strip() else ''),
+        text
+    )
+    # Also handle: `from app import init_db` as the only import
+    new_text = re.sub(r'from\s+app\s+import\s+init_db\s*\n', '', new_text)
+    # Remove bare `init_db()` calls
+    new_text = re.sub(r'^\s*(?:with\s+app\.app_context\(\)\s*:\s*)?init_db\(\)\s*\n', '', new_text, flags=re.MULTILINE)
+    if new_text == text:
+        return False
+    Path(file_path).write_text(new_text)
+    print(f"==> [mu-agent] Reflex: removed init_db import/call from {file_path} (not defined in app.py)")
+    return True
+
+
+def fix_missing_flask_client_fixture(file_path: str, test_output: str) -> bool:
+    """Add a missing @pytest.fixture for Flask test client.
+
+    When a pytest test file uses `client` as a parameter but no fixture named
+    `client` is defined, pytest reports "fixture 'client' not found". For Flask
+    projects, the correct pattern is to define a fixture that yields a test
+    client from `app.test_client()`.
+
+    Fires only when:
+    - test output contains "fixture 'client' not found"
+    - the file is a test file (starts with test_ or ends with _test.py)
+    - the test file has test functions that accept `client` as a parameter
+    - no `@pytest.fixture` with name `client` is already defined
+
+    Generic: driven by the error message and test function pattern, not problem-specific.
+    """
+    if 'fixture \'client\' not found' not in test_output:
+        return False
+    if not file_path.lower().endswith('.py'):
+        return False
+    name = Path(file_path).name.lower()
+    # Only fire on test files
+    if not (name.startswith('test_') or name.endswith('_test.py')):
+        return False
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+    # Only fix if this file has test functions that use `client`
+    if not re.search(r'def test_\w+\(client', text):
+        return False
+    # Don't add if fixture already exists
+    if re.search(r'@pytest\.fixture\s*\ndef client', text):
+        return False
+    # Determine what app-level reset is needed (reset app._conn if app uses _conn pattern)
+    app_py = Path(file_path).parent / 'app.py'
+    has_conn_pattern = app_py.exists() and '_conn' in app_py.read_text()
+    conn_reset = '    app._conn = None  # force fresh db per test\n' if has_conn_pattern else ''
+    conn_teardown = '    app._conn = None  # cleanup\n' if has_conn_pattern else ''
+    # Build the preamble (import app if not already there)
+    needs_import = 'from app import app' not in text and 'import app' not in text
+    preamble = 'import pytest\n'
+    if needs_import:
+        preamble += 'from app import app\n'
+    preamble += '\n\n'
+    fixture_block = (
+        preamble +
+        '@pytest.fixture\n'
+        'def client():\n'
+        '    app.config[\'TESTING\'] = True\n'
+        '    app.config[\'DATABASE\'] = \':memory:\'\n' +
+        conn_reset +
+        '    with app.test_client() as c:\n'
+        '        yield c\n' +
+        conn_teardown +
+        '\n\n'
+    )
+    # Insert the fixture after all imports but before first test function
+    first_test = re.search(r'^def test_', text, re.MULTILINE)
+    if first_test:
+        insert_pos = first_test.start()
+        new_text = text[:insert_pos] + fixture_block + text[insert_pos:]
+    else:
+        new_text = fixture_block + text
+    # Deduplicate `import pytest` lines
+    lines = new_text.split('\n')
+    seen_pytest_import = False
+    deduped = []
+    for line in lines:
+        if line.strip() == 'import pytest':
+            if seen_pytest_import:
+                continue
+            seen_pytest_import = True
+        deduped.append(line)
+    new_text = '\n'.join(deduped)
+    if new_text == text:
+        return False
+    Path(file_path).write_text(new_text)
+    print(f"==> [mu-agent] Reflex: added Flask client fixture to {file_path}")
     return True
 
 
@@ -2239,6 +2495,54 @@ def fix_makefile_npm_test_jest(f: str) -> bool:
     return True
 
 
+def fix_package_json_bare_jest(project_dir: str) -> bool:
+    """Replace bare `jest` in package.json scripts.test with `npx jest --forceExit`.
+    Also sets testRegex to match both `.test.js` and `_test.js` naming conventions.
+
+    When a model writes `"test": "jest"` in package.json scripts, running
+    `npm test` invokes `jest` directly which is not on the shell PATH. The
+    locally-installed binary lives in `node_modules/.bin/` and must be reached
+    via `npx`. Generic: applies to any project with jest as a dependency.
+
+    Also adds testRegex proactively to handle `_test.js` naming (Python-style).
+    Doing this at write time rather than reactively prevents the repair model
+    from reverting the testRegex added by fix_jest_no_tests_found.
+    """
+    pkg_path = Path(project_dir) / 'package.json'
+    if not pkg_path.exists():
+        return False
+    try:
+        import json as _json
+        data = _json.loads(pkg_path.read_text())
+    except Exception:
+        return False
+    all_deps = {**data.get('dependencies', {}), **data.get('devDependencies', {})}
+    if 'jest' not in all_deps:
+        return False
+    changed = False
+    scripts = data.get('scripts', {})
+    test_script = scripts.get('test', '')
+    # Replace bare `jest` (with or without flags, but not already prefixed with npx)
+    if test_script and 'npx' not in test_script and re.match(r'^jest\b', test_script):
+        new_script = re.sub(r'^jest\b', 'npx jest', test_script)
+        if '--forceExit' not in new_script:
+            new_script = new_script.rstrip() + ' --forceExit'
+        data.setdefault('scripts', {})['test'] = new_script
+        print(f"==> [mu-agent] Reflex: replaced bare jest with npx jest in {pkg_path}")
+        changed = True
+    # Also proactively add testRegex to handle _test.js naming (Python-style)
+    jest_cfg = data.get('jest', {})
+    correct_regex = r'.*[._](test|spec)\.[jt]sx?$'
+    if not jest_cfg.get('testRegex') or jest_cfg.get('testRegex') == '':
+        data.setdefault('jest', {})['testRegex'] = correct_regex
+        print(f"==> [mu-agent] Reflex: added testRegex to jest config in {pkg_path}")
+        changed = True
+    if not changed:
+        return False
+    pkg_path.write_text(_json.dumps(data, indent=2) + '\n')
+    return True
+
+
 def fix_makefile_escaped_dollar(f: str) -> bool:
     r"""Replace \$(cmd) patterns in Makefile recipes with $(cmd) or bare cmd.
 
@@ -2783,7 +3087,8 @@ def fix_makefile_bare_vitest(f: str) -> bool:
 
 
 def apply_makefile_reflexes(f: str) -> None:
-    for fn in [fix_makefile_literal_tab_escape, fix_makefile_literal_newline_escape,
+    for fn in [fix_tool_call_artifacts,
+               fix_makefile_literal_tab_escape, fix_makefile_literal_newline_escape,
                fix_makefile_escaped_dollar,
                fix_makefile_wrong_c_compiler,
                fix_makefile_sdl2_config_typo, fix_makefile_double_colon_target,

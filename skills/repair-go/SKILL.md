@@ -8,3 +8,4 @@ description: Go repair diagnostics — map go build/test errors to targeted fixe
 - `X declared and not used` — Go requires every declared variable to be used. Remove it or replace with `_`.
 - `cannot use X (type T) as type U` — add an explicit conversion: `U(X)`.
 - `no test files` — Go only runs tests from files ending in `_test.go` with functions `func TestXxx(t *testing.T)`. If no such file exists, no tests run and the goal is unverified.
+- `X (value of type func(...) ...) is not used` — you referenced a method value `obj.Method` without calling it. This is a statement that evaluates to a function but throws it away. Add the call: `obj.Method(args)`. Example: `router.Run` → `router.Run(":8080")`. Check all lines in the function for bare method references and add the missing call.

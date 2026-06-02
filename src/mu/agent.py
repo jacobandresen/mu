@@ -48,6 +48,12 @@ from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
                          fix_csharp_duplicate_classes,
                          fix_csharp_missing_braces,
                          fix_jest_no_tests_found,
+                         fix_package_json_bare_jest,
+                         fix_flask_test_route_decorators,
+                         fix_flask_init_db_import,
+                         fix_missing_flask_client_fixture,
+                         fix_sqlite_missing_row_factory,
+                         fix_flask_post_missing_201,
                          fix_js_env_data_file,
                          fix_js_extra_closing_brace,
                          fix_js_missing_requires,
@@ -889,6 +895,14 @@ def run(goal: str, model: str = '', target_dir: str = '',
                     log("Fixed %s: removed duplicate class definitions.", task.file_path)
 
             if task.file_path.endswith('.py'):
+                if fix_flask_test_route_decorators(task.file_path):
+                    log("Fixed %s: stripped @app.route decorators from test file.", task.file_path)
+                if fix_flask_init_db_import(task.file_path):
+                    log("Fixed %s: removed init_db import (not defined in app.py).", task.file_path)
+                if fix_sqlite_missing_row_factory(task.file_path):
+                    log("Fixed %s: added row_factory = sqlite3.Row after connect.", task.file_path)
+                if fix_flask_post_missing_201(task.file_path):
+                    log("Fixed %s: added 201 to POST route return.", task.file_path)
                 if fix_python_method_indent(task.file_path):
                     log("Fixed %s: re-indented def after class decorator.", task.file_path)
                 if fix_python_missing_def(task.file_path):
@@ -947,6 +961,10 @@ def run(goal: str, model: str = '', target_dir: str = '',
                 apply_makefile_reflexes(task.file_path)
                 fix_makefile_binary_name(task.file_path, p.test_command or '')
                 log("Applied Makefile reflexes to %s.", task.file_path)
+
+            if Path(task.file_path).name.lower() == 'package.json':
+                if fix_package_json_bare_jest(str(Path(task.file_path).parent)):
+                    log("Fixed %s: replaced bare jest with npx jest.", task.file_path)
 
             lint_cmd = _lint_command(task.file_path, p)
             if lint_cmd:
@@ -1408,6 +1426,11 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
                 fix_js_env_data_file(t.file_path)
                 fix_js_missing_requires(t.file_path)
                 fix_literal_newlines(t.file_path)
+            if t.file_path.endswith('.py'):
+                fix_flask_test_route_decorators(t.file_path)
+                fix_flask_init_db_import(t.file_path)
+                fix_sqlite_missing_row_factory(t.file_path)
+                fix_flask_post_missing_201(t.file_path)
         apply_go_reflexes()  # resolve Go module deps before each build attempt
         # If any package.json exists but its node_modules is absent, run npm install.
         # The repair loop may rewrite package.json but never re-runs install.
@@ -1430,6 +1453,9 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
             if venv_pip.exists():
                 subprocess.run([str(venv_pip), 'install', '-r', str(req), 'pytest', '-q'],
                                capture_output=True, timeout=120)
+        # Re-apply package.json bare-jest fix — repair model may rewrite scripts.test
+        if fix_package_json_bare_jest(os.getcwd()):
+            log("Re-applied: replaced bare jest with npx jest in package.json.")
         # Re-apply Jest/Vitest reflexes — the repair model may have rewritten
         # package.json or vite.config.ts, removing a testRegex or globals:true
         # that was added during the pre-flight pass. Read the latest test log
@@ -1444,6 +1470,10 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
                 log("Re-applied: added missing vue package to package.json.")
             if fix_vitest_globals(os.getcwd(), latest_out):
                 log("Re-applied Vitest globals:true (repair: ReferenceError).")
+            for t in p.tasks:
+                if Path(t.file_path).exists() and t.file_path.endswith('.py'):
+                    if fix_missing_flask_client_fixture(t.file_path, latest_out):
+                        log("Re-applied: added Flask client fixture to %s.", t.file_path)
 
     # Run the test once before pre-flight reflexes so the log exists and is current.
     # _final_test_gate creates a fresh log path; without this first run the log
@@ -1457,10 +1487,24 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
             if not (pkg_dir / 'node_modules').exists():
                 subprocess.run(['npm', 'install'], cwd=str(pkg_dir),
                                capture_output=True, timeout=120)
+    if fix_package_json_bare_jest(os.getcwd()):
+        log("Fixed package.json: replaced bare jest with npx jest (pre-flight).")
+    # Strip any @app.route decorators and init_db imports from test files before first run
+    for t in p.tasks:
+        if Path(t.file_path).exists() and t.file_path.endswith('.py'):
+            if fix_flask_test_route_decorators(t.file_path):
+                log("Pre-flight: stripped @app.route decorators from %s.", t.file_path)
+            if fix_flask_init_db_import(t.file_path):
+                log("Pre-flight: removed init_db import from %s.", t.file_path)
     _run_cmd(test_cmd, test_log)
     initial_out = _tail_file(test_log, 60)
     if fix_missing_pip_packages(initial_out, os.getcwd()):
         log("Added missing pip packages to requirements before repair.")
+    # Add missing Flask client fixture if tests use `client` but fixture not defined
+    for t in p.tasks:
+        if Path(t.file_path).exists() and t.file_path.endswith('.py'):
+            if fix_missing_flask_client_fixture(t.file_path, initial_out):
+                log("Added Flask client fixture to %s.", t.file_path)
     if fix_jest_no_tests_found(initial_out, os.getcwd()):
         log("Broadened Jest testRegex in package.json (No tests found).")
     if fix_vitest_watch_mode(os.getcwd()):
