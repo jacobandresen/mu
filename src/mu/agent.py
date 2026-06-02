@@ -1738,7 +1738,16 @@ def _final_test_gate(model: str, p: Optional[Plan], autonomous_system: str,
         # run them; only skip when there is genuinely nothing to verify.
         test_files = [t.file_path for t in (p.tasks if p else []) if is_test_file(t.file_path)]
         if test_files:
-            test_cmd = 'pytest ' + ' '.join(test_files)
+            exts = {Path(f).suffix.lower() for f in test_files}
+            if exts <= {'.rs'}:
+                test_cmd = 'cargo test'
+            elif exts <= {'.go'}:
+                test_cmd = 'go test ./...'
+            elif exts <= {'.cs'}:
+                test_cmd = 'dotnet test'
+            else:
+                py_files = [f for f in test_files if Path(f).suffix == '.py']
+                test_cmd = ('pytest ' + ' '.join(py_files)) if py_files else 'pytest'
             log("No '## Test Command' — defaulting to: %s", test_cmd)
         else:
             log("No '## Test Command' and no test files — skipping final test gate.")

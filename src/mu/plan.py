@@ -203,6 +203,10 @@ def normalize_test_command(path: str) -> bool:
     for old, new in [('\npython ', '\npython3 '), ('&& python ', '&& python3 '),
                      ('| python ', '| python3 ')]:
         updated = updated.replace(old, new)
+    # pytest on Rust source files is wrong — use cargo test.
+    p = parse_content(updated)
+    if p.test_command and re.match(r'pytest\s+.*\.rs\b', p.test_command):
+        updated = _set_test_command(updated, 'cargo test')
     # dotnet ef migration/database commands are not test commands — replace with dotnet test.
     p = parse_content(updated)
     if p.test_command and re.match(r'dotnet\s+ef\s+', p.test_command):
