@@ -47,6 +47,7 @@ from mu.plan import (Plan, check_goal_alignment, clear_challenges,
 from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
                          fix_csharp_duplicate_classes,
                          fix_csharp_missing_braces,
+                         fix_csharp_missing_using,
                          fix_jest_no_tests_found,
                          fix_package_json_bare_jest,
                          fix_flask_test_route_decorators,
@@ -80,7 +81,9 @@ from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
                          fix_csharp_using_order,
                          fix_rust_cargo_toml,
                          fix_rust_duplicate_use,
+                         fix_rust_missing_trait_import,
                          fix_rust_println_missing_arg,
+                         fix_rust_unbalanced_braces,
                          fix_sqlite_path_unlink,
                          fix_sqlite_test_isolation,
                          fix_test_import_module,
@@ -720,13 +723,18 @@ def run(goal: str, model: str = '', target_dir: str = '',
 
     # Auto-trigger architect pass for hard multi-layer problems before planning.
     if not force and complexity == 'hard' and _is_multilayer(goal):
-        if not any(Path(pf).exists() for _, pf in _STAGE_SEQUENCE):
-            log("Hard multi-layer problem detected — running architect pass.")
-            stages = _run_architect_pass(goal, model, planner_timeout)
-            if len(stages) > 1:
-                return run_staged(goal, model, max_iter=max_iter)
-            log("Architect produced %d stage(s) — falling back to single-plan mode.",
-                len(stages))
+        if any(Path(pf).exists() for _, pf in _STAGE_SEQUENCE):
+            # Stage plans already exist (e.g. prior interrupted run) — resume staged execution
+            # rather than falling through to the standalone flow, which would fail because
+            # PLAN.md doesn't exist when the directory has stage plans.
+            log("Stage plans found — resuming staged execution.")
+            return run_staged(goal, model, max_iter=max_iter)
+        log("Hard multi-layer problem detected — running architect pass.")
+        stages = _run_architect_pass(goal, model, planner_timeout)
+        if len(stages) > 1:
+            return run_staged(goal, model, max_iter=max_iter)
+        log("Architect produced %d stage(s) — falling back to single-plan mode.",
+            len(stages))
 
     err = _check_standalone(force, plan_file)
     if err:
@@ -984,7 +992,9 @@ def run(goal: str, model: str = '', target_dir: str = '',
                              fix_literal_newlines(task.file_path, lint_head) or
                              fix_python_undefined_imports(task.file_path, lint_head) or
                              fix_rust_duplicate_use(task.file_path) or
-                             fix_rust_println_missing_arg(task.file_path)) and
+                             fix_rust_println_missing_arg(task.file_path) or
+                             fix_rust_missing_trait_import(task.file_path, lint_head) or
+                             fix_rust_unbalanced_braces(task.file_path, lint_head)) and
                             _run_cmd(lint_cmd, lint_log)
                         )
                         if det_fixed:
@@ -1421,11 +1431,18 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
             elif t.file_path.lower() == 'cargo.toml':
                 if fix_rust_cargo_toml(t.file_path):
                     log("Repair reapply: regenerated corrupted Cargo.toml.")
+            elif t.file_path.endswith('.rs'):
+                if Path(test_log).exists():
+                    if fix_rust_missing_trait_import(t.file_path, _tail_file(test_log, 60)):
+                        log("Repair reapply: added missing trait import to %s.", t.file_path)
             elif t.file_path.endswith('.cs'):
                 fix_csharp_keyword_prefix_artifacts(t.file_path)
                 fix_csharp_verbatim_string_escape(t.file_path)
                 fix_csharp_using_order(t.file_path)
                 fix_csharp_missing_braces(t.file_path)
+                if Path(test_log).exists():
+                    if fix_csharp_missing_using(t.file_path, _tail_file(test_log, 60)):
+                        log("Repair reapply: added missing using directive(s) to %s.", t.file_path)
             elif Path(t.file_path).suffix.lower() in ('.js', '.jsx', '.mjs'):
                 fix_js_env_data_file(t.file_path)
                 fix_js_missing_requires(t.file_path)
@@ -1528,6 +1545,9 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
         if Path(t.file_path).exists():
             if fix_js_extra_closing_brace(t.file_path, initial_out):
                 log("Fixed %s: fixed unbalanced brace/paren.", t.file_path)
+            if t.file_path.endswith('.cs') and 'CS0246' in initial_out:
+                if fix_csharp_missing_using(t.file_path, initial_out):
+                    log("Fixed %s: added missing using directive(s).", t.file_path)
 
     return sess.repair_loop(model, goal, _REPAIR_MAX_ITERS, float(writer_timeout),
                             run_test, reapply, _repair_context(p), _syntax_check)

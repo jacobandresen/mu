@@ -199,6 +199,22 @@ def normalize_test_command(path: str) -> bool:
     p = parse_content(updated)
     if p.test_command and re.match(r'dotnet\s+ef\s+', p.test_command):
         updated = _set_test_command(updated, 'dotnet test')
+    # dotnet test <foo>.csproj where foo.csproj doesn't exist — find the real one.
+    # If the found .csproj has no test references, use 'dotnet build' instead.
+    p2 = parse_content(updated)
+    if p2.test_command:
+        m = re.match(r'(dotnet\s+test)\s+(\S+\.csproj)(.*)', p2.test_command)
+        if m and not Path(m.group(2)).exists():
+            real = list(Path('.').glob('*.csproj'))
+            if real:
+                csproj_text = real[0].read_text(errors='ignore')
+                has_tests = any(pkg in csproj_text for pkg in (
+                    'xunit', 'MSTest', 'NUnit', 'Microsoft.NET.Test.Sdk'))
+                verb = 'test' if has_tests else 'build'
+                updated = _set_test_command(updated, f'dotnet {verb} {real[0]}{m.group(3)}')
+            else:
+                # No .csproj at all — strip the bad path so dotnet auto-discovers
+                updated = _set_test_command(updated, f'{m.group(1)}{m.group(3)}')
     if updated == data:
         return False
     Path(path).write_text(updated)

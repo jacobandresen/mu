@@ -515,6 +515,119 @@ def fix_rust_duplicate_use(file_path: str) -> bool:
     return True
 
 
+def fix_rust_unbalanced_braces(file_path: str, build_output: str = '') -> bool:
+    """Append or remove closing braces in Rust files with unbalanced brace counts.
+
+    rustc "unclosed delimiter" or "expected `}`" means the file has more `{`
+    than `}`. This reflex counts braces (ignoring strings and comments) and
+    appends the missing `}` characters.  General: applies to any Rust file.
+    """
+    if not file_path.endswith('.rs'):
+        return False
+    if build_output and 'unclosed delimiter' not in build_output and 'expected `}`' not in build_output:
+        return False
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+    depth = 0
+    i = 0
+    while i < len(text):
+        c = text[i]
+        if c == '/' and i + 1 < len(text) and text[i + 1] == '/':
+            while i < len(text) and text[i] != '\n':
+                i += 1
+            continue
+        if c == '/' and i + 1 < len(text) and text[i + 1] == '*':
+            i += 2
+            while i + 1 < len(text) and not (text[i] == '*' and text[i + 1] == '/'):
+                i += 1
+            i += 2
+            continue
+        if c == '"':
+            i += 1
+            while i < len(text):
+                if text[i] == '\\':
+                    i += 2
+                    continue
+                if text[i] == '"':
+                    break
+                i += 1
+        elif c == '\'':
+            i += 1
+            while i < len(text):
+                if text[i] == '\\':
+                    i += 2
+                    continue
+                if text[i] == '\'':
+                    break
+                i += 1
+        elif c == '{':
+            depth += 1
+        elif c == '}':
+            depth -= 1
+        i += 1
+    if depth == 0:
+        return False
+    if depth > 0:
+        Path(file_path).write_text(text.rstrip() + '\n' + '}\n' * depth)
+        print(f"==> [mu-agent] Reflex: added {depth} missing closing brace(s) to {file_path}")
+        return True
+    # depth < 0: too many `}` — remove trailing ones
+    lines = text.rstrip().splitlines()
+    new_lines = list(lines)
+    removed = 0
+    for idx in range(len(lines) - 1, -1, -1):
+        if removed >= abs(depth):
+            break
+        if new_lines[idx].strip() == '}':
+            del new_lines[idx]
+            removed += 1
+    if not removed:
+        return False
+    Path(file_path).write_text('\n'.join(new_lines) + '\n')
+    print(f"==> [mu-agent] Reflex: removed {removed} extra closing brace(s) from {file_path}")
+    return True
+
+
+def fix_rust_missing_trait_import(file_path: str, build_output: str) -> bool:
+    """Add missing trait `use` statements when rustc says 'the trait is in scope'.
+
+    rustc E0599 often says:
+      "trait `Write` which provides `flush` is implemented but not in scope;
+       perhaps you want to import it: `use std::io::Write;`"
+    This reflex extracts the suggested `use` statement and adds it to the file.
+    General: driven entirely by the compiler's suggestion, not any specific program.
+    """
+    if not file_path.endswith('.rs'):
+        return False
+    if 'E0599' not in build_output and 'not in scope' not in build_output:
+        return False
+    # Parse suggested `use X::Y;` lines: both inline backtick format and diff-style "N + use ..."
+    suggestions = re.findall(r'`(use [^`]+;)`', build_output)
+    suggestions += re.findall(r'^\s*\d+\s*\+\s*(use [^;]+;)', build_output, re.MULTILINE)
+    if not suggestions:
+        return False
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+    to_add = [stmt for stmt in suggestions if stmt not in text]
+    if not to_add:
+        return False
+    lines = text.splitlines()
+    # Insert after the last existing use statement
+    insert_at = 0
+    for i, line in enumerate(lines):
+        if line.strip().startswith('use '):
+            insert_at = i + 1
+    for stmt in reversed(to_add):
+        lines.insert(insert_at, stmt)
+    Path(file_path).write_text('\n'.join(lines) + '\n')
+    print(f"==> [mu-agent] Reflex: added missing trait import(s) to {file_path}: {to_add}")
+    return True
+
+
 def fix_vue_missing_package(project_dir: str) -> bool:
     """Add `vue` to package.json devDependencies when it is missing.
 
@@ -687,6 +800,68 @@ def fix_csharp_duplicate_classes(file_path: str) -> bool:
         return False
     path.write_text(text)
     print(f"==> [mu-agent] Reflex: removed duplicate C# class(es) from {file_path}")
+    return True
+
+
+def fix_csharp_missing_using(file_path: str, build_output: str) -> bool:
+    """Add missing `using` directives when CS0246 reports an undefined type/namespace.
+
+    CS0246 fires when a .cs file references a type whose namespace is not imported.
+    This reflex searches sibling .cs files (recursively) for the namespace that
+    defines the missing type and adds the corresponding `using` directive.
+    General: CS0246 on a type that exists elsewhere in the project always means
+    a missing using — not a logic error.
+    """
+    if 'CS0246' not in build_output:
+        return False
+    if not file_path.lower().endswith('.cs'):
+        return False
+    # Parse "error CS0246: The type or namespace name 'Foo' could not be found"
+    missing_types = set(re.findall(r"CS0246[^']*'(\w+)'", build_output))
+    if not missing_types:
+        return False
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+    # Find namespaces that define these types in sibling .cs files
+    proj_root = Path(file_path).parent
+    # Walk up to find project root (directory with a .csproj)
+    for parent in [proj_root, proj_root.parent, proj_root.parent.parent]:
+        if list(parent.glob('*.csproj')):
+            proj_root = parent
+            break
+    to_add: list[str] = []
+    for cs_file in proj_root.rglob('*.cs'):
+        if cs_file == Path(file_path):
+            continue
+        try:
+            src = cs_file.read_text()
+        except OSError:
+            continue
+        # Extract namespace declarations
+        ns_match = re.search(r'(?m)^namespace\s+([\w.]+)', src)
+        if not ns_match:
+            continue
+        ns = ns_match.group(1)
+        for typ in list(missing_types):
+            if re.search(rf'(?m)^(?:public|internal|private)?\s*(?:class|struct|record|interface|enum)\s+{re.escape(typ)}\b', src):
+                using_stmt = f'using {ns};'
+                if using_stmt not in text and using_stmt not in to_add:
+                    to_add.append(using_stmt)
+                missing_types.discard(typ)
+    if not to_add:
+        return False
+    lines = text.splitlines()
+    # Insert after the last existing using line
+    insert_at = 0
+    for i, line in enumerate(lines):
+        if line.strip().startswith('using '):
+            insert_at = i + 1
+    for stmt in reversed(to_add):
+        lines.insert(insert_at, stmt)
+    Path(file_path).write_text('\n'.join(lines) + '\n')
+    print(f"==> [mu-agent] Reflex: added {len(to_add)} missing using(s) to {file_path}: {to_add}")
     return True
 
 
@@ -2373,14 +2548,14 @@ def fix_jest_no_tests_found(test_output: str, project_dir: str) -> bool:
     existing = [
         p.name for p in Path(project_dir).iterdir()
         if p.is_file() and (
-            re.search(r'[._](test|spec)\.[jt]sx?$', p.name)
+            re.search(r'[._-](test|spec)\.[jt]sx?$', p.name)
             or (re.match(r'^test_', p.name) and p.suffix.lower() in ('.js', '.jsx', '.mjs', '.ts', '.tsx'))
         )
     ]
     if not existing:
         return False
     # Match suffix-style (.test.js, _test.js) and prefix-style (test_*.js).
-    data.setdefault('jest', {})['testRegex'] = r'(test_.*|.*[._](test|spec))\.[jt]sx?$'
+    data.setdefault('jest', {})['testRegex'] = r'(test_.*|.*[._-](test|spec))\.[jt]sx?$'
     pkg_path.write_text(_json.dumps(data, indent=2) + '\n')
     print(f"==> [mu-agent] Reflex: added Jest testRegex to {pkg_path} (No tests found)")
     return True
@@ -2457,7 +2632,7 @@ def fix_package_json_bare_jest(project_dir: str) -> bool:
         changed = True
     # Also proactively add testRegex to handle _test.js and test_*.js naming conventions
     jest_cfg = data.get('jest', {})
-    correct_regex = r'(test_.*|.*[._](test|spec))\.[jt]sx?$'
+    correct_regex = r'(test_.*|.*[._-](test|spec))\.[jt]sx?$'
     if not jest_cfg.get('testRegex') or jest_cfg.get('testRegex') == '':
         data.setdefault('jest', {})['testRegex'] = correct_regex
         print(f"==> [mu-agent] Reflex: added testRegex to jest config in {pkg_path}")
@@ -2995,7 +3170,8 @@ def fix_makefile_recipe_is_prerequisite_list(f: str) -> bool:
                 recipe = lines[j].strip()
                 words = recipe.split()
                 # All words must be declared targets AND there must be >0 words.
-                if words and all(w in declared for w in words) and words != [target]:
+                known = declared | _KNOWN_TARGETS
+                if words and all(w in known for w in words) and words != [target]:
                     # Replace the target line with prerequisites and remove recipe.
                     result.append(f'{target}: {recipe}\n')
                     i += 1  # skip old target line
