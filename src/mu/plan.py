@@ -207,6 +207,19 @@ def normalize_test_command(path: str) -> bool:
     p = parse_content(updated)
     if p.test_command and re.match(r'dotnet\s+ef\s+', p.test_command):
         updated = _set_test_command(updated, 'dotnet test')
+    # Quote unquoted --filter arguments that contain shell-special chars like () * ~.
+    # Example: dotnet test --filter FullyQualifiedName~*.Foo()
+    #       → dotnet test --filter "FullyQualifiedName~*.Foo()"
+    p_tmp = parse_content(updated)
+    if p_tmp.test_command:
+        def _quote_filter(m: re.Match) -> str:
+            val = m.group(1)
+            if val and val[0] not in ('"', "'") and re.search(r'[()~*]', val):
+                return f'--filter "{val}"'
+            return m.group(0)
+        new_cmd = re.sub(r'--filter\s+(\S+)', _quote_filter, p_tmp.test_command)
+        if new_cmd != p_tmp.test_command:
+            updated = _set_test_command(updated, new_cmd)
     # dotnet test <foo>.csproj where foo.csproj doesn't exist — find the real one.
     # If the found .csproj has no test references, use 'dotnet build' instead.
     p2 = parse_content(updated)
