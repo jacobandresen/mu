@@ -48,6 +48,7 @@ from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
                          fix_csharp_duplicate_classes,
                          fix_csharp_missing_braces,
                          fix_csharp_missing_using,
+                         fix_jest_config_js,
                          fix_jest_no_tests_found,
                          fix_package_json_bare_jest,
                          fix_flask_test_route_decorators,
@@ -1482,6 +1483,8 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
                 subprocess.run([str(venv_pip), 'install', 'pytest', '-q'],
                                capture_output=True, timeout=60)
         # Re-apply package.json bare-jest fix — repair model may rewrite scripts.test
+        if fix_jest_config_js(os.getcwd()):
+            log("Re-applied: fixed jest.config.js syntax.")
         if fix_package_json_bare_jest(os.getcwd()):
             log("Re-applied: replaced bare jest with npx jest in package.json.")
         # Re-apply Jest/Vitest reflexes — the repair model may have rewritten
@@ -1515,6 +1518,8 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
             if not (pkg_dir / 'node_modules').exists():
                 subprocess.run(['npm', 'install'], cwd=str(pkg_dir),
                                capture_output=True, timeout=120)
+    if fix_jest_config_js(os.getcwd()):
+        log("Fixed jest.config.js: converted JSON to CommonJS or removed conflict.")
     if fix_package_json_bare_jest(os.getcwd()):
         log("Fixed package.json: replaced bare jest with npx jest (pre-flight).")
     # Strip any @app.route decorators and init_db imports from test files before first run

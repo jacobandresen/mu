@@ -2594,6 +2594,44 @@ def fix_makefile_npm_test_jest(f: str) -> bool:
     return True
 
 
+def fix_jest_config_js(project_dir: str) -> bool:
+    """Fix jest.config.js files that use JSON syntax instead of CommonJS module syntax.
+
+    Models sometimes write jest.config.js with JSON-style key-value pairs
+    (quoted keys, no `module.exports`) which causes `SyntaxError: Unexpected token ':'`.
+    If package.json already has a `jest` config section, just delete jest.config.js
+    to remove the conflict. Otherwise, wrap the content in `module.exports = {...}`.
+    General: any jest.config.js that uses JSON syntax will fail at load time.
+    """
+    cfg_path = Path(project_dir) / 'jest.config.js'
+    if not cfg_path.exists():
+        return False
+    try:
+        text = cfg_path.read_text()
+    except OSError:
+        return False
+    # Detect JSON-style syntax: starts with `{` and uses `"key":` pairs (no module.exports)
+    stripped = text.strip()
+    if 'module.exports' in text or not stripped.startswith('{'):
+        return False
+    # If package.json already has a jest config, delete the conflicting file
+    pkg_path = Path(project_dir) / 'package.json'
+    if pkg_path.exists():
+        try:
+            import json as _json
+            data = _json.loads(pkg_path.read_text())
+            if data.get('jest'):
+                cfg_path.unlink()
+                print(f"==> [mu-agent] Reflex: removed conflicting jest.config.js (config in package.json)")
+                return True
+        except Exception:
+            pass
+    # Otherwise convert JSON-style to CommonJS
+    cfg_path.write_text(f'module.exports = {stripped};\n')
+    print(f"==> [mu-agent] Reflex: converted jest.config.js from JSON to CommonJS format")
+    return True
+
+
 def fix_package_json_bare_jest(project_dir: str) -> bool:
     """Replace bare `jest` in package.json scripts.test with `npx jest --forceExit`.
     Also sets testRegex to match both `.test.js` and `_test.js` naming conventions.
@@ -3204,11 +3242,18 @@ def fix_makefile_bare_vitest(f: str) -> bool:
         content = Path(f).read_text()
     except OSError:
         return False
-    # Match tab-indented recipe lines containing bare `vitest` (not `npx vitest`)
+    # Match tab-indented lines with `vitest` or `vitest run` not already prefixed with `npx`
+    # First handle `vitest run` -> `npx vitest run` (no double 'run')
     new_content = re.sub(
-        r'(?m)^(\t[^\n]*)\bvitest\b(?!\s+run\b)(?!\s*:)',
-        lambda m: re.sub(r'\bvitest\b(?!\s+run\b)', 'npx vitest run', m.group(0)),
+        r'(?m)^(\t[^\n]*)(?<!npx )\bvitest\s+run\b',
+        lambda m: m.group(0).replace('vitest run', 'npx vitest run', 1),
         content,
+    )
+    # Then handle bare `vitest` (not followed by `run` and not preceded by `npx`)
+    new_content = re.sub(
+        r'(?m)^(\t[^\n]*)(?<!npx )\bvitest\b(?!\s+run\b)(?!\s*:)',
+        lambda m: re.sub(r'\bvitest\b(?!\s+run\b)', 'npx vitest run', m.group(0)),
+        new_content,
     )
     if new_content == content:
         return False
