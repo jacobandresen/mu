@@ -1745,6 +1745,9 @@ def _final_test_gate(model: str, p: Optional[Plan], autonomous_system: str,
                 test_cmd = 'go test ./...'
             elif exts <= {'.cs'}:
                 test_cmd = 'dotnet test'
+            elif exts & {'.js', '.ts', '.jsx', '.tsx', '.mjs'}:
+                # JS/TS project — if a Makefile exists, use make test, otherwise npx jest
+                test_cmd = 'make test' if Path('Makefile').exists() else 'npx jest'
             else:
                 py_files = [f for f in test_files if Path(f).suffix == '.py']
                 test_cmd = ('pytest ' + ' '.join(py_files)) if py_files else 'pytest'
