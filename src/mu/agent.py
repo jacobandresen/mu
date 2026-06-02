@@ -88,6 +88,7 @@ from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
                          fix_rust_unbalanced_braces,
                          fix_sqlite_path_unlink,
                          fix_sqlite_test_isolation,
+                         fix_sqlite_memory_multi_connect,
                          fix_test_import_module,
                          fix_tool_call_artifacts,
                          py_autofix)
@@ -933,12 +934,16 @@ def run(goal: str, model: str = '', target_dir: str = '',
                     log("Fixed %s: wrapped db_path.unlink() with Path().", task.file_path)
                 if fix_sqlite_test_isolation(task.file_path):
                     log("Fixed %s: replaced SQLite file path with :memory:.", task.file_path)
+                if fix_sqlite_memory_multi_connect(task.file_path):
+                    log("Fixed %s: consolidated :memory: SQLite connections.", task.file_path)
                 fp = Path(task.file_path)
                 if fp.stem.startswith('test_'):
                     for sib in fp.parent.glob('*.py'):
                         if not sib.stem.startswith('test_') and sib.name != fp.name:
                             if fix_sqlite_test_isolation(str(sib)):
                                 log("Fixed sibling %s: replaced SQLite file path with :memory:.", str(sib))
+                            if fix_sqlite_memory_multi_connect(str(sib)):
+                                log("Fixed sibling %s: consolidated :memory: SQLite connections.", str(sib))
 
             if Path(task.file_path).suffix.lower() in ('.ts', '.tsx', '.js', '.jsx', '.mjs'):
                 if fix_jest_fs_mock(task.file_path):
@@ -1456,6 +1461,7 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
                 fix_flask_test_route_decorators(t.file_path)
                 fix_flask_init_db_import(t.file_path)
                 fix_sqlite_missing_row_factory(t.file_path)
+                fix_sqlite_memory_multi_connect(t.file_path)
                 fix_flask_post_missing_201(t.file_path)
         apply_go_reflexes()  # resolve Go module deps before each build attempt
         # If any package.json exists but its node_modules is absent, run npm install.

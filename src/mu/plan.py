@@ -71,11 +71,19 @@ def parse(path: str) -> Plan:
         return Plan()
 
 
+_MALFORMED_TASK_RE = re.compile(r'^[\s-]+(\[[ x~]\]\s+\S+.*)')
+
+
 def parse_content(content: str) -> Plan:
     """Parse PLAN.md text into a Plan dataclass."""
     lines = content.splitlines()
     plan = Plan()
     for line in lines:
+        # Normalize malformed task lines like '- - [ ] file' or '  - [ ] file'
+        # where leading noise prevents the standard regex from matching.
+        m = _MALFORMED_TASK_RE.match(line)
+        if m and not line.startswith('- ['):
+            line = '- ' + m.group(1)
         task_match = _TASK_RE.match(line)
         if not task_match:
             continue

@@ -322,6 +322,8 @@ def save_backend(backend: str, host: str, model: str = '', pid: int = 0,
     cfg['host'] = host if backend != 'lmstudio' else ''  # only persist for non-default backends
     if model:
         cfg['model'] = model
+    elif backend == 'lmstudio':
+        cfg.pop('model', None)  # clear stale openvino model path on backend reset
     if pid:
         cfg['ov_pid'] = pid
     elif 'ov_pid' in cfg:

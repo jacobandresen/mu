@@ -95,6 +95,15 @@
       "contextWindow": 32768,
       "input": ["text"],
       "description": "Mistral-7B INT8. ~7 GB RAM. Near-FP16 quality on CPU."
+    },
+    {
+      "id": "granite-4.1-3b-openvino-4bit",
+      "backend": "openvino",
+      "hfRepo": "alex-krtt/granite-4.1-3b-openvino-4bit",
+      "preferredDevice": "CPU",
+      "contextWindow": 128000,
+      "input": ["text"],
+      "description": "IBM Granite 4.1 3B INT4. ~3.6 GB RAM. Fits 8 GB machines."
     }
   ]
 }
