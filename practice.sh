@@ -166,13 +166,24 @@ for round in $(seq 1 "$ROUNDS"); do
   fi
   rm -f "$failed_ids"
 
-  # Commit any CHALLENGES.md updates reflect just made. Scoped commit
+  # Update the root token_usage.md summary after each round.
+  "${MU_CMD}" token-report --output token_usage.md || true
+
+  # Commit any CHALLENGES.md / token_usage.md updates. Scoped commit
   # (via `git commit -o`) so unrelated dirty paths stay untouched.
   if [ -z "${SKIP_AUTOCOMMIT:-}" ] && git rev-parse --git-dir >/dev/null 2>&1; then
+    MU_VER=$(awk -F'"' '/__version__/ {print $2}' src/mu/__init__.py)
+    COMMIT_FILES=()
     if [ -f CHALLENGES.md ] && ! git diff-index --quiet HEAD -- CHALLENGES.md 2>/dev/null; then
-      MU_VER=$(awk -F'"' '/__version__/ {print $2}' src/mu/__init__.py)
-      git commit -o CHALLENGES.md \
-        -m "dojo round $round: record CHALLENGES.md updates (mu $MU_VER)" \
+      COMMIT_FILES+=(CHALLENGES.md)
+    fi
+    if [ -f token_usage.md ] && { ! git ls-files --error-unmatch token_usage.md >/dev/null 2>&1 || ! git diff-index --quiet HEAD -- token_usage.md 2>/dev/null; }; then
+      git add token_usage.md 2>/dev/null || true
+      COMMIT_FILES+=(token_usage.md)
+    fi
+    if [ ${#COMMIT_FILES[@]} -gt 0 ]; then
+      git commit -o "${COMMIT_FILES[@]}" \
+        -m "dojo round $round: update CHALLENGES.md and token_usage.md (mu $MU_VER)" \
         >/dev/null || true
     fi
   fi

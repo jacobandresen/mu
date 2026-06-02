@@ -146,8 +146,51 @@ class AgentSession:
                 meta['tokens_by_phase'] = phase_totals
                 Path(os.path.join(self.archive_path, 'meta.json')).write_text(
                     json.dumps(meta, indent=2) + '\n')
+                (Path(self.archive_path) / 'token_usage.md').write_text(
+                    _render_token_usage_md(meta), encoding='utf-8')
         except Exception as e:
             print(f"==> [mu-agent] Warning: token log save failed: {e}", flush=True)
+
+
+def _render_token_usage_md(meta: dict) -> str:
+    """Render a per-session token_usage.md from a finalized meta dict."""
+    goal = meta.get('goal', 'unknown')
+    outcome = meta.get('outcome', 'unknown')
+    wall = meta.get('duration_seconds', 0)
+    repair_iters = meta.get('repair_iters', 0)
+    total_p = meta.get('total_prompt_tokens', 0)
+    total_g = meta.get('total_generated_tokens', 0)
+    phase_totals: dict = meta.get('tokens_by_phase', {})
+
+    rows = sorted(phase_totals.items(),
+                  key=lambda kv: kv[1]['prompt'] + kv[1]['generated'],
+                  reverse=True)
+
+    lines = [
+        '# Token Usage',
+        '',
+        f'**Goal:** {goal}  ',
+        f'**Outcome:** {outcome}  ',
+        f'**Wall time:** {wall}s  ',
+        f'**Repair iterations:** {repair_iters}  ',
+        '',
+        '## Totals',
+        '',
+        '| Metric | Tokens |',
+        '|---|---|',
+        f'| Prompt | {total_p:,} |',
+        f'| Generated | {total_g:,} |',
+        f'| Total | {total_p + total_g:,} |',
+        '',
+        '## By Phase',
+        '',
+        '| Phase | Prompt | Generated |',
+        '|---|---|---|',
+    ]
+    for phase, bucket in rows:
+        lines.append(f'| {phase} | {bucket["prompt"]:,} | {bucket["generated"]:,} |')
+    lines.append('')
+    return '\n'.join(lines)
 
 
 def _copy_dir(src: str, dst: str) -> None:

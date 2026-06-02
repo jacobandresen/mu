@@ -1,6 +1,7 @@
 """mu CLI — argparse entry point."""
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -174,6 +175,13 @@ def main() -> int:
                            help='Specific session IDs to reflect on; '
                                 'overrides --limit when given')
 
+    token_report_p = sub.add_parser('token-report',
+                                    help='Summarise token usage across all sessions and write token_usage.md')
+    token_report_p.add_argument('--output', default='token_usage.md', metavar='FILE',
+                                help='Output file (default: token_usage.md)')
+    token_report_p.add_argument('--sessions', default='',
+                                help='Session archive dir (default: ~/.mu/sessions)')
+
     sub.add_parser('version', help='Print version')
 
     clean_p = sub.add_parser('clean', help='Scan for large files and suggest cleanup')
@@ -228,6 +236,7 @@ def main() -> int:
         'architect': _cmd_architect,
         'iterate': _cmd_iterate,
         'reflect': _cmd_reflect,
+        'token-report': _cmd_token_report,
         'version': _cmd_version,
         'clean': _cmd_clean,
         'extract': _cmd_extract,
@@ -1216,6 +1225,134 @@ def _cmd_reflect(args) -> int:
     return reflect.reflect(model=args.model, limit=args.limit,
                            challenges_path=args.challenges,
                            session_ids=args.session_ids or None)
+
+
+# ── token-report ──────────────────────────────────────────────────────────────
+
+def _cmd_token_report(args) -> int:
+    archive_dir = Path(args.sessions or os.environ.get(
+        'MU_AGENT_ARCHIVE_DIR', Path.home() / '.mu' / 'sessions'))
+
+    sessions: list[dict] = []
+    for meta_path in sorted(archive_dir.glob('*/meta.json')):
+        try:
+            m = json.loads(meta_path.read_text())
+        except Exception:
+            continue
+        if 'total_prompt_tokens' not in m:
+            continue
+        sessions.append(m)
+
+    out_path = Path(args.output)
+
+    if not sessions:
+        print("No sessions with token data found in", archive_dir)
+        return 0
+
+    n = len(sessions)
+    successes = sum(1 for s in sessions if s.get('outcome') == 'success')
+    first_try = sum(1 for s in sessions if s.get('first_try_pass'))
+    total_prompt = sum(s.get('total_prompt_tokens', 0) for s in sessions)
+    total_gen = sum(s.get('total_generated_tokens', 0) for s in sessions)
+    avg_prompt = total_prompt // n
+    avg_gen = total_gen // n
+    avg_wall = sum(s.get('duration_seconds', 0) for s in sessions) // n
+    avg_repair = sum(s.get('repair_iters', 0) for s in sessions) / n
+
+    # Phase aggregates
+    phase_totals: dict[str, dict[str, int]] = {}
+    for s in sessions:
+        for phase, bucket in s.get('tokens_by_phase', {}).items():
+            pb = phase_totals.setdefault(phase, {'prompt': 0, 'generated': 0, 'sessions': 0})
+            pb['prompt'] += bucket.get('prompt', 0)
+            pb['generated'] += bucket.get('generated', 0)
+            pb['sessions'] += 1
+
+    phase_rows = sorted(phase_totals.items(),
+                        key=lambda kv: kv[1]['prompt'] + kv[1]['generated'],
+                        reverse=True)
+    total_all = total_prompt + total_gen or 1
+
+    # Recommendations
+    recs: list[str] = []
+    if phase_totals:
+        top_phase, top_bucket = phase_rows[0]
+        top_pct = 100 * (top_bucket['prompt'] + top_bucket['generated']) // total_all
+        if top_phase == 'repair' and top_pct >= 30:
+            recs.append(
+                f'**Repair phase dominates ({top_pct}% of all tokens)** — '
+                'tighten repair prompts or add reflexes to handle frequent error patterns '
+                'before the LLM repair loop fires.')
+        elif top_phase == 'writer' and top_pct >= 50:
+            recs.append(
+                f'**Writer phase uses {top_pct}% of tokens** — '
+                'consider reducing max_turns or tightening the writer system prompt.')
+        elif top_phase == 'planner' and top_pct >= 30:
+            recs.append(
+                f'**Planner phase uses {top_pct}% of tokens** — '
+                'the planning prompt may be oversized; trim skills or CHALLENGES.md.')
+
+    first_try_pct = 100 * first_try // n if n else 0
+    if first_try_pct < 30:
+        recs.append(
+            f'**First-try pass rate is low ({first_try_pct}%)** — '
+            'most sessions need repair iterations; review CHALLENGES.md for recurring patterns '
+            'and add reflexes or skill guidance.')
+    elif first_try_pct >= 70:
+        recs.append(
+            f'First-try pass rate is healthy ({first_try_pct}%). '
+            'Focus optimisation on prompt-token size rather than repair costs.')
+
+    repair_bucket = phase_totals.get('repair', {})
+    if repair_bucket:
+        repair_pct = 100 * (repair_bucket['prompt'] + repair_bucket['generated']) // total_all
+        if repair_pct >= 20 and avg_repair > 2:
+            recs.append(
+                f'Average {avg_repair:.1f} repair iterations per session; '
+                'consider raising MU_NUM_CTX or adding language-specific repair skills.')
+
+    if not recs:
+        recs.append('No specific concerns — token profile looks balanced.')
+
+    lines = [
+        '# Token Usage Summary',
+        '',
+        f'Generated by `mu token-report` — mu version {__version__}',
+        '',
+        f'Sessions analysed: **{n}** ({successes} success / {n - successes} failure)  ',
+        f'First-try pass rate: **{first_try_pct}%**  ',
+        f'Average wall time: **{avg_wall}s**  ',
+        f'Average repair iterations: **{avg_repair:.1f}**  ',
+        '',
+        '## Average Token Cost Per Session',
+        '',
+        '| Metric | Tokens |',
+        '|---|---|',
+        f'| Prompt | {avg_prompt:,} |',
+        f'| Generated | {avg_gen:,} |',
+        f'| Total | {avg_prompt + avg_gen:,} |',
+        '',
+        '## Phase Breakdown (totals across all sessions)',
+        '',
+        '| Phase | Prompt | Generated | % of all tokens |',
+        '|---|---|---|---|',
+    ]
+    for phase, bucket in phase_rows:
+        pct = 100 * (bucket['prompt'] + bucket['generated']) // total_all
+        lines.append(
+            f'| {phase} | {bucket["prompt"]:,} | {bucket["generated"]:,} | {pct}% |')
+    lines += [
+        '',
+        '## Recommendations',
+        '',
+    ]
+    for rec in recs:
+        lines.append(f'- {rec}')
+    lines.append('')
+
+    out_path.write_text('\n'.join(lines), encoding='utf-8')
+    print(f"Wrote {out_path} ({n} sessions)")
+    return 0
 
 
 # ── version ───────────────────────────────────────────────────────────────────
