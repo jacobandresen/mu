@@ -29,6 +29,13 @@
       "description": "32 GB tier. MoE 30B/3B active. Agentic tool use, 256K context."
     },
     {
+      "id": "mistralai/mistral-7b-instruct-v0.3",
+      "backend": "lmstudio",
+      "contextWindow": 32768,
+      "input": ["text"],
+      "description": "European 8 GB option. Mistral 7B v0.3 from Mistral AI (France). Native function calling (Write/Edit tools), ~4.5 GB at Q4_K_M. Replaces phi for tool-use tasks."
+    },
+    {
       "id": "google/gemma-4-e4b",
       "backend": "lmstudio",
       "contextWindow": 131072,
