@@ -1490,8 +1490,8 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
                 # in requirements.txt cannot block the test runner from installing.
                 subprocess.run([str(venv_pip), 'install', '-r', str(req), '-q'],
                                capture_output=True, timeout=120)
-                subprocess.run([str(venv_pip), 'install', 'pytest', '-q'],
-                               capture_output=True, timeout=60)
+                subprocess.run([str(venv_pip), 'install', 'pytest', 'spacy', '-q'],
+                               capture_output=True, timeout=120)
         # Re-apply package.json bare-jest fix — repair model may rewrite scripts.test
         if fix_jest_config_js(os.getcwd()):
             log("Re-applied: fixed jest.config.js syntax.")
