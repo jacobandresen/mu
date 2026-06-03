@@ -15,13 +15,31 @@
       "description": "Best 8 GB option. Code specialist, 88.4% HumanEval, native tool calling, 92+ languages."
     },
     {
+      "id": "unsloth/Mistral-Small-3.2-24B-Instruct-2506-GGUF",
+      "backend": "lmstudio",
+      "tier": "16gb",
+      "region": "eu",
+      "contextWindow": 131072,
+      "input": ["text"],
+      "description": "Best 16 GB option. Mistral Small 3.2 24B (Jun 2025), Mistral AI (France). 128K context, excellent tool calling, ~14 GB at Q4_K_M. Run patch-mistral-template.py after download."
+    },
+    {
       "id": "mistralai/Mistral-Nemo-Instruct-2407",
       "backend": "lmstudio",
       "tier": "16gb",
       "region": "eu",
       "contextWindow": 131072,
       "input": ["text"],
-      "description": "Best 16 GB option. Mistral NeMo 12B from Mistral AI (France). 128K context, native tool calling, ~7 GB at Q4_K_M."
+      "description": "16 GB EU alt. Mistral NeMo 12B, Mistral AI (France). 128K context, native tool calling, ~7 GB at Q4_K_M. Run patch-mistral-template.py after download."
+    },
+    {
+      "id": "bartowski/Codestral-22B-v0.1-GGUF",
+      "backend": "lmstudio",
+      "tier": "16gb",
+      "region": "eu",
+      "contextWindow": 32768,
+      "input": ["text"],
+      "description": "16 GB EU code specialist. Codestral 22B, Mistral AI (France). Trained on 80+ programming languages, ~13 GB at Q4_K_M. Requires accepting Mistral's Codestral license."
     },
     {
       "id": "lmstudio-community/Devstral-Small-2-24B-Instruct-2512-GGUF/Devstral-Small-2-24B-Instruct-2512-Q3_K_L.gguf",
@@ -40,6 +58,15 @@
       "contextWindow": 131072,
       "input": ["text"],
       "description": "16 GB alt. MoE 16B/2.4B active. Fast inference, 338 languages."
+    },
+    {
+      "id": "mistralai/Mixtral-8x7B-Instruct-v0.1",
+      "backend": "lmstudio",
+      "tier": "32gb",
+      "region": "eu",
+      "contextWindow": 32768,
+      "input": ["text"],
+      "description": "32 GB EU alt. Mixtral 8x7B MoE, Mistral AI (France). 8 experts / 2 active, fast inference, ~26 GB at Q4_K_M. Run patch-mistral-template.py after download."
     },
     {
       "id": "unsloth/qwen3-coder-30b-a3b-instruct",
