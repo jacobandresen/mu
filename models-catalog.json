@@ -1,29 +1,42 @@
 {
+  "tiers": {
+    "8gb":  { "minRamGb": 0,  "label": "8 GB"  },
+    "16gb": { "minRamGb": 14, "label": "16 GB" },
+    "32gb": { "minRamGb": 30, "label": "32 GB" }
+  },
   "models": [
     {
       "id": "qwen/qwen2.5-coder-7b-instruct",
       "backend": "lmstudio",
+      "tier": "8gb",
+      "region": "cn",
       "contextWindow": 32768,
       "input": ["text"],
       "description": "Best 8 GB option. Code specialist, 88.4% HumanEval, native tool calling, 92+ languages."
     },
     {
-      "id": "lmstudio-community/Devstral-Small-2-24B-Instruct-2512-GGUF/Devstral-Small-2-24B-Instruct-2512-Q3_K_L.gguf",
-      "backend": "lmstudio",
-      "contextWindow": 262144,
-      "input": ["text", "image"],
-      "description": "Best 32 GB option. 68.0% SWE-bench Verified. Dense 24B, agentic coding, 256K context. European model (Mistral AI, France)."
-    },
-    {
       "id": "mistralai/Mistral-Nemo-Instruct-2407",
       "backend": "lmstudio",
+      "tier": "16gb",
+      "region": "eu",
       "contextWindow": 131072,
       "input": ["text"],
-      "description": "Best 16 GB option. Mistral NeMo 12B from Mistral AI (France). 128K context, native tool calling, ~7 GB at Q4_K_M. European model."
+      "description": "Best 16 GB option. Mistral NeMo 12B from Mistral AI (France). 128K context, native tool calling, ~7 GB at Q4_K_M."
+    },
+    {
+      "id": "lmstudio-community/Devstral-Small-2-24B-Instruct-2512-GGUF/Devstral-Small-2-24B-Instruct-2512-Q3_K_L.gguf",
+      "backend": "lmstudio",
+      "tier": "32gb",
+      "region": "eu",
+      "contextWindow": 262144,
+      "input": ["text", "image"],
+      "description": "Best 32 GB option. 68.0% SWE-bench Verified. Dense 24B, agentic coding, 256K context. Mistral AI (France)."
     },
     {
       "id": "bartowski/deepseek-coder-v2-lite-instruct",
       "backend": "lmstudio",
+      "tier": "16gb",
+      "region": "cn",
       "contextWindow": 131072,
       "input": ["text"],
       "description": "16 GB alt. MoE 16B/2.4B active. Fast inference, 338 languages."
@@ -31,6 +44,8 @@
     {
       "id": "unsloth/qwen3-coder-30b-a3b-instruct",
       "backend": "lmstudio",
+      "tier": "32gb",
+      "region": "cn",
       "contextWindow": 262144,
       "input": ["text"],
       "description": "32 GB tier. MoE 30B/3B active. Agentic tool use, 256K context."
@@ -38,13 +53,17 @@
     {
       "id": "lmstudio-community/Mistral-7B-Instruct-v0.3-GGUF/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf",
       "backend": "lmstudio",
+      "tier": "8gb",
+      "region": "eu",
       "contextWindow": 32768,
       "input": ["text"],
-      "description": "European 8 GB option. Mistral 7B v0.3 from Mistral AI (France). Fixed system-role template, native function calling, ~4.5 GB. Use lmstudio-community version — not mistralai or MaziyarPanahi (those lack system-role support)."
+      "description": "European 8 GB option. Mistral 7B v0.3, Mistral AI (France). Fixed system-role template, native function calling, ~4.5 GB at Q4_K_M."
     },
     {
       "id": "google/gemma-4-e4b",
       "backend": "lmstudio",
+      "tier": "16gb",
+      "region": "us",
       "contextWindow": 131072,
       "input": ["text", "image"],
       "description": "Efficient 4B model. Fits in GPU on 8 GB. Good for quick tasks; prefer a code-specialist for dojo."
@@ -52,6 +71,8 @@
     {
       "id": "google/gemma-4-e2b",
       "backend": "lmstudio",
+      "tier": "16gb",
+      "region": "us",
       "contextWindow": 131072,
       "input": ["text", "image"],
       "description": "Fast 2B model. Fits in GPU on 8 GB M2. Tool calling unreliable on complex tasks."
@@ -59,6 +80,8 @@
     {
       "id": "Qwen2.5-Coder-7B-Instruct-int4-ov",
       "backend": "openvino",
+      "tier": "8gb",
+      "region": "cn",
       "hfRepo": "OpenVINO/Qwen2.5-Coder-7B-Instruct-int4-ov",
       "preferredDevice": "CPU",
       "contextWindow": 32768,
@@ -68,6 +91,8 @@
     {
       "id": "Qwen2.5-Coder-3B-Instruct-int4-ov",
       "backend": "openvino",
+      "tier": "8gb",
+      "region": "cn",
       "hfRepo": "OpenVINO/Qwen2.5-Coder-3B-Instruct-int4-ov",
       "preferredDevice": "CPU",
       "contextWindow": 32768,
@@ -77,6 +102,8 @@
     {
       "id": "Qwen2.5-Coder-14B-Instruct-int4-ov",
       "backend": "openvino",
+      "tier": "16gb",
+      "region": "cn",
       "hfRepo": "OpenVINO/Qwen2.5-Coder-14B-Instruct-int4-ov",
       "preferredDevice": "CPU",
       "contextWindow": 131072,
@@ -86,6 +113,8 @@
     {
       "id": "Mistral-7B-Instruct-v0.3-int4-cw-ov",
       "backend": "openvino",
+      "tier": "8gb",
+      "region": "eu",
       "hfRepo": "OpenVINO/Mistral-7B-Instruct-v0.3-int4-cw-ov",
       "preferredDevice": "NPU",
       "contextWindow": 32768,
@@ -95,6 +124,8 @@
     {
       "id": "Mistral-7B-Instruct-v0.3-int4-ov",
       "backend": "openvino",
+      "tier": "8gb",
+      "region": "eu",
       "hfRepo": "OpenVINO/Mistral-7B-Instruct-v0.3-int4-ov",
       "preferredDevice": "CPU",
       "contextWindow": 32768,
@@ -104,6 +135,8 @@
     {
       "id": "Mistral-7B-Instruct-v0.3-int8-ov",
       "backend": "openvino",
+      "tier": "8gb",
+      "region": "eu",
       "hfRepo": "OpenVINO/Mistral-7B-Instruct-v0.3-int8-ov",
       "preferredDevice": "CPU",
       "contextWindow": 32768,
@@ -113,6 +146,8 @@
     {
       "id": "granite-4.1-3b-openvino-4bit",
       "backend": "openvino",
+      "tier": "8gb",
+      "region": "us",
       "hfRepo": "alex-krtt/granite-4.1-3b-openvino-4bit",
       "preferredDevice": "CPU",
       "contextWindow": 128000,

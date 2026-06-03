@@ -141,16 +141,31 @@ def list_downloaded_llm_paths() -> list[str]:
         return []
 
 
-def load_catalog() -> list[dict]:
-    """Curated model specs shipped alongside the package."""
+def _catalog_path():
     import os
     from pathlib import Path
     default = Path(__file__).parent.parent.parent / 'models-catalog.json'
-    path = Path(os.environ.get('MU_MODELS_CATALOG', '') or default)
+    return Path(os.environ.get('MU_MODELS_CATALOG', '') or default)
+
+
+def load_catalog() -> list[dict]:
+    """Curated model specs shipped alongside the package."""
     try:
-        return json.loads(path.read_text(encoding='utf-8')).get('models', [])
+        return json.loads(_catalog_path().read_text(encoding='utf-8')).get('models', [])
     except Exception:
         return []
+
+
+def load_catalog_tiers() -> dict:
+    """Tier definitions (minRamGb thresholds) from models-catalog.json.
+
+    Returns a dict like {"8gb": {"minRamGb": 0}, "16gb": {"minRamGb": 14}, ...}.
+    Falls back to sane defaults if the catalog is missing or malformed.
+    """
+    try:
+        return json.loads(_catalog_path().read_text(encoding='utf-8')).get('tiers', {})
+    except Exception:
+        return {"8gb": {"minRamGb": 0}, "16gb": {"minRamGb": 14}, "32gb": {"minRamGb": 30}}
 
 
 def catalog_for_backend(backend: str = '') -> list[dict]:
@@ -224,23 +239,27 @@ def _available_ram_gb() -> float:
 
 
 
-# VRAM thresholds (GiB) that determine which model tier to select.
-_VRAM_THRESHOLD_32GB = 30
-_VRAM_THRESHOLD_16GB = 14
+def _resolve_tier(budget_gb: float) -> str:
+    """Return the catalog tier key (e.g. '32gb') for the given RAM budget.
 
-# Context-window sizes (tokens) that bound each tier.
-# 8 GB tier: ≤32K ctx  |  16 GB tier: 32K–128K ctx  |  32 GB tier: >128K ctx
-_CTX_MAX_8GB_TIER  = 32_768   # 32K
-_CTX_MAX_16GB_TIER = 131_072  # 128K
+    Reads tier thresholds from models-catalog.json — no code change needed
+    when thresholds are adjusted.  Picks the highest tier whose minRamGb <= budget.
+    """
+    tiers = load_catalog_tiers()
+    ranked = sorted(tiers.items(), key=lambda kv: kv[1].get('minRamGb', 0), reverse=True)
+    for key, cfg in ranked:
+        if budget_gb >= cfg.get('minRamGb', 0):
+            return key
+    return ranked[-1][0] if ranked else '8gb'
 
 
 def recommended_model() -> str:
     """Most capable catalog model for the current backend that fits this machine.
 
-    For the lmstudio backend: uses VRAM/RAM budget to pick a tier.
-    For the openvino backend: uses available RAM (CPU inference) to pick a tier.
-    Context window stands in for model size:
-      8 GB tier: ≤32K  |  16 GB tier: 32K–128K  |  32 GB tier: >128K
+    Tier thresholds and per-model tier assignments are read from models-catalog.json.
+    Budget detection: VRAM on discrete GPU; unified RAM on Apple Silicon; available
+    RAM on CPU-only Linux.  Tier selection is backend-aware — lmstudio and openvino
+    maintain separate ranked model lists within each tier.
     """
     import platform
     catalog = catalog_for_backend()
@@ -255,20 +274,12 @@ def recommended_model() -> str:
         budget = _available_ram_gb()
     if budget <= 0:
         return catalog[0].get('id', '')
-    if budget >= _VRAM_THRESHOLD_32GB:
-        tier = 32
-    elif budget >= _VRAM_THRESHOLD_16GB:
-        tier = 16
-    else:
-        tier = 8
+
+    tier = _resolve_tier(budget)
     for spec in catalog:
-        ctx = spec.get('contextWindow', 0)
-        if tier == 8  and ctx <= _CTX_MAX_8GB_TIER:
+        if spec.get('tier') == tier:
             return spec.get('id', '')
-        if tier == 16 and _CTX_MAX_8GB_TIER < ctx <= _CTX_MAX_16GB_TIER:
-            return spec.get('id', '')
-        if tier >= 32 and ctx > _CTX_MAX_16GB_TIER:
-            return spec.get('id', '')
+    # No model in the matched tier — fall back to the first available
     return catalog[0].get('id', '')
 
 
