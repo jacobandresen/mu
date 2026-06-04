@@ -17,6 +17,7 @@ from mu.reflexes import fix_requirements_path_entries
 
 from mu import tools
 from mu.client import chat_or_retry
+from mu.diagnose import distill_test_errors
 
 
 def _apply_repair_tool_call(
@@ -188,13 +189,20 @@ class Session:
                     print(f"==> [mu-agent] Repair: tests pass after {i} edit(s).")
                 return True, i
 
+            # Lead with a deterministic FOCUS hint: the test output is often
+            # dominated by build/pip noise with the real error near the bottom,
+            # and a weak model latches onto the wrong line. The distiller names
+            # the first actionable error (file, symbol, class) so the model edits
+            # the right thing. Empty for unrecognized output — then nothing changes.
+            focus = distill_test_errors(test_out)
+            focus_block = f"{focus}\n\n" if focus else ''
             if i == 0:
-                content = (f"GOAL: {goal}\n\n{context}The project's tests are failing. Make ONE targeted "
+                content = (f"GOAL: {goal}\n\n{context}{focus_block}The project's tests are failing. Make ONE targeted "
                            f"change (call Edit, or Write to replace a whole file) to fix the "
                            f"underlying cause. Do not run any commands — the test is run for you "
                            f"and the new output is shown after each edit. Test output:\n\n{test_out}")
             else:
-                content = (f"Still failing after your last edit. Latest test output:\n\n{test_out}"
+                content = (f"{focus_block}Still failing after your last edit. Latest test output:\n\n{test_out}"
                            f"\n\nMake ONE more targeted edit. Do not repeat an edit that did not help.")
             msgs.append({'role': 'user', 'content': content})
 
