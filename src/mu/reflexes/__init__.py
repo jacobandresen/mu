@@ -22,56 +22,15 @@ from mu.plan import is_test_file
 
 # Per-language reflex modules. Each owns the fixers for one language/build
 # system; re-exported here so callers keep importing from ``mu.reflexes``.
+from mu.reflexes.core import *  # noqa: E402,F401,F403
 from mu.reflexes.rust import *  # noqa: E402,F401,F403
 from mu.reflexes.csharp import *  # noqa: E402,F401,F403
 from mu.reflexes.go import *  # noqa: E402,F401,F403
 from mu.reflexes.javascript import *  # noqa: E402,F401,F403
 
 
-def _file_sha(path: str) -> str:
-    try:
-        return hashlib.sha1(Path(path).read_bytes()).hexdigest()
-    except OSError:
-        return ''
 
 
-def run_reflexes(fns, target: str, max_passes: int = 4) -> None:
-    """Apply a chain of single-arg reflexes to a fixpoint — safely.
-
-    Runs every reflex in order, repeating the whole chain until the file stops
-    changing. This lets a reflex that only becomes applicable after an earlier
-    one's edit (e.g. hoist a nested target, THEN add its missing rule) still fire,
-    without hand-tuning a single pass order. It guards against the two ways a
-    reflex chain can misbehave:
-
-      * looping       — a hard ``max_passes`` cap.
-      * contradicting — if the content returns to a state seen on an earlier pass
-        (two reflexes undoing each other), stop immediately and log it rather
-        than oscillate forever.
-
-    A reflex that raises is skipped, never crashing the chain. Reflexes should be
-    idempotent; the guards make a non-idempotent or contradictory pair *safe*
-    (it stops, logged) instead of hanging.
-    """
-    last = _file_sha(target)
-    seen = {last}
-    for _ in range(max_passes):
-        for fn in fns:
-            try:
-                fn(target)
-            except Exception:
-                pass
-        h = _file_sha(target)
-        if h == last:
-            return  # converged — a full pass changed nothing
-        if h in seen:
-            print(f"==> [mu-agent] Reflex contradiction on {target} — two reflexes "
-                  f"oscillating; stopping at a stable-enough state.", flush=True)
-            return
-        seen.add(h)
-        last = h
-    print(f"==> [mu-agent] Reflexes did not converge on {target} after "
-          f"{max_passes} passes — continuing with current state.", flush=True)
 
 # A Makefile target at column 0: a plain name (all, .PHONY) OR a make variable
 # ($(EXEC), ${PROG}) used as a target name, followed by a colon. Small models
@@ -785,190 +744,12 @@ def fix_python_missing_def(file_path: str) -> bool:
     return True
 
 
-_CODE_EXTS = {'.py', '.cs', '.rs', '.go', '.c', '.cpp', '.h', '.java', '.js', '.ts', '.jsx', '.tsx'}
 
 
-def fix_tool_call_artifacts(file_path: str) -> bool:
-    """Strip lines containing model tool-call JSON leaked into source files.
-
-    Models occasionally embed their own tool-calling syntax (e.g. lines starting
-    with backtick sequences followed by [TOOL_REQUEST]) directly into file content,
-    producing immediate syntax errors. Generic: any such line in any source file
-    is wrong.
-    """
-    p = Path(file_path)
-    if p.suffix.lower() not in _CODE_EXTS and p.name.lower() not in ('makefile', 'requirements.txt'):
-        return False
-    try:
-        text = p.read_text()
-    except OSError:
-        return False
-    lines = text.splitlines(keepends=True)
-    cleaned = [ln for ln in lines if '[TOOL_REQUEST]' not in ln and '[TOOL_RESULT]' not in ln]
-    if len(cleaned) == len(lines):
-        return False
-    Path(file_path).write_text(''.join(cleaned))
-    print(f"==> [mu-agent] Reflex: stripped tool-call artifact line(s) from {file_path}")
-    return True
 
 
-def fix_json_unclosed_brackets(file_path: str) -> bool:
-    """Close unclosed JSON arrays or objects by appending missing brackets.
-
-    Models sometimes truncate JSON files (tsconfig.json, package.json, etc.)
-    mid-array or mid-object, causing 'Expected "," in JSON but found end of file'
-    or 'Unterminated string' errors. This reflex counts open brackets and appends
-    the missing closing ones in reverse order.
-    General: applies to any .json file with unbalanced brackets.
-    """
-    if not file_path.lower().endswith('.json'):
-        return False
-    try:
-        text = Path(file_path).read_text()
-        json.loads(text)
-        return False  # already valid
-    except (json.JSONDecodeError, OSError):
-        pass
-    # Count brackets outside strings
-    depth_sq = 0  # [ ]
-    depth_cu = 0  # { }
-    stack = []
-    i = 0
-    while i < len(text):
-        c = text[i]
-        if c == '"':
-            i += 1
-            while i < len(text):
-                if text[i] == '\\':
-                    i += 2
-                    continue
-                if text[i] == '"':
-                    break
-                i += 1
-        elif c == '[':
-            stack.append(']')
-        elif c == '{':
-            stack.append('}')
-        elif c == ']':
-            if stack and stack[-1] == ']':
-                stack.pop()
-        elif c == '}':
-            if stack and stack[-1] == '}':
-                stack.pop()
-        i += 1
-    if not stack:
-        return False  # brackets balanced — issue is something else
-    # Append missing closing brackets in reverse order
-    suffix = '\n' + ''.join(reversed(stack))
-    new_text = text.rstrip() + suffix + '\n'
-    try:
-        json.loads(new_text)
-    except json.JSONDecodeError:
-        return False  # couldn't fix it
-    Path(file_path).write_text(new_text)
-    print(f"==> [mu-agent] Reflex: closed {len(stack)} unclosed bracket(s) in {file_path}")
-    return True
 
 
-def fix_literal_newlines(file_path: str, lint_error: str = '') -> bool:
-    """Replace literal \\n escape sequences with real newlines in source files.
-
-    Models occasionally write an entire file as one long string with \\n
-    characters instead of actual line breaks.
-
-    Two modes:
-    - Bulk mode: fires when literal \\n sequences outnumber real newlines by a
-      wide margin (whole-file collapse). Safe to do a global replace on any
-      source file.
-    - Targeted mode (lint_error contains 'line continuation'): fires even in
-      mixed files, but only replaces literal \\n outside string literals.
-    """
-    allowed_exts = _CODE_EXTS | {'.json'}
-    if Path(file_path).suffix.lower() not in allowed_exts:
-        return False
-    try:
-        text = Path(file_path).read_text()
-    except OSError:
-        return False
-    real_newlines = text.count('\n')
-    literal_newlines = text.count('\\n')
-    if literal_newlines == 0:
-        return False
-
-    # JSON mode: ANY literal \n outside a JSON string value is invalid — fire on even 1.
-    if Path(file_path).suffix.lower() == '.json' and literal_newlines >= 1:
-        fixed = text.replace('\\n', '\n')
-        Path(file_path).write_text(fixed)
-        print(f"==> [mu-agent] Reflex: replaced {literal_newlines} literal \\n "
-              f"with real newlines in {file_path}")
-        return True
-
-    # Bulk mode: nearly all newlines are literal (whole-file collapse).
-    if literal_newlines >= 3 and literal_newlines > real_newlines:
-        fixed = text.replace('\\n', '\n')
-        Path(file_path).write_text(fixed)
-        print(f"==> [mu-agent] Reflex: replaced {literal_newlines} literal \\n "
-              f"with real newlines in {file_path}")
-        return True
-
-    # JS/TS mode: even one literal \n outside a string is a syntax error.
-    # JavaScript has no line-continuation character, so any \n in code is wrong.
-    ext = Path(file_path).suffix.lower()
-    is_js = ext in ('.js', '.jsx', '.ts', '.tsx')
-    if is_js:
-        lines = text.splitlines(keepends=True)
-        changed = False
-        result = []
-        for line in lines:
-            idx = line.find('\\n')
-            if idx == -1:
-                result.append(line)
-                continue
-            prefix = line[:idx]
-            # Heuristic: if even number of unescaped quotes before \n, we're outside a string.
-            if (prefix.count('"') - prefix.count('\\"')) % 2 == 0 and \
-                    (prefix.count("'") - prefix.count("\\'")) % 2 == 0 and \
-                    prefix.count('`') % 2 == 0:
-                new_lines = line.replace('\\n', '\n')
-                result.append(new_lines)
-                changed = True
-            else:
-                result.append(line)
-        if changed:
-            Path(file_path).write_text(''.join(result))
-            print(f"==> [mu-agent] Reflex: fixed literal \\n in JS/TS file {file_path}")
-            return True
-
-    # Targeted mode: mixed file with a 'line continuation' syntax error.
-    # Replace \\n only on lines where it appears outside of a string literal
-    # (heuristic: line contains \\n but is not dominated by quotes around it).
-    if 'line continuation' not in lint_error:
-        return False
-    lines = text.splitlines(keepends=True)
-    changed = False
-    result = []
-    for line in lines:
-        # Count quotes before the first \\n to decide if we're inside a string.
-        idx = line.find('\\n')
-        if idx == -1:
-            result.append(line)
-            continue
-        prefix = line[:idx]
-        # If the number of unescaped quote chars before \\n is even, we're not
-        # inside a string literal — safe to split.
-        if (prefix.count('"') - prefix.count('\\"')) % 2 == 0 and \
-                (prefix.count("'") - prefix.count("\\'")) % 2 == 0:
-            # Replace all \\n in this line with real newlines by splitting.
-            new_lines = line.replace('\\n', '\n')
-            result.append(new_lines)
-            changed = True
-        else:
-            result.append(line)
-    if not changed:
-        return False
-    Path(file_path).write_text(''.join(result))
-    print(f"==> [mu-agent] Reflex: fixed literal \\n (line continuation) in {file_path}")
-    return True
 
 
 # ── Flask / pytest reflexes ───────────────────────────────────────────────────
