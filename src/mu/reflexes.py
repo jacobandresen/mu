@@ -17,7 +17,11 @@ import shutil
 import subprocess
 from pathlib import Path
 
-_TARGET_RE = re.compile(r'(?m)^[a-zA-Z_.][a-zA-Z0-9._-]*\s*:')
+# A Makefile target at column 0: a plain name (all, .PHONY) OR a make variable
+# ($(EXEC), ${PROG}) used as a target name, followed by a colon. Small models
+# routinely write `$(EXEC): main.c`; without the variable form the reflexes
+# that key off this regex mis-classify such lines as orphan recipes.
+_TARGET_RE = re.compile(r'(?m)^(?:\$[({][A-Za-z_]\w*[)}]|[a-zA-Z_.][a-zA-Z0-9._-]*)\s*:')
 _KNOWN_TARGETS = {'all', 'clean', 'install', 'test', 'build', 'run', 'format',
                   'lint', 'check', 'release', 'debug', 'help'}
 _INLINE_COMPILER_RE = re.compile(
@@ -2292,7 +2296,36 @@ def fix_inline_recipe(f: str) -> bool:
     return True
 
 
-_NESTED_TARGET_RE = re.compile(r'^\t([A-Za-z0-9_.-]+):([ \t].*)?$')
+def fix_makefile_backslash_artifact(f: str) -> bool:
+    """Strip a stray backslash a model puts before inline whitespace on a target
+    line, e.g. ``all: \\<TAB>$(EXEC)``.
+
+    A real line-continuation backslash is the LAST character on its line; a
+    backslash followed by more text on the same line is an artifact that mangles
+    the prerequisite list. Restricted to target-definition lines (``name:``) so
+    it never touches a recipe's legitimately-escaped space (``cp a\\ b``).
+    """
+    try:
+        content = Path(f).read_text()
+    except OSError:
+        return False
+    out, changed = [], False
+    for line in content.splitlines():
+        if re.match(r'^[A-Za-z0-9_.$(){}-]+\s*:', line) and re.search(r'\\[ \t]+\S', line):
+            line = re.sub(r'\\[ \t]+(?=\S)', ' ', line)
+            changed = True
+        out.append(line)
+    if not changed:
+        return False
+    Path(f).write_text('\n'.join(out) + '\n')
+    return True
+
+
+# Matches a tab-indented line that is really a target/directive, not a recipe:
+# a plain name (hello, .PHONY) OR a make variable ($(EXEC), ${PROG}) followed by
+# a colon. Small models emit `\t$(EXEC): main.c` and `\t.PHONY: all` indented
+# under a prior target; both must be hoisted to column 0.
+_NESTED_TARGET_RE = re.compile(r'^\t(\$[({][A-Za-z_]\w*[)}]|[A-Za-z0-9_.-]+):([ \t].*)?$')
 
 
 def fix_nested_targets(f: str) -> bool:
@@ -3487,6 +3520,7 @@ def apply_makefile_reflexes(f: str) -> None:
                fix_makefile_escaped_dollar,
                fix_makefile_wrong_c_compiler,
                fix_makefile_sdl2_config_typo, fix_makefile_double_colon_target,
+               fix_makefile_backslash_artifact,
                fix_makefile_space_indent, fix_nested_targets,
                fix_orphan_top_level_commands, fix_no_targets,
                fix_inline_recipe, fix_binary_target_runs_itself,
