@@ -224,6 +224,17 @@ def normalize_test_command(path: str) -> bool:
     p = parse_content(updated)
     if p.test_command and re.match(r'pytest\s+.*\.rs\b', p.test_command):
         updated = _set_test_command(updated, 'cargo test')
+    # A Go plan whose test command would start a blocking server (bare `./binary`,
+    # e.g. `make && ./main`) hangs the test gate forever. The planner reliably
+    # re-emits this even when asked to fix it, so rewrite it deterministically to
+    # the non-blocking canonical Go check (matches the agent's go fallback):
+    # `go test ./...` exits 0 when the package builds with no/passing tests and
+    # non-zero when it fails to compile.
+    p = parse_content(updated)
+    if (p.test_command and re.search(r'\b\w+\.go\b', updated)
+            and 'go test' not in p.test_command
+            and re.search(r'(^|&&\s*|;\s*|\|\s*)\./', p.test_command)):
+        updated = _set_test_command(updated, 'go test ./...')
     # dotnet ef migration/database commands are not test commands — replace with dotnet test.
     p = parse_content(updated)
     if p.test_command and re.match(r'dotnet\s+ef\s+', p.test_command):

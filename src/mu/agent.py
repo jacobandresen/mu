@@ -1259,8 +1259,16 @@ def _run_planning_phase(goal: str, model: str, planner_timeout: int, complexity:
             continue
         text = data.decode('utf-8', errors='replace')
         if _plan_has_blocking_go_cmd(text):
-            log("Attempt %d: Go plan uses blocking ./binary test command — retrying", attempt)
-            continue
+            # The model reliably re-emits the blocking `./binary` command on every
+            # attempt (a Go HTTP server runs forever), so retrying just burns the
+            # budget and fails the whole problem. Fix it deterministically instead:
+            # normalize_test_command rewrites it to the non-blocking `go test ./...`.
+            if normalize_test_command(plan_file):
+                text = Path(plan_file).read_text()
+            if _plan_has_blocking_go_cmd(text):
+                log("Attempt %d: Go plan uses blocking ./binary test command — retrying", attempt)
+                continue
+            log("Rewrote blocking Go ./binary test command to a non-blocking check.")
         break
     else:
         print(f"mu-agent: task-planner did not produce a valid {plan_file} after 3 attempts",

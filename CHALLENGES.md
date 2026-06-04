@@ -134,6 +134,9 @@ Tracks the most frequent or significant challenges encountered while running the
 43. **EF Core packages absent from auto-generated .csproj**
    - The grounding-generated `.csproj` uses the minimal SDK template without package references. Files using `DbContext`, `UseSqlite`, etc. then fail with CS0234. Fixed: `_csproj_content(include_ef_core=True)` is used when the plan text mentions EntityFramework/DbContext/WebApplicationFactory, adding EF Core + SQLite + ASP.NET packages.
 
+44. **Syntax error in HTML template**
+  - Ensure proper HTML syntax and correct use of tags in Vue components to avoid runtime errors.
+
 ## Resolved
 
 - **Missing `fix_sqlite_in_memory` function** — obsolete. AST fixer pass and the orphaned sqlite sensor removed in commit `07717cc`.
