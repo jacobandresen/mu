@@ -809,6 +809,26 @@ def run(goal: str, model: str = '', target_dir: str = '',
         except OSError:
             pass
 
+        # Opt-in doomed-run predictor (MU_PREDICT=1). Logs P(success) from the
+        # goal + plan shape; with MU_PREDICT_ABORT and a low score it bails before
+        # the expensive writer/repair loop. Non-destructive by default — purely
+        # informational unless abort is explicitly enabled.
+        if os.environ.get('MU_PREDICT') == '1':
+            try:
+                from mu.predict import predict_success_proba
+                proba = predict_success_proba(goal, len(p.tasks), max_iter)
+                if proba is not None:
+                    log("Predicted P(success) = %.0f%%", proba * 100)
+                    thresh = float(os.environ.get('MU_PREDICT_ABORT', '0') or 0)
+                    if thresh > 0 and proba < thresh:
+                        log("Aborting before writer loop: P(success) %.0f%% < "
+                            "threshold %.0f%% (MU_PREDICT_ABORT).",
+                            proba * 100, thresh * 100)
+                        exit_code = 4  # finalized by the run() finally block
+                        return exit_code
+            except Exception as e:
+                log("Predictor unavailable (%s) — continuing.", e)
+
         project_dir = os.getcwd()
         auto_system = _build_autonomous_system(project_dir, plan_file)
         if max_prompt_tokens() >= 2000:
