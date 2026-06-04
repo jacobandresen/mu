@@ -12,6 +12,14 @@ set -euo pipefail
 
 export PATH="/usr/local/share/dotnet:$HOME/.dotnet:$HOME/.cargo/bin:/opt/homebrew/bin:$PATH"
 
+# Context budget for dojo runs. The dojo targets the small ibm/granite-4.1-3b
+# model (~2 GB), which leaves ample RAM headroom on an 8 GB machine, so we run a
+# larger window than the 6000 default tuned for the 7B preferred model. mu loads
+# the model with a context ceiling matching MU_NUM_CTX (see client.load_model),
+# so this also prevents the HTTP 400s that occur when a repair-loop prompt
+# exceeds LM Studio's 4096 JIT default. Override by exporting MU_NUM_CTX first.
+export MU_NUM_CTX="${MU_NUM_CTX:-8192}"
+
 if [[ $# -gt 1 ]]; then
   echo "Usage: $0 [problem-id]"
   exit 1

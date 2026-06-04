@@ -362,6 +362,19 @@ def load_backend() -> dict:
         return {'backend': 'lmstudio', 'host': '', 'model': '', 'ov_pid': 0, 'ov_device': 'CPU'}
 
 
+def load_context_size() -> int:
+    """Context window to load the model with: the per-request budget plus
+    headroom, so a prompt that grows past num_ctx (e.g. a long repair history)
+    still fits the loaded window instead of being rejected with HTTP 400.
+
+    Overridable via MU_LOAD_CTX for models that need a specific ceiling.
+    """
+    override = os.environ.get("MU_LOAD_CTX")
+    if override and override.isdigit():
+        return int(override)
+    return _NUM_CTX + 2048
+
+
 def max_prompt_tokens() -> int:
     """Return the effective max prompt token budget for the current backend.
 
@@ -482,14 +495,38 @@ def load_model(model_id: str, _retry: bool = True) -> bool:
         print(f"Loading {model_id} …")
         spin = threading.Thread(target=_spinner, daemon=True)
         spin.start()
-        handle = _lms_client().llm.load_new_instance(
-            model_id, ttl=None, on_load_progress=_on_progress
-        )
+        # Load with an explicit context window ≥ our per-request budget, plus
+        # headroom. Without this, LM Studio's JIT default (often 4096) caps the
+        # model below _NUM_CTX, so any prompt above the default is hard-rejected
+        # with HTTP 400 mid-run — invisible until the repair loop's accumulated
+        # history (the largest prompt) hits it. The headroom means a request at
+        # num_ctx never bumps the loaded ceiling even as that history grows; the
+        # 3B's small hybrid KV cache makes the extra room cheap on RAM.
+        load_ctx = load_context_size()
+        try:
+            handle = _lms_client().llm.load_new_instance(
+                model_id, ttl=None, on_load_progress=_on_progress,
+                config={"contextLength": load_ctx},
+            )
+        except TypeError:
+            # Older SDK without a `config` kwarg — fall back to a plain load.
+            handle = _lms_client().llm.load_new_instance(
+                model_id, ttl=None, on_load_progress=_on_progress
+            )
         progress_received.set()  # stop spinner if no progress events fired
         spin.join(timeout=1)
         print()  # newline after progress bar
         info = handle.get_info()
-        print(f"Loaded: {getattr(info, 'identifier', model_id)}")
+        # Read back the context the model actually loaded with and warn if LM
+        # Studio clamped it below our request budget (e.g. config ignored, or a
+        # model max smaller than asked) — otherwise the clamp is silent until 400s.
+        actual = getattr(info, 'context_length', None) or getattr(info, 'contextLength', None)
+        print(f"Loaded: {getattr(info, 'identifier', model_id)}"
+              + (f"  (context: {actual})" if actual else ''))
+        if actual and actual < _NUM_CTX:
+            print(f"  WARNING: loaded context {actual} < MU_NUM_CTX {_NUM_CTX} — "
+                  f"prompts above {actual} tokens will be rejected. Lower MU_NUM_CTX "
+                  f"or load this model with a larger context window.")
         return True
     except ImportError:
         print("lmstudio SDK not installed — run: pip install lmstudio  (in the mu venv)")
@@ -543,8 +580,69 @@ def download_model(model_id: str, on_progress=None) -> str:
         return ''
 
 
+_KNOWN_TOOLS = frozenset(('Write', 'Edit', 'Bash', 'Read'))
+# Markers various small models wrap text-format tool calls in. Stripped before
+# JSON decoding. The opening tag is often consumed as a special token by the
+# chat template, leaving only the closing tag — so we strip each independently.
+_TOOLCALL_MARKERS = ('<tool_call>', '</tool_call>', '<|tool_call|>',
+                     '<|tool_calls|>', '[TOOL_CALLS]', '<tools>', '</tools>')
+
+
+def _extract_text_tool_calls(content: str) -> list[dict]:
+    """Parse tool calls that a model emitted as plain text in the content field.
+
+    Some models (e.g. IBM Granite, Hermes-style) emit tool calls as JSON in the
+    message body — ``{"name": "Write", "arguments": {...}}`` optionally wrapped
+    in ``<tool_call>``/``</tool_call>`` markers — instead of populating the
+    OpenAI ``tool_calls`` field. LM Studio does not always re-parse these, so
+    the agent sees an empty ``tool_calls`` and assumes the model produced prose.
+
+    This is a general model-compatibility shim, not specific to any task. It is
+    fail-soft: malformed or truncated JSON (e.g. a large file that hit the
+    generation limit) yields ``[]`` so the caller's existing nudge/retry path
+    fires instead of crashing.
+
+    Uses ``raw_decode`` rather than brace-counting because file contents inside
+    the ``arguments`` string are full of ``{`` and ``}`` that would defeat a
+    naive balanced-brace scan.
+    """
+    if not content or '{' not in content:
+        return []
+    text = content
+    for marker in _TOOLCALL_MARKERS:
+        text = text.replace(marker, ' ')
+    decoder = json.JSONDecoder()
+    calls: list[dict] = []
+    idx = 0
+    n = len(text)
+    while idx < n:
+        start = text.find('{', idx)
+        if start < 0:
+            break
+        try:
+            obj, end = decoder.raw_decode(text, start)
+        except json.JSONDecodeError:
+            # Not a valid object at this brace — advance past it and retry.
+            # A truncated final object simply yields no further calls.
+            idx = start + 1
+            continue
+        idx = end
+        if not isinstance(obj, dict):
+            continue
+        name = obj.get('name')
+        args = obj.get('arguments')
+        # Validate: must name a real tool and carry an arguments object.
+        if name in _KNOWN_TOOLS and isinstance(args, dict):
+            calls.append({
+                'id': f'call_{len(calls)}',
+                'type': 'function',
+                'function': {'name': name, 'arguments': json.dumps(args)},
+            })
+    return calls
+
+
 def chat(model: str, messages: list[dict], tools: Optional[list[dict]],
-         timeout: float) -> tuple[dict, ChatStats]:
+         timeout: float, tool_choice: str = 'auto') -> tuple[dict, ChatStats]:
     import httpx
     body: dict = {
         'model': model,
@@ -564,7 +662,12 @@ def chat(model: str, messages: list[dict], tools: Optional[list[dict]],
         body['num_ctx'] = _NUM_CTX
     if tools:
         body['tools'] = tools
-        body['tool_choice'] = 'auto'
+        # 'required' forces the model to emit a real tool call instead of prose.
+        # Small models (e.g. Granite) otherwise drift into 228-token explanations
+        # for whole writer turns, or emit the call as unparsed text; forcing it
+        # routes them through LM Studio's native tool-call path. Callers that
+        # genuinely may not need a tool (none today) can pass 'auto'.
+        body['tool_choice'] = tool_choice
     r = httpx.post(f"{LMS_HOST}/v1/chat/completions", json=body,
                    timeout=max(timeout, 10.0))
     r.raise_for_status()
@@ -596,15 +699,27 @@ def chat(model: str, messages: list[dict], tools: Optional[list[dict]],
             'type': 'function',
             'function': {'name': fn.get('name', ''), 'arguments': json.dumps(parsed)},
         })
+    content = msg.get('content') or ''
+    # Fallback: some models (Granite, Hermes-style) emit the tool call as text
+    # in the content field instead of the OpenAI tool_calls field. Parse it so
+    # the agent loop sees a real tool call rather than treating it as prose.
+    if not tool_calls and tools:
+        recovered = _extract_text_tool_calls(content)
+        if recovered:
+            tool_calls = recovered
+            # Drop the raw JSON from content — the call now lives in tool_calls,
+            # and re-sending the JSON body as assistant text would confuse the
+            # model on later turns.
+            content = ''
     return {
         'role': 'assistant',
-        'content': msg.get('content') or '',
+        'content': content,
         'tool_calls': tool_calls,
     }, stats
 
 
 def chat_or_retry(model: str, messages: list[dict], tools: Optional[list[dict]],
-                  deadline: float) -> tuple[dict, ChatStats]:
+                  deadline: float, tool_choice: str = 'auto') -> tuple[dict, ChatStats]:
     last_err: Optional[Exception] = None
     for attempt in range(3):
         remaining = deadline - time.time()
@@ -612,7 +727,7 @@ def chat_or_retry(model: str, messages: list[dict], tools: Optional[list[dict]],
             raise last_err or TimeoutError("deadline exceeded")
         t0 = time.time()
         try:
-            msg, stats = chat(model, messages, tools, remaining)
+            msg, stats = chat(model, messages, tools, remaining, tool_choice)
         except Exception as e:
             if attempt < 2:
                 print(f"==> [mu-agent] Chat error — retrying in 5s (retry {attempt + 1}/2): {e}")

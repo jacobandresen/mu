@@ -31,7 +31,7 @@ from mu.archive import AgentSession
 from mu.client import (LMS_HOST, chat, list_downloaded_llm_paths, list_models, load_backend,
                         load_catalog, load_model, max_prompt_tokens, normalize_model_bare,
                         preferred_model, recommended_model, set_chat_context)
-from mu.plan import (Plan, check_goal_alignment, clear_challenges,
+from mu.plan import (Plan, _EXT_LANGUAGE, check_goal_alignment, clear_challenges,
                      drop_minority_languages,
                      drop_runtime_artifacts,
                      extract_plan_content, get_challenges, ground_plan,
@@ -1009,13 +1009,19 @@ def run(goal: str, model: str = '', target_dir: str = '',
                         )
                         if det_fixed:
                             log("Lint auto-fixed (deterministic): %s", task.file_path)
+                        elif _lint_failures_all_cosmetic(lint_log):
+                            # Only unused-variable warnings remain — correctness is
+                            # fine and pytest will pass. Accept rather than spend the
+                            # repair budget on a fix the small model can't make safely.
+                            log("Lint: only cosmetic unused-variable warnings in %s — accepting.",
+                                task.file_path)
                         else:
                             record_challenge(
                                 f"lint repair needed for {task.file_path}", lint_head,
                                 plan_file=plan_file)
                             _run_repair_lint(model, lint_cmd, task.file_path, lint_log, lint_head,
-                                            auto_system, writer_timeout, goal, plan_file)
-                            if not _run_cmd(lint_cmd, lint_log):
+                                            writer_timeout, goal, plan_file)
+                            if not _run_cmd(lint_cmd, lint_log) and not _lint_failures_all_cosmetic(lint_log):
                                 log("Lint still failing after repair for %s.", task.file_path)
                                 record_failed_repair(f"lint repair for {task.file_path}",
                                                      _head_file(lint_log, 5), plan_file)
@@ -1179,10 +1185,9 @@ def _run_planner(goal: str, model: str, planner_timeout: int,
     has_dotnet = any(k in goal_lower for k in ('asp.net', 'dotnet', 'c#', 'csharp', 'xunit', 'ef core'))
     has_vue = any(k in goal_lower for k in ('vue', 'vite', 'vitest'))
     if has_dotnet:
-        for sname in ('dotnet-mvc', 'dotnet-xunit'):
-            ds = _load_skill(sname)
-            if ds:
-                extra_skills.append(ds)
+        ds = _load_skill('dotnet-mvc')
+        if ds:
+            extra_skills.append(ds)
     elif has_vue and not has_dotnet:
         # vue-ts-env: ensures planner includes package.json, vite.config.ts,
         # Makefile, and uses `npx vitest run` not bare `vitest`.
@@ -1336,14 +1341,12 @@ def _contextual_skills(goal: str, p: Plan) -> list[tuple[str, str]]:
     is_python = _python_relevant(goal, p)
     candidates: list[tuple[str, bool]] = [
         ('makefile-writer',    _makefile_relevant(goal, p)),
-        ('python-env',         is_python),
         ('python-writer',      is_python),
         ('node-env',           _node_relevant(goal, p)),
         ('go-writer',          any(t.file_path.endswith('.go') for t in p.tasks)),
         ('sdl2-writer',        bool(re.search(r'(?i)\bSDL2?\b', goal))),
         ('vue-ts-env',         _vue_relevant(goal, p)),
         ('dotnet-mvc',         is_dotnet),
-        ('dotnet-xunit',       is_dotnet),
         ('test-isolation',     _test_isolation_relevant(goal, p) and not is_python and not is_dotnet),
         ('no-server-in-tests', _no_server_relevant(goal, p) and not is_python and not is_dotnet),
     ]
@@ -1630,7 +1633,7 @@ def _repair_context(p: Plan) -> str:
 
 
 def _run_repair_lint(model: str, lint_cmd: str, file_path: str, lint_log: str, lint_head: str,
-                     autonomous_system: str, writer_timeout: int, goal: str,
+                     writer_timeout: int, goal: str,
                      plan_file: str = 'PLAN.md') -> None:
     file_content = ''
     try:
@@ -1662,7 +1665,17 @@ def _run_repair_lint(model: str, lint_cmd: str, file_path: str, lint_log: str, l
     # the test gate uses — a one-shot pass couldn't converge on multi-step fixes.
     context = (f"## Fix the lint/compile error in {file_path}. Only edit {file_path}; "
                f"do not create files.{hint}{file_content}{repair_history(plan_file)}\n\n")
-    sess = Session(autonomous_system + '\n\n' + _repair_loop_rules(plan_file))
+    # Lean system: base protocol + only the one per-language repair guide for this
+    # file. The full write-time system (python-env, python-writer, makefile-writer,
+    # etc.) is ~1.9k tokens of guidance on how to *structure new projects* — useless
+    # for fixing a lint error, and on a small model it bloats the prompt enough to
+    # trigger degenerate 2-token replies or 400 context-overflow in the repair loop.
+    lang = _EXT_LANGUAGE.get(Path(file_path).suffix.lower(), '')
+    repair_skill = _load_skill(_LANG_REPAIR_SKILL.get(lang, '')) if lang else ''
+    lean_system = _build_autonomous_system(os.getcwd())
+    if repair_skill:
+        lean_system += '\n\n' + repair_skill
+    sess = Session(lean_system + '\n\n' + _repair_loop_rules(plan_file))
     sess.tool_set = tools.REPAIR
     set_chat_context('lint-repair', file_path)
 
@@ -2197,6 +2210,27 @@ def _build_write_prompt(goal: str, task, p: Plan, companion: str = '',
     return ''.join(parts)
 
 
+def _lint_failures_all_cosmetic(lint_log: str) -> bool:
+    """True if every reported lint line is a purely cosmetic unused-variable
+    warning ("assigned to but never used").
+
+    Such warnings (pyflakes F841) never affect correctness — the code runs and
+    pytest passes regardless — yet they fail the lint gate and send a small model
+    into a doomed repair loop over a variable it usually can't safely remove (the
+    RHS commonly has a side effect, e.g. `parser_list = subparsers.add_parser(...)`).
+    Unused *imports* are deliberately NOT treated as cosmetic here — autoflake
+    strips those, and leaving them masks real missing-symbol problems. Returns
+    False on an empty log so a genuinely-clean rerun isn't misread as cosmetic.
+    """
+    try:
+        lines = [ln for ln in Path(lint_log).read_text().splitlines() if ln.strip()]
+    except OSError:
+        return False
+    if not lines:
+        return False
+    return all('assigned to but never used' in ln for ln in lines)
+
+
 def _lint_command(file_path: str, p: Plan) -> str:
     if is_build_file(file_path):
         return ''
@@ -2208,6 +2242,10 @@ def _lint_command(file_path: str, p: Plan) -> str:
     if ext == '.py':
         # pyflakes (pure-Python) covers F-codes and syntax errors; run it with
         # mu's own interpreter so the target venv needn't have it installed.
+        # Cosmetic-only failures (unused variables) are filtered out of the gate
+        # decision downstream (see _lint_failures_all_cosmetic) rather than by
+        # switching linters — the deterministic repair reflexes parse pyflakes'
+        # exact message format, so its output format must be preserved.
         if importlib.util.find_spec('pyflakes'):
             return f"{sys.executable} -m pyflakes {file_path}"
         return f"python3 -m py_compile {file_path}"
