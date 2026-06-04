@@ -1573,6 +1573,19 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
                     log("Deleted stale .cs from unexpected subdir: %s", cs_file)
                 except OSError:
                     pass
+        # Project-level Cargo.toml guard: run the cargo reflex chain before every
+        # test attempt whenever a manifest exists — independent of whether the
+        # plan has a cargo.toml task. The repair model routinely rewrites
+        # Cargo.toml with a hallucinated dependency (e.g. `binary = "fib"`) that
+        # is valid TOML but an invalid version requirement, so fix_rust_cargo_toml
+        # (structure-only) leaves it; fix_rust_cargo_bad_dependency strips it. The
+        # chain is a no-op on a clean manifest, so it never fights a legitimate
+        # edit. Most Rust plans only have a src/main.rs task, so a per-task guard
+        # never fired here — this is the gate that was missing.
+        if Path('Cargo.toml').exists():
+            run_reflexes([fix_rust_cargo_toml, fix_rust_cargo_bad_dependency],
+                         'Cargo.toml')
+
         for t in p.tasks:
             if not Path(t.file_path).exists():
                 continue
@@ -1582,8 +1595,8 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
                 apply_makefile_reflexes(t.file_path)
                 fix_makefile_binary_name(t.file_path, p.test_command or '')
             elif t.file_path.lower() == 'cargo.toml':
-                if fix_rust_cargo_toml(t.file_path):
-                    log("Repair reapply: regenerated corrupted Cargo.toml.")
+                # Covered by the project-level Cargo.toml guard above.
+                pass
             elif t.file_path.endswith('.rs'):
                 if Path(test_log).exists():
                     if fix_rust_missing_trait_import(t.file_path, _tail_file(test_log, 60)):
