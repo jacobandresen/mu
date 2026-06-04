@@ -1619,6 +1619,13 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
                 fix_sqlite_missing_row_factory(t.file_path)
                 fix_sqlite_memory_multi_connect(t.file_path)
                 fix_flask_post_missing_201(t.file_path)
+                # A test that uses app/db/a model from the implementation module
+                # without importing it passes the syntax-only lint gate and only
+                # fails at pytest runtime with NameError. The lint-phase resolver
+                # never sees it, so resolve it here from the test output.
+                if Path(test_log).exists():
+                    if fix_python_undefined_imports(t.file_path, _tail_file(test_log, 60)):
+                        log("Repair reapply: added missing import(s) to %s.", t.file_path)
         apply_go_reflexes()  # resolve Go module deps before each build attempt
         # If any package.json exists but its node_modules is absent, run npm install.
         # The repair loop may rewrite package.json but never re-runs install.

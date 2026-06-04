@@ -195,11 +195,28 @@ _PY_STDLIB_IMPORTS = {
 }
 
 def _sibling_py_sources(file_path: str) -> dict[str, str]:
-    """Return {stem: source} for non-test .py siblings of file_path."""
+    """Return {stem: source} for non-test .py modules importable beside file_path.
+
+    Looks in the file's own directory and, when it sits in a ``tests``/``test``
+    subdirectory, the parent (project root) too — the standard pytest layout is
+    ``root/main.py`` + ``root/tests/test_main.py``, where the implementation
+    module a test needs to import lives one level up, not beside the test. Closer
+    directories win on a stem clash.
+    """
     fp = Path(file_path)
-    return {p.stem: p.read_text()
-            for p in fp.parent.glob('*.py')
-            if p.stem != fp.stem and not p.stem.startswith('test_')}
+    dirs = [fp.parent]
+    if fp.parent.name.lower() in ('tests', 'test'):
+        dirs.append(fp.parent.parent)
+    sources: dict[str, str] = {}
+    for d in dirs:
+        for p in d.glob('*.py'):
+            if p.stem == fp.stem or p.stem.startswith('test_') or p.stem in sources:
+                continue
+            try:
+                sources[p.stem] = p.read_text()
+            except OSError:
+                continue
+    return sources
 
 def _insert_py_imports(file_path: str, stmts: list[str]) -> None:
     """Insert import statements after the last existing import line."""
@@ -249,18 +266,23 @@ def fix_python_missing_project_imports(file_path: str) -> bool:
     return True
 
 def fix_python_undefined_imports(file_path: str, lint_error: str) -> bool:
-    """Add imports for symbols reported as undefined by flake8 (F821/F811).
+    """Add imports for names reported undefined, by linter OR runtime evidence.
 
-    Parses ``undefined name 'X'`` entries from the lint output, then searches
-    sibling .py files for where X is defined (top-level assignment, class, or
-    function), and adds ``from <module> import X`` statements. Generic: driven
-    entirely by the lint error and file contents, not any specific problem.
+    Recognizes two forms of the same class of error — a name used but never
+    imported or defined:
+      * pyflakes/flake8 lint:  ``undefined name 'X'`` (F821/F811)
+      * Python runtime/pytest: ``NameError: name 'X' is not defined``
+    The runtime form matters because a test that uses ``app``/``db`` from the
+    implementation module passes a syntax-only lint gate and only fails when
+    pytest runs it, so the lint-phase resolver never sees it. For each undefined
+    name it searches sibling .py files for a top-level assignment, class, or
+    function defining X and adds ``from <module> import X``. Generic: driven
+    entirely by the error text and file contents, not any specific problem.
     """
     if not file_path.lower().endswith('.py'):
         return False
-    if 'undefined name' not in lint_error:
-        return False
     undefined = set(re.findall(r"undefined name '(\w+)'", lint_error))
+    undefined |= set(re.findall(r"NameError: name '(\w+)' is not defined", lint_error))
     if not undefined:
         return False
     fp = Path(file_path)
