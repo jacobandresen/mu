@@ -4,11 +4,17 @@ monolithic reflexes module so each language's fixers live together. No logic
 changes from the original.
 """
 
-import json
 import re
 import shutil
 import subprocess
 from pathlib import Path
+
+
+__all__ = [
+    'fix_go_unused_imports',
+    'fix_go_missing_pkg_imports',
+    'apply_go_reflexes',
+]
 
 
 _GO_UNUSED_IMPORT_RE = re.compile(r'^(\S+):\d+:\d+: "([^"]+)" imported and not used')

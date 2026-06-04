@@ -7,6 +7,16 @@ import re
 from pathlib import Path
 
 
+__all__ = [
+    'fix_csharp_verbatim_string_escape',
+    'fix_csharp_keyword_prefix_artifacts',
+    'fix_csharp_using_order',
+    'fix_csharp_duplicate_classes',
+    'fix_csharp_missing_using',
+    'fix_csharp_missing_braces',
+]
+
+
 def fix_csharp_verbatim_string_escape(file_path: str) -> bool:
     """Convert verbatim strings with backslash escapes to regular strings.
 

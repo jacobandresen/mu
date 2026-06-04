@@ -7,6 +7,16 @@ import re
 from pathlib import Path
 
 
+__all__ = [
+    'fix_rust_println_missing_arg',
+    'fix_rust_cargo_toml',
+    'fix_rust_cargo_bad_dependency',
+    'fix_rust_duplicate_use',
+    'fix_rust_unbalanced_braces',
+    'fix_rust_missing_trait_import',
+]
+
+
 def fix_rust_println_missing_arg(file_path: str) -> bool:
     """Fix println!/print! calls whose placeholder count doesn't match argument count.
 

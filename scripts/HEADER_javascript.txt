@@ -1,0 +1,12 @@
+"""JavaScript / Node / Jest / Vitest / Vue reflexes: deterministic post-write
+fixers for JS sources, package.json, and JS test-runner config. Split out of the
+monolithic reflexes module so each language's fixers live together. No logic
+changes from the original.
+"""
+
+import json
+import os
+import re
+from pathlib import Path
+
+
