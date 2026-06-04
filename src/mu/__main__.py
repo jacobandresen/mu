@@ -141,6 +141,21 @@ def main() -> int:
     assess_p.add_argument('--model', default='',
                           help='LM Studio model ID (overrides MU_AGENT_MODEL)')
 
+    improve_p = sub.add_parser('improve-plan',
+                               help='Analyze a PLAN.md and tighten ambiguous specs (filenames, '
+                                    'test harness, data contracts, decomposition) so a weak model '
+                                    'is tested on coding, not guessing')
+    improve_p.add_argument('goal', nargs='?', default='', metavar='GOAL',
+                           help='Optional goal hint (inferred from PLAN.md if omitted)')
+    improve_p.add_argument('-d', '--dir', default='', metavar='PATH',
+                           help='Directory containing PLAN.md (default: current)')
+    improve_p.add_argument('--plan', default='PLAN.md', metavar='PLAN',
+                           help='Plan file to improve (default: PLAN.md)')
+    improve_p.add_argument('--force', action='store_true',
+                           help='Rewrite even if the analysis finds the plan adequate')
+    improve_p.add_argument('--model', default='',
+                           help='LM Studio model ID (overrides MU_AGENT_MODEL)')
+
     lint_p = sub.add_parser('lint', help='Report deterministic warnings for a PLAN.md (no LLM)')
     lint_p.add_argument('plan', nargs='?', default='PLAN.md', metavar='PLAN',
                         help='Path to the plan file (default: PLAN.md)')
@@ -232,6 +247,7 @@ def main() -> int:
         'split': _cmd_split,
         'flow': _cmd_flow,
         'assess': _cmd_assess,
+        'improve-plan': _cmd_improve_plan,
         'lint': _cmd_lint,
         'architect': _cmd_architect,
         'iterate': _cmd_iterate,
@@ -1171,6 +1187,11 @@ def _cmd_flow(args) -> int:
 def _cmd_assess(args) -> int:
     return agent.assess(goal=args.goal, model=args.model, target_dir=args.dir,
                         plan_file=args.plan)
+
+
+def _cmd_improve_plan(args) -> int:
+    return agent.improve_plan(goal=args.goal, model=args.model, target_dir=args.dir,
+                              plan_file=args.plan, force=args.force)
 
 
 # ── lint ──────────────────────────────────────────────────────────────────────

@@ -589,6 +589,167 @@ def assess(goal: str = '', model: str = '', target_dir: str = '',
     return 0
 
 
+_VAGUE_DESC_RE = re.compile(r'\b(module|logic|functionality|implement the|various|etc|handle)\b', re.I)
+
+
+def _analyze_plan_quality(goal: str, p: Plan, max_iter: int) -> tuple[bool, float | None, list[str]]:
+    """Initial analysis step: decide whether a plan is ambiguous enough to need
+    improvement, returning (needs_improvement, predicted_success, reasons).
+
+    Combines a scikit-learn P(success) estimate (when a model is trained) with
+    cheap deterministic ambiguity heuristics. The heuristics encode the same
+    failure modes the spec-tier rewrite fixes: missing test command, unnamed/
+    extensionless files, vague descriptions, and a too-thin plan for a clearly
+    multi-file goal. A plan only needs improving if it is actually under-specified.
+    """
+    reasons: list[str] = []
+    pending = [t for t in p.tasks if not t.done]
+
+    if not p.test_command.strip():
+        reasons.append("no explicit test command")
+    for t in pending:
+        name = Path(t.file_path).name
+        if '.' not in name and name.lower() != 'makefile':
+            reasons.append(f"file '{t.file_path}' has no extension (ambiguous type)")
+        if len(t.description.strip()) < 15 or _VAGUE_DESC_RE.search(t.description):
+            reasons.append(f"task '{t.file_path}' has a vague/thin description")
+
+    # A framework / multi-layer goal expressed as one or two tasks is under-decomposed.
+    blob = goal.lower()
+    multi_signals = ('api', 'database', 'server', 'frontend', 'backend', 'rest',
+                     'flask', 'gin', 'asp.net', 'vue', 'blog', 'full-stack')
+    if sum(s in blob for s in multi_signals) >= 2 and len(pending) <= 2:
+        reasons.append(f"multi-component goal planned as only {len(pending)} task(s)")
+
+    # scikit-learn estimate (optional — present only once a model is trained).
+    proba: float | None = None
+    try:
+        from mu.predict import predict_success_proba
+        proba = predict_success_proba(goal, len(p.tasks), max_iter)
+    except Exception:
+        proba = None
+    thresh = float(os.environ.get('MU_IMPROVE_THRESHOLD', '0.6') or 0.6)
+    low_proba = proba is not None and proba < thresh
+
+    needs = bool(reasons) or low_proba
+    return needs, proba, reasons
+
+
+def improve_plan(goal: str = '', model: str = '', target_dir: str = '',
+                 plan_file: str = 'PLAN.md', max_iter: int = 10,
+                 force: bool = False) -> int:
+    """Tighten an ambiguous PLAN.md so a weak model is tested on coding rather
+    than on guessing under-specified structure.
+
+    Two phases, both clearly logged:
+      1. ANALYZE — decide whether the plan is under-specified (heuristics +
+         optional scikit-learn P(success)). If it is already specific, stop.
+      2. IMPROVE — an LLM pass that names files, fixes the test command and test
+         harness, states data/interface contracts, and decomposes broad tasks.
+         It clarifies the spec; it never writes code or solves the problem.
+    """
+    import time
+    if not model:
+        model = os.environ.get('MU_AGENT_MODEL', '') or _select_model()
+    if not model:
+        return 1
+    if target_dir:
+        os.chdir(target_dir)
+    if not Path(plan_file).exists():
+        print(f"mu-improve-plan: no {plan_file} found — run `mu plan` first", file=sys.stderr)
+        return 1
+
+    # Make the command's invocation unmistakable in the log.
+    print(f"==> [mu-improve-plan] COMMAND INVOKED on {plan_file}", flush=True)
+    _log_backend(model)
+    original = Path(plan_file).read_text()
+    p = parse(plan_file)
+    if not goal:
+        goal = p.plan_context[:200].strip()
+
+    # ── Phase 1: analyze ──────────────────────────────────────────────────────
+    log("improve-plan: analyzing plan adequacy …")
+    needs, proba, reasons = _analyze_plan_quality(goal, p, max_iter)
+    if proba is not None:
+        log("improve-plan: predicted P(success) = %.0f%% (scikit-learn)", proba * 100)
+    else:
+        log("improve-plan: no trained predictor — using heuristics only "
+            "(train via `python -m mu.predict`).")
+    if reasons:
+        log("improve-plan: %d ambiguity signal(s): %s", len(reasons), '; '.join(reasons))
+    if not needs and not force:
+        log("improve-plan: plan is adequately specified — no changes. "
+            "(use --force to rewrite anyway.)")
+        return 0
+    log("improve-plan: plan needs tightening — running the spec-tier rewrite.")
+
+    # ── Phase 2: improve ──────────────────────────────────────────────────────
+    system = (
+        "You are a plan SPECIFIER for a weak coding model. Rewrite PLAN.md to "
+        "remove ambiguity the model would otherwise guess wrong. You clarify the "
+        "specification; you do NOT solve the problem, write code, or choose "
+        "algorithms. Output ONLY raw plan markdown — no preamble, no code fences."
+    )
+    rules = (
+        "Apply these, and only these, improvements:\n"
+        "1. NAME every file explicitly with a real path and extension "
+        "(`src/todo.py`, not `module` or `the main file`).\n"
+        "2. Give an exact `## Test Command` AND state the test HARNESS style in the "
+        "test task's description — in-process clients, never a live server "
+        "(Flask `app.test_client()`, Go `httptest`, ASP.NET `WebApplicationFactory`, "
+        "Node `supertest`/`jest`).\n"
+        "3. Put the DATA/INTERFACE contract in each task description: storage "
+        "approach, key function/route signatures, and how state resets per test "
+        "(e.g. 'sqlite3 stdlib, one persistent connection, no ORM; tests use "
+        "an in-memory DB').\n"
+        "4. DECOMPOSE any task that spans multiple concerns into separate, ordered "
+        "tasks (e.g. split a backend into model, routes, and tests).\n\n"
+        "Constraints:\n"
+        "- Keep the GOAL's intent and scope. Do not add features or remove required ones.\n"
+        "- Keep every `- [x]` done task unchanged and in place.\n"
+        "- Do NOT include source code, algorithms, or full file contents — only the "
+        "spec (filenames, commands, contracts) belongs in descriptions.\n"
+        "- Use the exact format `- [ ] path/to/file.ext — description`.\n"
+        "- Keep `## Summary`; ensure `## Files`, `## Test Command`, and "
+        "`## Dependencies` sections are present."
+    )
+    user = (f"GOAL: {goal}\n\nCurrent {plan_file}:\n\n{original}\n\n{rules}\n\n"
+            "Output the improved PLAN.md now, starting with ## Summary.")
+    msgs = [{'role': 'system', 'content': system}, {'role': 'user', 'content': user}]
+    print("  Improving plan...", flush=True)
+    t0 = time.time()
+    set_chat_context('improve-plan')
+    try:
+        msg, stats = chat(model, msgs, None, float(_COMPLEXITY_PLANNER['complex']))
+    except Exception as e:
+        log("improve-plan error: %s", e)
+        return 1
+    log("chat: prompt=%d gen=%d time=%.1fs", stats.prompt_tokens,
+        stats.generated_tokens, time.time() - t0)
+
+    content = extract_plan_content(msg.get('content') or '')
+    new_p = parse_content(content) if content else None
+    if not new_p or not new_p.tasks:
+        log("improve-plan: response had no valid task checklist — leaving %s unchanged.",
+            plan_file)
+        return 1
+    # Done tasks must be preserved (we may add/split pending tasks, but not drop work).
+    if [t.file_path for t in p.tasks if t.done] != [t.file_path for t in new_p.tasks if t.done]:
+        log("improve-plan: done tasks were altered — leaving %s unchanged.", plan_file)
+        return 1
+
+    backup = os.path.join(LOG_DIR, f'{Path(plan_file).stem}-before-improve.md')
+    os.makedirs(LOG_DIR, exist_ok=True)
+    Path(backup).write_text(original)
+    Path(plan_file).write_text(content if content.endswith('\n') else content + '\n')
+    log("improve-plan: plan rewritten (%d -> %d task(s); test cmd: %s). Backup: %s.",
+        len(p.tasks), len(new_p.tasks),
+        new_p.test_command.strip() or '(none)', backup)
+    print()
+    print(content, flush=True)
+    return 0
+
+
 def iterate(goal: str = '', model: str = '', target_dir: str = '',
             max_iter: int = 10, plan_file: str = 'PLAN.md') -> int:
     """Continue executing an existing plan without re-planning."""
