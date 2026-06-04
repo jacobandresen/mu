@@ -45,7 +45,7 @@ from mu.plan import (Plan, _EXT_LANGUAGE, check_goal_alignment, clear_challenges
                      repair_history, strip_thinking_artifacts, tasks_remaining,
                      write_sketches)
 from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
-                         apply_plan_spec_reflexes,
+                         apply_plan_spec_reflexes, run_reflexes,
                          fix_csharp_duplicate_classes,
                          fix_csharp_missing_braces,
                          fix_csharp_missing_using,
@@ -83,6 +83,7 @@ from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
                          fix_csharp_verbatim_string_escape,
                          fix_csharp_using_order,
                          fix_rust_cargo_toml,
+                         fix_rust_cargo_bad_dependency,
                          fix_rust_duplicate_use,
                          fix_rust_missing_trait_import,
                          fix_rust_println_missing_arg,
@@ -1099,8 +1100,10 @@ def run(goal: str, model: str = '', target_dir: str = '',
                     log("Resolved Go module dependencies (go mod tidy).")
 
             if task.file_path.lower() == 'cargo.toml':
-                if fix_rust_cargo_toml(task.file_path):
-                    log("Fixed Cargo.toml: regenerated corrupted content.")
+                # Chain the Cargo.toml reflexes to a fixpoint: regenerate corrupted
+                # structure, then strip hallucinated bad-version dependencies.
+                run_reflexes([fix_rust_cargo_toml, fix_rust_cargo_bad_dependency],
+                             task.file_path)
 
             if task.file_path.endswith('.rs'):
                 if fix_rust_duplicate_use(task.file_path):
