@@ -74,6 +74,22 @@ def parse(path: str) -> Plan:
 _MALFORMED_TASK_RE = re.compile(r'^[\s-]+(\[[ x~]\]\s+\S+.*)')
 
 
+def _clean_filename_token(token: str) -> str:
+    """Strip markdown emphasis/code markers a planner may wrap a filename in.
+
+    Granite and other small models often emit ``- [ ] **package.json** — …`` or
+    ``*main.go*``; the bold/italic markers must come off or the writer tries to
+    create a literally-named ``**package.json**`` file. Only *paired* surrounding
+    markers are removed, longest first, so legitimate names survive — e.g.
+    ``__init__.py`` (no trailing ``__``) and ``_private.py`` are untouched.
+    """
+    s = token.strip()
+    for marker in ('**', '__', '*', '_', '`'):
+        while len(s) > 2 * len(marker) and s.startswith(marker) and s.endswith(marker):
+            s = s[len(marker):-len(marker)].strip()
+    return s.strip('`')
+
+
 def parse_content(content: str) -> Plan:
     """Parse PLAN.md text into a Plan dataclass."""
     lines = content.splitlines()
@@ -92,10 +108,11 @@ def parse_content(content: str) -> Plan:
             task_match.group(2),
             task_match.group(3).strip(),
         )
-        # Planners sometimes wrap the filename in backticks because the prompt
-        # encourages backticks for entity names. Strip so the captured token is
-        # a real path the writer can open.
-        file_path = file_path.strip('`')
+        # Planners sometimes wrap the filename in backticks or markdown emphasis
+        # (`file`, **file**, *file*) because the prompt encourages markup for
+        # entity names. Strip so the captured token is a real path the writer
+        # can open.
+        file_path = _clean_filename_token(file_path)
         desc = ''
         if '—' in raw_desc:
             desc = raw_desc[raw_desc.index('—') + 1:].strip()
@@ -162,8 +179,8 @@ def mark_task_done(path: str, file_path: str) -> None:
         return
     for i, line in enumerate(lines):
         m = _TASK_RE.match(line.rstrip('\n'))
-        if m and m.group(1) == ' ' and m.group(2).strip('`') == file_path:
-            lines[i] = '- [x] ' + m.group(2).strip('`') + m.group(3) + '\n'
+        if m and m.group(1) == ' ' and _clean_filename_token(m.group(2)) == file_path:
+            lines[i] = '- [x] ' + _clean_filename_token(m.group(2)) + m.group(3) + '\n'
             break
     Path(path).write_text(''.join(lines))
 
@@ -306,7 +323,7 @@ def drop_runtime_artifacts(plan_path: str, p: Plan) -> list[str]:
         return []
     out = [ln for ln in lines
            if not (_TASK_RE.match(ln.rstrip('\n')) and
-                   Path(_TASK_RE.match(ln.rstrip('\n')).group(2).strip('`')).suffix.lstrip('.').lower()
+                   Path(_clean_filename_token(_TASK_RE.match(ln.rstrip('\n')).group(2))).suffix.lstrip('.').lower()
                    in _RUNTIME_EXTS)]
     Path(plan_path).write_text(''.join(out))
     return dropped
@@ -345,7 +362,7 @@ def drop_minority_languages(plan_path: str, p: Plan) -> list[str]:
     out = []
     for line in lines:
         m = _TASK_RE.match(line.rstrip('\n'))
-        if m and m.group(2).strip('`') in to_drop:
+        if m and _clean_filename_token(m.group(2)) in to_drop:
             continue
         out.append(line)
     Path(plan_path).write_text(''.join(out))

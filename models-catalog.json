@@ -6,6 +6,15 @@
   },
   "models": [
     {
+      "id": "ibm/granite-4.1-3b",
+      "backend": "lmstudio",
+      "tier": "8gb",
+      "region": "us",
+      "contextWindow": 128000,
+      "input": ["text"],
+      "description": "Primary recommendation. IBM Granite 4.1 3B, Apache 2.0. ~2 GB at Q4_K_M; fits any machine including Raspberry Pi. 128K context, native tool calling."
+    },
+    {
       "id": "qwen/qwen2.5-coder-7b-instruct",
       "backend": "lmstudio",
       "tier": "8gb",

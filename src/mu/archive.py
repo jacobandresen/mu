@@ -86,7 +86,7 @@ class AgentSession:
             except OSError:
                 pass
         outcome_map = {0: 'success', 1: 'error', 2: 'max_iterations',
-                       3: 'stalled', 130: 'interrupted'}
+                       3: 'stalled', 4: 'predicted_abort', 130: 'interrupted'}
         end_time = datetime.now(timezone.utc)
         wall_seconds = int((end_time - self.start_time).total_seconds())
         outcome = outcome_map.get(exit_code, 'unknown')

@@ -124,7 +124,10 @@ class Session:
             if time.time() >= deadline:
                 return False, f"timeout after {timeout:.0f}s"
             try:
-                msg, _ = chat_or_retry(model, msgs, tool_defs, deadline)
+                # Force a tool call: the writer's whole job is to emit one Write,
+                # so 'required' stops small models from spending turns on prose.
+                msg, _ = chat_or_retry(model, msgs, tool_defs, deadline,
+                                       tool_choice='required')
             except Exception as e:
                 return False, f"chat: {e}"
             msgs.append(msg)
@@ -202,7 +205,10 @@ class Session:
                 if time.time() >= deadline:
                     break
                 try:
-                    msg, _ = chat_or_retry(model, msgs, tool_defs, deadline)
+                    # Repair always expects an edit; force the tool call so the
+                    # model can't reply with prose ("I would change…") and stall.
+                    msg, _ = chat_or_retry(model, msgs, tool_defs, deadline,
+                                           tool_choice='required')
                 except Exception as e:
                     err = str(e)
                     print(f"==> [mu-agent] Repair: {e}")

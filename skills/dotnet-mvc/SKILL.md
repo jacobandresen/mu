@@ -1,29 +1,18 @@
 ---
 name: dotnet-mvc
-description: ASP.NET Core Web API rules — EF Core SQLite, Models/ folder for entities, Controllers/ folder for controllers, Program.cs wiring. Apply to any ASP.NET Core API task.
+description: ASP.NET Core Web API rules — EF Core SQLite, Models/Controllers layout, Program.cs wiring, and xUnit + WebApplicationFactory tests with in-memory SQLite. Apply to any ASP.NET Core API task.
 ---
 
 ## Folder layout
-
 ```
-backend/
-  Models/          ← entities, one file per entity (model phase)
-  Infrastructure/  ← AppDb DbContext              (model phase)
-  Controllers/     ← API controllers              (backend phase)
-  Program.cs
-  backend.csproj
-tests/
-  ApiTests.cs
-  tests.csproj
+backend/  Models/ (entities)  Infrastructure/ (AppDb)  Controllers/  Program.cs  backend.csproj
+tests/    ApiTests.cs  tests.csproj
 ```
 
-## 1. .csproj — EF Core + SQLite packages
-
+## backend.csproj — EF Core + SQLite
 ```xml
 <Project Sdk="Microsoft.NET.Sdk.Web">
-  <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
-  </PropertyGroup>
+  <PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.*" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.*" />
@@ -32,94 +21,68 @@ tests/
 </Project>
 ```
 
-## 2. Program.cs — wire up controllers and EF Core
-
+## Program.cs — wire controllers + EF Core
 ```csharp
 using Microsoft.EntityFrameworkCore;
-
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddDbContext<AppDb>(opt =>
-    opt.UseSqlite("Data Source=app.db"));
-builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
-    p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
+builder.Services.AddDbContext<AppDb>(o => o.UseSqlite("Data Source=app.db"));
 builder.Services.AddControllers();
-
 var app = builder.Build();
-
 using (var scope = app.Services.CreateScope())
-{
-    var db = scope.ServiceProvider.GetRequiredService<AppDb>();
-    db.Database.EnsureCreated();   // never use EF migrations
-    // seed data here if needed
-    db.SaveChanges();
-}
-
-app.UseCors();
+    scope.ServiceProvider.GetRequiredService<AppDb>().Database.EnsureCreated();  // never EF migrations
 app.MapControllers();
 app.Run();
-
-public partial class Program { }   // required for WebApplicationFactory
+public partial class Program { }   // MUST be last line — WebApplicationFactory needs it
 ```
+- Never use EF migrations — call `db.Database.EnsureCreated()`.
+- All routes go in `Controllers/` classes (`[ApiController]`, `[Route("api/[controller]")]`), not inline `app.MapGet`.
 
-**Critical rules:**
-- Never use EF Core migrations (`dotnet ef migrations add`). Call `db.Database.EnsureCreated()` instead.
-- The `public partial class Program {}` line must be the last line — WebApplicationFactory needs it.
-- All routes go in controller classes in `Controllers/`. Do NOT use inline `app.MapGet` / `app.MapPost`.
-
-## 3. Models/ — entities
-
-Place each entity in `Models/`, one file per class. Example:
-
+## Entities & DbContext
 ```csharp
 // Models/Item.cs
-public class Item
-{
-    public int Id { get; set; }
-    public string Name { get; set; } = "";
-}
-```
-
-## 4. Infrastructure/ — DbContext
-
-Place `AppDb` in `Infrastructure/`. Example:
-
-```csharp
+public class Item { public int Id { get; set; } public string Name { get; set; } = ""; }
 // Infrastructure/AppDb.cs
 using Microsoft.EntityFrameworkCore;
-
-public class AppDb : DbContext
-{
-    public AppDb(DbContextOptions<AppDb> options) : base(options) { }
+public class AppDb : DbContext {
+    public AppDb(DbContextOptions<AppDb> o) : base(o) { }
     public DbSet<Item> Items => Set<Item>();
 }
 ```
+Inject `AppDb` into controllers via the constructor.
 
-## 5. Controllers/ — API controllers
+## tests.csproj — reference the API project
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net8.0</TargetFramework><IsPackable>false</IsPackable></PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
+    <PackageReference Include="xunit" Version="2.*" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.*" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.*" />
+  </ItemGroup>
+  <ItemGroup><ProjectReference Include="../backend/backend.csproj" /></ItemGroup>
+</Project>
+```
 
-Place each controller in `Controllers/`. Inject AppDb via the constructor. Example:
-
+## xUnit test — in-process, in-memory SQLite
 ```csharp
-// Controllers/ItemsController.cs
-using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using System.Net.Http.Json;
 
-[ApiController]
-[Route("api/[controller]")]
-public class ItemsController : ControllerBase
-{
-    private readonly AppDb _db;
-    public ItemsController(AppDb db) => _db = db;
+public class ApiTests : IClassFixture<WebApplicationFactory<Program>> {
+    private readonly HttpClient _client;
+    public ApiTests(WebApplicationFactory<Program> f) =>
+        _client = f.WithWebHostBuilder(b => b.ConfigureServices(s =>
+            s.AddDbContext<AppDb>(o => o.UseSqlite("Data Source=:memory:")))).CreateClient();
 
-    [HttpGet]
-    public async Task<IActionResult> GetAll() =>
-        Ok(await _db.Items.ToListAsync());
-
-    [HttpPost]
-    public async Task<IActionResult> Create(Item item)
-    {
-        _db.Items.Add(item);
-        await _db.SaveChangesAsync();
-        return CreatedAtAction(nameof(GetAll), new { id = item.Id }, item);
+    [Fact]
+    public async Task GetItems_Works() {
+        var items = await _client.GetFromJsonAsync<List<Item>>("/api/items");
+        Assert.NotNull(items);
     }
 }
 ```
+- Override the DbContext to `Data Source=:memory:` in tests — never the production `.db`.
+- Do NOT start a real server. `factory.CreateClient()` runs in-process. Test command: `dotnet test` — never `dotnet run`.

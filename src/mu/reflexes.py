@@ -17,7 +17,11 @@ import shutil
 import subprocess
 from pathlib import Path
 
-_TARGET_RE = re.compile(r'(?m)^[a-zA-Z_.][a-zA-Z0-9._-]*\s*:')
+# A Makefile target at column 0: a plain name (all, .PHONY) OR a make variable
+# ($(EXEC), ${PROG}) used as a target name, followed by a colon. Small models
+# routinely write `$(EXEC): main.c`; without the variable form the reflexes
+# that key off this regex mis-classify such lines as orphan recipes.
+_TARGET_RE = re.compile(r'(?m)^(?:\$[({][A-Za-z_]\w*[)}]|[a-zA-Z_.][a-zA-Z0-9._-]*)\s*:')
 _KNOWN_TARGETS = {'all', 'clean', 'install', 'test', 'build', 'run', 'format',
                   'lint', 'check', 'release', 'debug', 'help'}
 _INLINE_COMPILER_RE = re.compile(
@@ -2292,7 +2296,36 @@ def fix_inline_recipe(f: str) -> bool:
     return True
 
 
-_NESTED_TARGET_RE = re.compile(r'^\t([A-Za-z0-9_.-]+):([ \t].*)?$')
+def fix_makefile_backslash_artifact(f: str) -> bool:
+    """Strip a stray backslash a model puts before inline whitespace on a target
+    line, e.g. ``all: \\<TAB>$(EXEC)``.
+
+    A real line-continuation backslash is the LAST character on its line; a
+    backslash followed by more text on the same line is an artifact that mangles
+    the prerequisite list. Restricted to target-definition lines (``name:``) so
+    it never touches a recipe's legitimately-escaped space (``cp a\\ b``).
+    """
+    try:
+        content = Path(f).read_text()
+    except OSError:
+        return False
+    out, changed = [], False
+    for line in content.splitlines():
+        if re.match(r'^[A-Za-z0-9_.$(){}-]+\s*:', line) and re.search(r'\\[ \t]+\S', line):
+            line = re.sub(r'\\[ \t]+(?=\S)', ' ', line)
+            changed = True
+        out.append(line)
+    if not changed:
+        return False
+    Path(f).write_text('\n'.join(out) + '\n')
+    return True
+
+
+# Matches a tab-indented line that is really a target/directive, not a recipe:
+# a plain name (hello, .PHONY) OR a make variable ($(EXEC), ${PROG}) followed by
+# a colon. Small models emit `\t$(EXEC): main.c` and `\t.PHONY: all` indented
+# under a prior target; both must be hoisted to column 0.
+_NESTED_TARGET_RE = re.compile(r'^\t(\$[({][A-Za-z_]\w*[)}]|[A-Za-z0-9_.-]+):([ \t].*)?$')
 
 
 def fix_nested_targets(f: str) -> bool:
@@ -3278,8 +3311,23 @@ def fix_makefile_missing_compile_rule(f: str) -> bool:
     if not all_match:
         return False
     prereqs = all_match.group(1).split()
+    # Bail if the `all:` line is malformed — i.e. any token is not a plausible
+    # prerequisite (clean name, source file, or make variable). A line like
+    # `all: int main(void) {` means the model spilled code onto it; editing such
+    # a Makefile does more harm than good, so leave it for other reflexes/repair.
+    _VALID_PREREQ = re.compile(
+        r'(?:[A-Za-z_][A-Za-z0-9_-]*|[A-Za-z0-9_./-]+\.[A-Za-z0-9]+|\$[({][A-Za-z_]\w*[)}])$')
+    if not all(_VALID_PREREQ.match(p) for p in prereqs):
+        return False
+    # A real binary target is a clean identifier. This guard rejects:
+    #   - make variables ($(TARGET), ${PROG}) — they expand to a name defined
+    #     elsewhere, so they are never "missing"; treating them as missing made
+    #     this reflex re-append a bogus rule on every repair iteration.
+    #   - garbage tokens scraped from a corrupted `all:` line (e.g. `\`,
+    #     `main(void)`, `{`) when the model emitted C code or escapes onto it.
+    _IDENT = re.compile(r'[A-Za-z_][A-Za-z0-9_-]*$')
     missing_binaries = [p for p in prereqs
-                        if p not in declared and '.' not in p and not p.startswith('.')]
+                        if p not in declared and _IDENT.match(p)]
     if not missing_binaries:
         return False
     # Find C source files to use as dependencies. If there are no .c files this
@@ -3290,6 +3338,11 @@ def fix_makefile_missing_compile_rule(f: str) -> bool:
     src_dep = ' '.join(s.name for s in c_sources)
     additions = []
     for binary in missing_binaries:
+        # Idempotency guard: never append a rule for a binary that already has a
+        # `binary:` target. Without this the reflex duplicates the rule each time
+        # it runs across repair iterations, wedging the loop on "duplicate edit".
+        if re.search(rf'^{re.escape(binary)}\s*:', text, re.MULTILINE):
+            continue
         additions.append(f'\n{binary}: {src_dep}')
         additions.append(f'\tcc -o {binary} {src_dep} $(CFLAGS) $(LDFLAGS)')
     if not additions:
@@ -3467,6 +3520,7 @@ def apply_makefile_reflexes(f: str) -> None:
                fix_makefile_escaped_dollar,
                fix_makefile_wrong_c_compiler,
                fix_makefile_sdl2_config_typo, fix_makefile_double_colon_target,
+               fix_makefile_backslash_artifact,
                fix_makefile_space_indent, fix_nested_targets,
                fix_orphan_top_level_commands, fix_no_targets,
                fix_inline_recipe, fix_binary_target_runs_itself,

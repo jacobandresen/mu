@@ -100,7 +100,8 @@ Run `mu check` to see the status of both backends at any time.
 
 | VRAM | Model | Notes |
 |------|-------|-------|
-| 8 GB | `qwen/qwen2.5-coder-7b-instruct` | Best 8 GB option; 88.4% HumanEval; native tool calling |
+| Any | `ibm/granite-4.1-3b` | **Primary.** IBM Granite 4.1 3B; ~2 GB; 128K context; native tool calling; fits Raspberry Pi |
+| 8 GB | `qwen/qwen2.5-coder-7b-instruct` | Code specialist; 88.4% HumanEval; 92+ languages |
 | 16 GB | `mistralai/devstral-small-2507` | 53.6% SWE-bench; agentic coding; 128K context |
 | 32 GB | `mistralai/devstral-small-2-24b-instruct-2512` | **68.0% SWE-bench**; dense 24B; 256K context; European (Mistral AI 🇫🇷) |
 

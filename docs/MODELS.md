@@ -37,7 +37,21 @@ they can call tools, iterate on failures, and write correct multi-file code.
 
 ### Tier 1 — 8 GB VRAM (fits current hardware)
 
-**Winner: `Qwen2.5-Coder-7B-Instruct` Q4_K_M (~4.5 GB)**
+**Primary: `ibm/granite-4.1-3b` Q4_K_M (~2 GB)**
+
+| Benchmark | Score |
+|---|---|
+| Context window | 128K tokens |
+| Tool calling | Native; IBM function-calling format |
+| Size | ~2 GB Q4_K_M — fits any machine including Raspberry Pi |
+
+HuggingFace: [`ibm-granite/granite-4.1-3b-instruct-GGUF`](https://huggingface.co/ibm-granite/granite-4.1-3b-instruct-GGUF)
+
+IBM Granite 4.1 3B is the primary mu recommendation. Apache 2.0 license; US-origin (IBM Research).
+Designed for edge and on-device deployment — runs on hardware where 7B models won't fit. LM Studio
+ID: `ibm/granite-4.1-3b`. This is the model used in the dotfiles Pi agent configuration.
+
+**Runner-up: `Qwen2.5-Coder-7B-Instruct` Q4_K_M (~4.5 GB)**
 
 | Benchmark | Score |
 |---|---|
@@ -77,7 +91,7 @@ HuggingFace:
 - [`bartowski/mistralai_Devstral-Small-2507-GGUF`](https://huggingface.co/bartowski/mistralai_Devstral-Small-2507-GGUF)
 - [`unsloth/Devstral-Small-2507-GGUF`](https://huggingface.co/unsloth/Devstral-Small-2507-GGUF)
 
-This is the most compelling upgrade from Qwen2.5-Coder-7B. Devstral is fine-tuned from
+This is the most compelling upgrade from Granite 4.1 3B or Qwen2.5-Coder-7B. Devstral is fine-tuned from
 Mistral-Small-3.1 specifically for agentic software engineering — it's trained to call tools,
 iterate on test failures, and write patches across multiple files. The 53.6% SWE-bench score
 means it solves roughly half of real GitHub bug reports autonomously; that's exactly the dojo
@@ -133,7 +147,8 @@ HuggingFace: [`unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF`](https://huggingface.c
 |---|---|---|
 | `google/gemma-4-e2b` | Repair agent never calls tools (CHALLENGES #1, #9) | Fast but unreliable; fails P2/P7 every run |
 | `mistralai/mistral-7b-instruct-v0.3` | General model, pre-2025, no code specialization | Likely worse than Qwen2.5-Coder on multi-lang code |
-| `Qwen2.5-Coder-7B-Instruct` | Best 8GB option | **Recommended for 8GB** |
+| `ibm/granite-4.1-3b` | ~2 GB; fits Pi and 8GB machines; 128K context | **Primary recommendation** |
+| `Qwen2.5-Coder-7B-Instruct` | Best 8GB code specialist | **Runner-up for 8GB** |
 | `Devstral-Small-2507` | Agentic, 53.6% SWE-bench | **Recommended for 16GB** |
 | `Devstral-Small-2` | Agentic, **68.0% SWE-bench** | **Recommended for 32GB** |
 

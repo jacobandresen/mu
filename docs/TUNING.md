@@ -36,6 +36,20 @@ Set in LM Studio when loading the model (Model Settings → Context Length), or 
 
 **Measured impact:** Doubling ctx from 4096 → 8096 made P1 2.6× slower (64 s → 165 s) and P3 6× slower (155 s → 928 s). The extra swap I/O dominates for long sessions.
 
+> The swap figures above were measured with the 7B preferred model (~4.5 GB).
+> The dojo's default model, **`ibm/granite-4.1-3b` (~2.1 GB)**, has a small
+> hybrid-architecture KV cache, so larger contexts load without swap. **But
+> bigger is not better for this 3B:** measured dojo scores were **8192 → 3/10**
+> vs **16384 → 1/10**. At 16384 the model kept tool-calling (no swap; 23.5 tok/s)
+> but lost coherence in the multi-turn *repair* loop — flailing edits, `max turns`
+> reappearing — a known small-model degradation as the window grows. 8192 also
+> overflows the hardest multi-file problems (p8–p10) with HTTP 400s, but that
+> localized loss is smaller than the across-the-board quality drop at 16384.
+> **`sit.sh` therefore defaults to `MU_NUM_CTX=8192`** as the measured sweet
+> spot. `client.load_model` loads with `MU_NUM_CTX + 2048` headroom — without it,
+> LM Studio's 4096 JIT default silently caps the model and prompts above 4096 are
+> rejected with HTTP 400 mid-run. Override with `MU_NUM_CTX` / `MU_LOAD_CTX`.
+
 ---
 
 ### 2. Temperature
