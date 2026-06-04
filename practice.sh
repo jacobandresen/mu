@@ -70,6 +70,40 @@ if [ -z "$SKIP_PREFLIGHT" ]; then
   fi
 fi
 
+# Distill the root cause of a failed session from its archived logs using mu's
+# deterministic diagnose sensor (the same one that leads the repair prompt).
+# Echoes a single one-line hint, or nothing. This turns the digest from
+# "stalled: <goal>" into "stalled: <goal> -- cause: NameError 'app' not defined",
+# so a human (or the next round's reflect step) sees the exact general-class
+# error to turn into a reflex, instead of re-opening each session's logs by hand.
+_root_cause() {
+  local sdir="$1" log
+  log=$(ls -t "$sdir"/logs/tests*.log 2>/dev/null | head -1)
+  [ -z "$log" ] && log=$(ls -t "$sdir"/logs/lint*.log 2>/dev/null | head -1)
+  [ -z "$log" ] && return 0
+  python3 - "$log" <<'PYEOF' 2>/dev/null
+import re, sys
+try:
+    from mu.diagnose import distill_test_errors
+    txt = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+    h = distill_test_errors(txt)
+    if h:
+        first = h.splitlines()[0]
+        m = re.match(r'FOCUS[^:]*:\s*(.+)', first)  # single-hint form
+        cause = m.group(1).strip() if m else ''
+        if not cause:  # multi-hint form: first bullet under the header
+            for ln in h.splitlines()[1:]:
+                ln = ln.strip().lstrip('-').strip()
+                if ln:
+                    cause = ln
+                    break
+        if cause:
+            print(cause)
+except Exception:
+    pass
+PYEOF
+}
+
 # Warm the model once before the long rounds loop so the first round's first
 # heavy request isn't cold. sit.sh also warms per round (cheap when already
 # hot, and re-warms if the model was evicted between rounds). Best-effort.
@@ -80,9 +114,12 @@ echo "What is reality?"
 
 # Marker file used to find sessions finalized within the current round.
 marker=$(mktemp /tmp/practice-mark.XXXXXX)
+# Cumulative "outcome|problem-id" log across all rounds, for the per-problem
+# pass-rate summary printed at the end (and appended to the digest).
+results_all=$(mktemp /tmp/practice-results.XXXXXX)
 failure_lines=''
 failed_ids=''
-trap 'rm -f "$marker" ${failure_lines:+$failure_lines} ${failed_ids:+$failed_ids}' EXIT
+trap 'rm -f "$marker" "$results_all" ${failure_lines:+$failure_lines} ${failed_ids:+$failed_ids}' EXIT
 
 # Seed the digest header if missing.
 if [ ! -f "$DIGEST" ]; then
@@ -128,12 +165,21 @@ for round in $(seq 1 "$ROUNDS"); do
     outcome=$(awk -F'"' '/"outcome"/{print $4; exit}' "$meta" 2>/dev/null)
     goal=$(awk -F'"' '/"goal"/{print $4; exit}' "$meta" 2>/dev/null)
     sid=$(awk -F'"' '/"session_id"/{print $4; exit}' "$meta" 2>/dev/null)
+    # Problem id (p1-rust, p7-flask, …) from the session's project_dir basename —
+    # more reliable than goal-text matching for the per-problem summary.
+    pdir=$(awk -F'"' '/"project_dir"/{print $4; exit}' "$meta" 2>/dev/null)
+    pid=$(basename "${pdir:-unknown}")
+    printf '%s|%s\n' "${outcome:-unknown}" "${pid:-unknown}" >> "$results_all"
     if [ "$outcome" = "success" ]; then
       successes=$((successes + 1))
     else
       failures=$((failures + 1))
-      printf -- '- **%s** (%s) — %s\n' "${outcome:-unknown}" "${sid:-?}" "${goal:-?}" \
-        >> "$failure_lines"
+      # Distill the root cause from the session's archived logs so the digest
+      # line names the general-class error, not just the goal.
+      cause=$(_root_cause "$(dirname "$meta")")
+      printf -- '- **%s** (%s) [%s] — %s%s\n' \
+        "${outcome:-unknown}" "${sid:-?}" "${pid:-?}" "${goal:-?}" \
+        "${cause:+ -- cause: $cause}" >> "$failure_lines"
       [ -n "${sid:-}" ] && printf '%s\n' "$sid" >> "$failed_ids"
     fi
   done < <(find "$ARCHIVE" -name meta.json -newer "$marker" 2>/dev/null)
@@ -219,3 +265,23 @@ done
 total_elapsed=$(( $(date +%s) - practice_start ))
 printf '\npractice complete: %d ok / %d fail across %d round(s) in %ds. Digest: %s\n' \
   "$total_ok" "$total_fail" "$round" "$total_elapsed" "$DIGEST"
+
+# Per-problem pass-rate across the whole practice session. This is the signal
+# for reflex iteration: a problem that fails round after round is a chronic
+# general-class error to fix; one that's stochastic is closer to the model
+# ceiling. Sorted worst-first so the highest-leverage target is on top.
+if [ -s "$results_all" ]; then
+  summary=$(awk -F'|' '
+    { tot[$2]++; if ($1 == "success") ok[$2]++ }
+    END {
+      for (p in tot) {
+        rate = (ok[p] + 0) / tot[p]
+        printf "%.4f\t- %-16s %d/%d passed (%d%%)\n", rate, p, ok[p] + 0, tot[p], rate * 100 + 0.5
+      }
+    }' "$results_all" | sort -n | cut -f2-)
+  printf '\nper-problem pass rate (worst first):\n%s\n' "$summary"
+  {
+    printf '\n## per-problem summary — %s\n\n' "$(date -Iseconds)"
+    printf '%s\n' "$summary"
+  } >> "$DIGEST"
+fi
