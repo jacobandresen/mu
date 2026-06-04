@@ -32,6 +32,17 @@ LMS_HOST = _default_host()
 # without triggering swap (8192 causes 6x slowdown per TUNING.md).
 _NUM_CTX = int(os.environ.get("MU_NUM_CTX", "6000"))
 
+# Anti-degeneration: small models at near-greedy temperature with no repetition
+# penalty fall into token loops — e.g. a writer emitting
+# `print(f"{task[print(f"{task[…` and corrupting the whole file. llama.cpp's
+# windowed repeat penalty (repeat_last_n=64) is the surgical fix: it dampens
+# tight loops without punishing the legitimate distant repetition that real code
+# is full of (indentation, `self.`, dict keys), the way a global frequency
+# penalty would. 1.1 is llama.cpp's well-tested default; set MU_REPEAT_PENALTY=1.0
+# to disable. Sent only on the lmstudio (llama.cpp) backend; other backends
+# ignore or misread it.
+_REPEAT_PENALTY = float(os.environ.get("MU_REPEAT_PENALTY", "1.1"))
+
 
 def normalize_model_bare(name: str) -> str:
     """Normalize a model ID to a bare name for loose equality checks.
@@ -660,6 +671,10 @@ def chat(model: str, messages: list[dict], tools: Optional[list[dict]],
     # either ignored or misinterpreted, causing truncated generation.
     if load_backend().get('backend', 'lmstudio') == 'lmstudio':
         body['num_ctx'] = _NUM_CTX
+        # Suppress degenerate repetition loops (see _REPEAT_PENALTY). Omit when
+        # set to the neutral 1.0 so a disabled penalty isn't sent at all.
+        if _REPEAT_PENALTY and _REPEAT_PENALTY != 1.0:
+            body['repeat_penalty'] = _REPEAT_PENALTY
     if tools:
         body['tools'] = tools
         # 'required' forces the model to emit a real tool call instead of prose.
