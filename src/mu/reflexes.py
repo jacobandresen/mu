@@ -11,6 +11,7 @@ program in this language or build system? If the answer is "no, only because
 problem X needs it," the reflex is overfit — don't add it.
 """
 
+import hashlib
 import json
 import re
 import shutil
@@ -18,6 +19,52 @@ import subprocess
 from pathlib import Path
 
 from mu.plan import is_test_file
+
+
+def _file_sha(path: str) -> str:
+    try:
+        return hashlib.sha1(Path(path).read_bytes()).hexdigest()
+    except OSError:
+        return ''
+
+
+def run_reflexes(fns, target: str, max_passes: int = 4) -> None:
+    """Apply a chain of single-arg reflexes to a fixpoint — safely.
+
+    Runs every reflex in order, repeating the whole chain until the file stops
+    changing. This lets a reflex that only becomes applicable after an earlier
+    one's edit (e.g. hoist a nested target, THEN add its missing rule) still fire,
+    without hand-tuning a single pass order. It guards against the two ways a
+    reflex chain can misbehave:
+
+      * looping       — a hard ``max_passes`` cap.
+      * contradicting — if the content returns to a state seen on an earlier pass
+        (two reflexes undoing each other), stop immediately and log it rather
+        than oscillate forever.
+
+    A reflex that raises is skipped, never crashing the chain. Reflexes should be
+    idempotent; the guards make a non-idempotent or contradictory pair *safe*
+    (it stops, logged) instead of hanging.
+    """
+    last = _file_sha(target)
+    seen = {last}
+    for _ in range(max_passes):
+        for fn in fns:
+            try:
+                fn(target)
+            except Exception:
+                pass
+        h = _file_sha(target)
+        if h == last:
+            return  # converged — a full pass changed nothing
+        if h in seen:
+            print(f"==> [mu-agent] Reflex contradiction on {target} — two reflexes "
+                  f"oscillating; stopping at a stable-enough state.", flush=True)
+            return
+        seen.add(h)
+        last = h
+    print(f"==> [mu-agent] Reflexes did not converge on {target} after "
+          f"{max_passes} passes — continuing with current state.", flush=True)
 
 # A Makefile target at column 0: a plain name (all, .PHONY) OR a make variable
 # ($(EXEC), ${PROG}) used as a target name, followed by a colon. Small models
@@ -3516,26 +3563,36 @@ def fix_makefile_bare_vitest(f: str) -> bool:
     return True
 
 
+# Makefile reflexes, ordered by concern so the chain flows from coarse structure
+# to fine details. The fixpoint runner re-applies the whole chain until stable,
+# so this order need only be *roughly* right — a later reflex enabling an earlier
+# one is handled by the next pass, and the cycle guard catches any contradiction.
+#   1. de-noise raw text artifacts (escapes, tool-call litter)
+#   2. structural repair (indentation, nested/orphan targets, missing rules)
+#   3. recipe/command correctness (venv, pytest, jest, vitest, flags)
+_MAKEFILE_REFLEXES = [
+    # 1. text artifacts
+    fix_tool_call_artifacts,
+    fix_makefile_literal_tab_escape, fix_makefile_literal_newline_escape,
+    fix_makefile_escaped_dollar, fix_makefile_backslash_artifact,
+    fix_makefile_wrong_c_compiler, fix_makefile_sdl2_config_typo,
+    # 2. structure
+    fix_makefile_double_colon_target,
+    fix_makefile_space_indent, fix_nested_targets,
+    fix_orphan_top_level_commands, fix_no_targets,
+    fix_inline_recipe, fix_binary_target_runs_itself,
+    fix_makefile_missing_compile_rule,
+    fix_makefile_recipe_is_prerequisite_list,
+    # 3. recipe/command correctness
+    fix_duplicate_var, fix_python_venv_cmd, fix_makefile_pip_no_venv,
+    fix_makefile_pip_install_empty, fix_makefile_pytest_in_non_python,
+    fix_makefile_bare_pytest, fix_makefile_npm_test_jest, fix_makefile_bare_vitest,
+    fix_missing_venv_rule, fix_config_tool_redundant_flag,
+]
+
+
 def apply_makefile_reflexes(f: str) -> None:
-    for fn in [fix_tool_call_artifacts,
-               fix_makefile_literal_tab_escape, fix_makefile_literal_newline_escape,
-               fix_makefile_escaped_dollar,
-               fix_makefile_wrong_c_compiler,
-               fix_makefile_sdl2_config_typo, fix_makefile_double_colon_target,
-               fix_makefile_backslash_artifact,
-               fix_makefile_space_indent, fix_nested_targets,
-               fix_orphan_top_level_commands, fix_no_targets,
-               fix_inline_recipe, fix_binary_target_runs_itself,
-               fix_makefile_missing_compile_rule,
-               fix_makefile_recipe_is_prerequisite_list,
-               fix_duplicate_var, fix_python_venv_cmd, fix_makefile_pip_no_venv,
-               fix_makefile_pip_install_empty,
-               fix_makefile_pytest_in_non_python,
-               fix_makefile_bare_pytest, fix_makefile_npm_test_jest,
-               fix_makefile_bare_vitest,
-               fix_missing_venv_rule,
-               fix_config_tool_redundant_flag]:
-        fn(f)
+    run_reflexes(_MAKEFILE_REFLEXES, f)
 
 
 # ── Plan reflexes ─────────────────────────────────────────────────────────────
