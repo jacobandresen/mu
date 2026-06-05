@@ -18,6 +18,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from mu.degeneration import guard_enabled, is_degenerate
+
 # ── Actuator definitions ──────────────────────────────────────────────────────
 # WRITE, EDIT, BASH — the only ways mu changes the world.
 
@@ -150,6 +152,12 @@ def _is_generated_path(path: str) -> bool:
 def _write(path: str, content: str) -> str:
     if _is_generated_path(path):
         return f"refused: {path} is inside a generated directory — do not modify package manager files"
+    if guard_enabled() and is_degenerate(content):
+        # The model fell into a repetition loop; writing this would corrupt the
+        # file from the first token. Refuse so the writer resamples (CHALLENGES.md #1).
+        print(f"==> [mu-agent] Degeneration guard: refused corrupt write to {path}")
+        return (f"refused: the content for {path} is a repetition loop (degenerate "
+                "output), not real code — regenerate it from scratch")
     try:
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)

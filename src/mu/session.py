@@ -17,6 +17,7 @@ from mu.reflexes import fix_requirements_path_entries
 
 from mu import tools
 from mu.client import chat_or_retry
+from mu.degeneration import guard_enabled, is_degenerate
 from mu.diagnose import distill_test_errors
 
 
@@ -138,6 +139,12 @@ class Session:
                     if Path(watch_file).exists():
                         return True, None
                     code, ok = tools.extract_code_block(msg['content'], watch_file)
+                    if ok and code and guard_enabled() and is_degenerate(code):
+                        # Repetition loop in the extracted block — don't commit a
+                        # corrupt file; fall through to resample (CHALLENGES.md #1).
+                        print("==> [mu-agent] Degeneration guard: discarded a "
+                              "repetition-loop code block; resampling.")
+                        ok = False
                     if ok and code:
                         try:
                             Path(watch_file).parent.mkdir(parents=True, exist_ok=True)
