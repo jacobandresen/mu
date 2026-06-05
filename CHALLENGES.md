@@ -137,6 +137,9 @@ Tracks the most frequent or significant challenges encountered while running the
 44. **Syntax error in HTML template**
   - Ensure proper HTML syntax and correct use of tags in Vue components to avoid runtime errors.
 
+45. **Mock data file not defined**
+  - Ensure mock variables are properly declared and initialized before use in test cases.
+
 ## Resolved
 
 - **Missing `fix_sqlite_in_memory` function** — obsolete. AST fixer pass and the orphaned sqlite sensor removed in commit `07717cc`.

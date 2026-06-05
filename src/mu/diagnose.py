@@ -61,6 +61,13 @@ _RULES: list[_Rule] = [
     _rule(r"^E\s+(?P<expr>assert\b.+)$",
           lambda m: f"failing assertion: {_clip(m['expr'])}"),
 
+    # ── JavaScript / Node / Jest runtime ──
+    # Jest prints these indented under a ``●`` test header, so allow leading
+    # whitespace (the matcher uses .search). Covers Python's TypeError/
+    # ReferenceError too — same shape, same useful hint.
+    _rule(r"(?:^|\s)(?P<kind>TypeError|ReferenceError): (?P<msg>.+)$",
+          lambda m: f"{m['kind']}: {_clip(m['msg'])}"),
+
     # ── Rust / cargo ──
     _rule(r"failed to parse the version requirement [`'](?P<version>[^`']+)[`'] "
           r"for dependency [`'](?P<dep>[^`']+)[`']",
