@@ -547,7 +547,7 @@ def run(goal: str, model: str = '', target_dir: str = '',
         return 1
 
     os.makedirs(LOG_DIR, exist_ok=True)
-    sess = AgentSession(goal, archive_dir, LOG_DIR, max_iter)
+    sess = AgentSession(goal, archive_dir, LOG_DIR, max_iter, model=model)
     current_plan: Optional[Plan] = None
     exit_code = 0
 

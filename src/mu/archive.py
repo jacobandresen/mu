@@ -55,11 +55,17 @@ class Utility:
 
 
 class AgentSession:
-    def __init__(self, goal: str, archive_dir: str, log_dir: str, max_iter: int):
+    def __init__(self, goal: str, archive_dir: str, log_dir: str, max_iter: int,
+                 model: str = ''):
         safe = re.sub(r'[^A-Za-z0-9_-]', '',
                       goal.replace(' ', '_').replace('/', '-'))[:40]
         self.id = datetime.now().strftime('%Y%m%d-%H%M%S') + '-' + safe
         self.goal = goal
+        # The model that produced this episode. Persisted so observations
+        # (failures, reflex firings) can be attributed to the model that made
+        # them — granite and qwen fail differently, so a lesson valid for one
+        # may not hold for the other (see docs/REFLEX_KB.md model stratification).
+        self.model = model
         self.project_dir = os.getcwd()
         self.start_time = datetime.now(timezone.utc)
         self.archive_path = os.path.join(archive_dir, self.id)
@@ -101,6 +107,7 @@ class AgentSession:
         )
         meta = {
             'session_id': self.id, 'goal': self.goal,
+            'model': self.model,
             'project_dir': self.project_dir,
             'start_time': self.start_time.isoformat(),
             'end_time': end_time.isoformat(),
