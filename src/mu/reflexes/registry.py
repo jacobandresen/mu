@@ -5,80 +5,86 @@ The reflex functions live in the per-language modules; this module gives each a
 queryable (which exist, what class, what trigger) and analysable (the SQLite KB
 in reflexdb.py joins firings against these records).
 
-Most attributes are derived automatically so they never drift from the code:
-``toolchain`` from the module, ``trigger``/``scope`` from the function signature.
-Only ``error_class`` (and the occasional ``risk`` override) is curated — kept in
-one readable table below, grouped by class so the cross-toolchain families are
-visible at a glance.
+**Traceability.** The catalog below references the reflex **functions directly**,
+not by name string — ``rust.fix_rust_duplicate_use``, not
+``'fix_rust_duplicate_use'``. So the link from a catalog entry to its
+implementation is a real symbol reference: jump-to-definition works, "find
+usages" connects the two, and a renamed or deleted reflex breaks the import
+*immediately* instead of silently going stale. Grouping the references by
+``error_class`` keeps the cross-toolchain families visible at a glance.
+
+Most other attributes are derived from the function itself so they never drift:
+``id`` from ``__name__``, ``toolchain`` from ``__module__``, ``trigger``/``scope``
+from the signature.
 """
 
 import inspect
 from dataclasses import dataclass
 
-from mu import reflexes
+from mu.reflexes import (core, csharp, go, javascript, makefile, plan_reflexes,
+                         python, rust)
 
-# Per-language modules to scan for public ``fix_*`` / ``apply_*`` reflexes.
-_MODULES = ('core', 'python', 'rust', 'csharp', 'go', 'javascript',
-            'makefile', 'plan_reflexes')
-
-# ── curated: reflex id → error_class, grouped by class (the §4 taxonomy) ──────
-# Cross-toolchain families are obvious here: dependency-hygiene spans cargo/pip/
-# npm, duplicate-declaration spans rust/js/csharp, etc.
-_CLASS_MEMBERS: dict[str, list[str]] = {
+# ── the catalog: error_class → the reflex functions in it ─────────────────────
+# Direct function references (not strings) make the link to each implementation
+# traceable and statically checked. Cross-toolchain families are obvious here:
+# dependency-hygiene spans cargo/pip/npm; duplicate-declaration spans rust/js/cs.
+_CATALOG: dict[str, list] = {
     'dependency-hygiene': [
-        'fix_rust_cargo_bad_dependency', 'fix_requirements_stdlib_entries',
-        'fix_requirements_path_entries', 'fix_package_json_builtin_deps',
-        'fix_makefile_pip_install_empty'],
+        rust.fix_rust_cargo_bad_dependency, python.fix_requirements_stdlib_entries,
+        python.fix_requirements_path_entries, javascript.fix_package_json_builtin_deps,
+        makefile.fix_makefile_pip_install_empty],
     'duplicate-declaration': [
-        'fix_rust_duplicate_use', 'fix_js_duplicate_require',
-        'fix_csharp_duplicate_classes', 'fix_duplicate_var'],
+        rust.fix_rust_duplicate_use, javascript.fix_js_duplicate_require,
+        csharp.fix_csharp_duplicate_classes, makefile.fix_duplicate_var],
     'missing-symbol-import': [
-        'fix_python_undefined_imports', 'fix_python_missing_project_imports',
-        'fix_python_missing_stdlib_imports', 'fix_js_missing_requires',
-        'fix_go_missing_pkg_imports', 'fix_csharp_missing_using',
-        'fix_rust_missing_trait_import', 'fix_test_import_module'],
-    'unused-import': ['fix_go_unused_imports'],
+        python.fix_python_undefined_imports, python.fix_python_missing_project_imports,
+        python.fix_python_missing_stdlib_imports, javascript.fix_js_missing_requires,
+        go.fix_go_missing_pkg_imports, csharp.fix_csharp_missing_using,
+        rust.fix_rust_missing_trait_import, python.fix_test_import_module],
+    'unused-import': [go.fix_go_unused_imports],
     'test-isolation': [
-        'fix_sqlite_test_isolation', 'fix_sqlite_memory_multi_connect',
-        'fix_missing_flask_client_fixture', 'fix_jest_fs_mock',
-        'fix_sqlite_missing_row_factory', 'fix_sqlite_path_unlink'],
+        python.fix_sqlite_test_isolation, python.fix_sqlite_memory_multi_connect,
+        python.fix_missing_flask_client_fixture, javascript.fix_jest_fs_mock,
+        python.fix_sqlite_missing_row_factory, python.fix_sqlite_path_unlink],
     'test-command-correctness': [
-        'fix_makefile_bare_pytest', 'fix_makefile_bare_vitest',
-        'fix_makefile_pytest_in_non_python', 'fix_package_json_bare_jest',
-        'fix_makefile_npm_test_jest', 'fix_makefile_binary_name',
-        'fix_jest_no_tests_found', 'fix_jest_config_js',
-        'fix_vitest_watch_mode', 'fix_vitest_globals'],
+        makefile.fix_makefile_bare_pytest, makefile.fix_makefile_bare_vitest,
+        makefile.fix_makefile_pytest_in_non_python, javascript.fix_package_json_bare_jest,
+        makefile.fix_makefile_npm_test_jest, makefile.fix_makefile_binary_name,
+        javascript.fix_jest_no_tests_found, javascript.fix_jest_config_js,
+        javascript.fix_vitest_watch_mode, javascript.fix_vitest_globals],
     'brace-paren-balance': [
-        'fix_json_unclosed_brackets', 'fix_csharp_missing_braces',
-        'fix_js_extra_closing_brace', 'fix_rust_unbalanced_braces',
-        'fix_missing_close_paren'],
+        core.fix_json_unclosed_brackets, csharp.fix_csharp_missing_braces,
+        javascript.fix_js_extra_closing_brace, rust.fix_rust_unbalanced_braces,
+        python.fix_missing_close_paren],
     'syntax-artifact': [
-        'fix_tool_call_artifacts', 'fix_literal_newlines',
-        'fix_makefile_literal_tab_escape', 'fix_makefile_literal_newline_escape',
-        'fix_makefile_escaped_dollar', 'fix_makefile_backslash_artifact',
-        'fix_csharp_verbatim_string_escape', 'fix_csharp_keyword_prefix_artifacts',
-        'fix_multiline_single_quote', 'fix_python_decorator_colon'],
+        core.fix_tool_call_artifacts, core.fix_literal_newlines,
+        makefile.fix_makefile_literal_tab_escape, makefile.fix_makefile_literal_newline_escape,
+        makefile.fix_makefile_escaped_dollar, makefile.fix_makefile_backslash_artifact,
+        csharp.fix_csharp_verbatim_string_escape, csharp.fix_csharp_keyword_prefix_artifacts,
+        python.fix_multiline_single_quote, python.fix_python_decorator_colon],
     'build-rule-structure': [
-        'fix_makefile_space_indent', 'fix_orphan_top_level_commands',
-        'fix_no_targets', 'fix_inline_recipe', 'fix_nested_targets',
-        'fix_binary_target_runs_itself', 'fix_makefile_missing_compile_rule',
-        'fix_makefile_double_colon_target', 'fix_makefile_recipe_is_prerequisite_list',
-        'fix_missing_venv_rule', 'fix_makefile_wrong_c_compiler',
-        'fix_makefile_sdl2_config_typo', 'fix_config_tool_redundant_flag',
-        'fix_makefile_pip_no_venv', 'fix_python_venv_cmd'],
+        makefile.fix_makefile_space_indent, makefile.fix_orphan_top_level_commands,
+        makefile.fix_no_targets, makefile.fix_inline_recipe, makefile.fix_nested_targets,
+        makefile.fix_binary_target_runs_itself, makefile.fix_makefile_missing_compile_rule,
+        makefile.fix_makefile_double_colon_target, makefile.fix_makefile_recipe_is_prerequisite_list,
+        makefile.fix_missing_venv_rule, makefile.fix_makefile_wrong_c_compiler,
+        makefile.fix_makefile_sdl2_config_typo, makefile.fix_config_tool_redundant_flag,
+        makefile.fix_makefile_pip_no_venv, makefile.fix_python_venv_cmd],
     'dependency-install': [
-        'fix_missing_pip_packages', 'fix_vue_missing_package',
-        'fix_vue_test_utils_import'],
+        python.fix_missing_pip_packages, javascript.fix_vue_missing_package,
+        javascript.fix_vue_test_utils_import],
     'code-structure': [
-        'fix_python_method_indent', 'fix_python_missing_def',
-        'fix_flask_post_missing_201', 'fix_flask_test_route_decorators',
-        'fix_flask_init_db_import', 'fix_rust_println_missing_arg',
-        'fix_rust_cargo_toml', 'fix_csharp_using_order', 'fix_js_env_data_file',
-        'py_autofix'],
-    'plan-spec': ['apply_plan_spec_reflexes'],
-    'composite-chain': ['apply_makefile_reflexes', 'apply_go_reflexes'],
+        python.fix_python_method_indent, python.fix_python_missing_def,
+        python.fix_flask_post_missing_201, python.fix_flask_test_route_decorators,
+        python.fix_flask_init_db_import, rust.fix_rust_println_missing_arg,
+        rust.fix_rust_cargo_toml, csharp.fix_csharp_using_order,
+        javascript.fix_js_env_data_file, python.py_autofix],
+    'plan-spec': [plan_reflexes.apply_plan_spec_reflexes],
+    'composite-chain': [makefile.apply_makefile_reflexes, go.apply_go_reflexes],
 }
-_ERROR_CLASS = {rid: cls for cls, ids in _CLASS_MEMBERS.items() for rid in ids}
+
+# All language modules — scanned by the completeness check (§ below).
+_MODULES = (core, python, rust, csharp, go, javascript, makefile, plan_reflexes)
 
 
 @dataclass
@@ -86,9 +92,9 @@ class ReflexRecord:
     """One reflex's machine-readable metadata (docs/REFLEX_KB.md §3)."""
     id: str
     toolchain: str       # module it lives in (python, rust, makefile, …)
-    error_class: str     # curated; 'uncategorized' if missing
+    error_class: str     # from the catalog above
     trigger: str         # scan · lint-out · test-out · project · plan (derived)
-    scope: str           # file · project · multi-file (derived)
+    scope: str           # file · project (derived)
 
 
 def _trigger_from_signature(params: list[str]) -> str:
@@ -104,49 +110,43 @@ def _trigger_from_signature(params: list[str]) -> str:
     return 'scan'
 
 
-def _scope_from_signature(params: list[str]) -> str:
-    if any('project_dir' in p for p in params):
-        return 'project'
-    if any(p in ('file_path', 'f', 'req_path', 'plan_file') for p in params):
-        return 'file'
-    return 'project'
+def _record(fn, error_class: str) -> ReflexRecord:
+    """Build a record straight from the function object — no name strings."""
+    params = list(inspect.signature(fn).parameters)
+    scope = 'project' if any('project_dir' in p for p in params) else 'file'
+    return ReflexRecord(
+        id=fn.__name__,
+        toolchain=fn.__module__.rsplit('.', 1)[-1],
+        error_class=error_class,
+        trigger=_trigger_from_signature(params),
+        scope=scope,
+    )
 
 
 def discover() -> list[ReflexRecord]:
-    """Introspect the reflex modules and build a record for every public
-    ``fix_*`` / ``apply_*`` callable. Pure reflection — no metadata drift."""
-    records: list[ReflexRecord] = []
-    for mod_name in _MODULES:
-        mod = getattr(reflexes, mod_name, None)
-        if mod is None:
-            continue
-        for name in getattr(mod, '__all__', ()):
-            if not (name.startswith('fix_') or name.startswith('apply_')):
-                continue
-            fn = getattr(mod, name, None)
-            if not callable(fn):
-                continue
-            params = list(inspect.signature(fn).parameters)
-            records.append(ReflexRecord(
-                id=name,
-                toolchain=mod_name,
-                error_class=_ERROR_CLASS.get(name, 'uncategorized'),
-                trigger=_trigger_from_signature(params),
-                scope=_scope_from_signature(params),
-            ))
+    """Every cataloged reflex, as a record. Built from the function references in
+    ``_CATALOG`` so the records cannot drift from the implementations."""
+    records = [_record(fn, cls) for cls, fns in _CATALOG.items() for fn in fns]
     records.sort(key=lambda r: (r.error_class, r.toolchain, r.id))
     return records
 
 
-def uncategorized() -> list[str]:
-    """Reflex ids with no curated error_class — the completeness test fails if
-    this is non-empty, forcing every new reflex to be classified."""
-    return [r.id for r in discover() if r.error_class == 'uncategorized']
+def unregistered() -> list[str]:
+    """Public ``fix_*`` / ``apply_*`` reflexes that exist in the modules but are
+    NOT in ``_CATALOG``. The completeness test fails if this is non-empty, so a
+    new reflex must be added to the catalog (and thereby classified)."""
+    cataloged = {fn.__name__ for fns in _CATALOG.values() for fn in fns}
+    found = set()
+    for mod in _MODULES:
+        for name in getattr(mod, '__all__', ()):
+            if name.startswith(('fix_', 'apply_')):
+                found.add(name)
+    return sorted(found - cataloged)
 
 
 if __name__ == '__main__':
     for r in discover():
         print(f"{r.error_class:24} {r.toolchain:8} {r.trigger:9} {r.id}")
-    missing = uncategorized()
+    missing = unregistered()
     if missing:
-        print(f"\nUNCATEGORIZED ({len(missing)}): {missing}")
+        print(f"\nUNREGISTERED ({len(missing)}) — add to _CATALOG: {missing}")

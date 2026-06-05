@@ -64,6 +64,7 @@ one function from its shape, and one module from its name.
 **Readable (the function/line scale):**
 - A reader should grasp *what* a function does and *why* from its name, docstring, and shape — without tracing control flow.
 - Make the data self-describing: prefer **named** regex groups (`m['file']`) over positional ones (`m.group(1)`), small named constants over magic numbers, and a named helper over an inline lambda doing real work. `src/mu/diagnose.py` is the reference style — a table of `_rule(...)` entries each readable on its own line.
+- **Reference symbols, not strings.** When one place catalogs or dispatches to code elsewhere, hold the **function/object reference**, not its name as a string — `rust.fix_rust_duplicate_use`, not `'fix_rust_duplicate_use'`. The link is then traceable (jump-to-definition, find-usages) and a rename breaks the import *immediately* instead of going silently stale. `src/mu/reflexes/registry.py` is the reference: it catalogs reflexes by direct reference, grouped by class, so the path from metadata to implementation is one click.
 - Separate concerns: one function decides *what matches*, another decides *how to phrase it*; don't braid them.
 - A docstring states the contract and the *why* (the failure it prevents), not a paraphrase of the code. Comments explain intent and non-obvious trade-offs, not mechanics.
 
