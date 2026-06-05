@@ -95,6 +95,15 @@ class ReflexRecord:
     error_class: str     # from the catalog above
     trigger: str         # scan · lint-out · test-out · project · plan (derived)
     scope: str           # file · project (derived)
+    summary: str         # one-line docstring (the schema is the documentation, §2)
+
+
+def _summary(fn) -> str:
+    """The reflex's one-line description: the first non-empty docstring line,
+    whitespace-collapsed and clipped. '' when the function has no docstring."""
+    doc = inspect.getdoc(fn) or ''
+    line = next((ln.strip() for ln in doc.splitlines() if ln.strip()), '')
+    return ' '.join(line.split())[:120]
 
 
 def _trigger_from_signature(params: list[str]) -> str:
@@ -120,6 +129,7 @@ def _record(fn, error_class: str) -> ReflexRecord:
         error_class=error_class,
         trigger=_trigger_from_signature(params),
         scope=scope,
+        summary=_summary(fn),
     )
 
 

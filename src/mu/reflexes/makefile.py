@@ -1073,4 +1073,5 @@ _MAKEFILE_REFLEXES = [
 ]
 
 def apply_makefile_reflexes(f: str) -> None:
+    """Run the whole Makefile reflex chain over a file to a fixpoint."""
     run_reflexes(_MAKEFILE_REFLEXES, f)

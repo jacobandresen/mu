@@ -28,7 +28,8 @@ DEFAULT_DB = os.path.expanduser('~/.mu/mu.db')
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS reflex (
   id TEXT PRIMARY KEY, toolchain TEXT, error_class TEXT,
-  trigger TEXT, scope TEXT, efficacy REAL          -- efficacy: null until ablated
+  trigger TEXT, scope TEXT, summary TEXT,
+  efficacy REAL                                    -- efficacy: null until ablated
 );
 CREATE TABLE IF NOT EXISTS session (
   session_id TEXT PRIMARY KEY, problem_id TEXT, model TEXT, model_family TEXT,
@@ -64,9 +65,10 @@ def connect(db_path: str = DEFAULT_DB) -> sqlite3.Connection:
 
 def _load_reflex_catalog(con: sqlite3.Connection) -> None:
     con.executemany(
-        "INSERT OR REPLACE INTO reflex(id,toolchain,error_class,trigger,scope) "
-        "VALUES (?,?,?,?,?)",
-        [(r.id, r.toolchain, r.error_class, r.trigger, r.scope) for r in discover()])
+        "INSERT OR REPLACE INTO reflex(id,toolchain,error_class,trigger,scope,summary) "
+        "VALUES (?,?,?,?,?,?)",
+        [(r.id, r.toolchain, r.error_class, r.trigger, r.scope, r.summary)
+         for r in discover()])
 
 
 def _load_sessions(con: sqlite3.Connection, sessions: list[dict]) -> None:
@@ -154,7 +156,11 @@ def build(db_path: str = DEFAULT_DB, sessions_dir: str | None = None) -> dict:
     sessions_dir = sessions_dir or os.path.expanduser('~/.mu/sessions')
     sessions = observe.load_sessions(sessions_dir)
     con = connect(db_path)
-    con.execute("DELETE FROM session"); con.execute("DELETE FROM firing")
+    # Drop + recreate (the KB is rebuildable, never the source of truth), so a
+    # schema change — like adding reflex.summary — always applies to an old DB.
+    con.executescript("DROP TABLE IF EXISTS reflex; DROP TABLE IF EXISTS session; "
+                      "DROP TABLE IF EXISTS firing; DROP TABLE IF EXISTS model_profile;")
+    con.executescript(_SCHEMA)
     _load_reflex_catalog(con)
     _load_sessions(con, sessions)
     _load_firings(con, sessions_dir)
@@ -184,6 +190,8 @@ def combination_report(con: sqlite3.Connection) -> list[str]:
 
     # One (session, reflex, outcome) row per session a reflex fired in (a reflex can
     # fire several times per session — collapse to distinct sessions before averaging).
+    summaries = {row['id']: row['summary']
+                 for row in con.execute("SELECT id, summary FROM reflex")}
     rows = con.execute(
         "SELECT reflex_id, SUM(success) hits, COUNT(*) n FROM ("
         "  SELECT DISTINCT f.session_id, f.reflex_id, s.success"
@@ -191,7 +199,8 @@ def combination_report(con: sqlite3.Connection) -> list[str]:
         ") GROUP BY reflex_id ORDER BY n DESC").fetchall()
     for r in rows:
         post = observe.beta_binomial(r['hits'] or 0, r['n'], base)
-        out.append(f"- `{r['reflex_id']}`  {post}")
+        desc = summaries.get(r['reflex_id'])
+        out.append(f"- `{r['reflex_id']}`  {post}" + (f" — {desc}" if desc else ""))
 
     pairs = con.execute(
         "SELECT a.reflex_id x, b.reflex_id y, COUNT(DISTINCT a.session_id) n "

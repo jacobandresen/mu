@@ -8,10 +8,12 @@ de-duplicated knowledge base and reason **probabilistically** about which reflex
   `reflexdb.py`, built by `mu kb`); the Beta-Binomial posterior (`observe.py`); the
   completeness check (`registry.unregistered()`); the **ablation mechanism** (§9 —
   `MU_DISABLE_REFLEX` honored by `run_reflexes`, `mu dojo measure --disable`); the
-  **combination-analysis report** (§7, in `mu kb`); tests for both.
+  **combination-analysis report** (§7, in `mu kb`); the `summary` schema field (one-line
+  docstring, surfaced in `mu kb`); registry-contract tests (§11).
 - **Planned (not yet built):** *writing* `reflex.efficacy` automatically (the
-  mechanism above lets you measure Δ by hand; nothing stores it yet), the extra schema
-  fields (§3/§6), and the broader validation suite (§11). Marked inline below.
+  mechanism above lets you measure Δ by hand; nothing stores it yet), the remaining
+  curated schema fields (§3/§6: `artifact`/`phase`/`idempotent`/`risk`/`evidence`), and
+  the model-in-the-loop validation (calibration, ablation Δ — §11). Marked inline below.
 
 ---
 
@@ -72,8 +74,8 @@ are the intended schema, **not yet populated**.
 | `error_class` | controlled vocab (§4) | built |
 | `trigger` | scan·lint-out·test-out·project·plan | built |
 | `scope` | file·project·multi-file | built |
+| `summary` | text — one line (first docstring line) | built |
 | `efficacy` | Δ pass-rate from ablation (§9) | column exists, **never written** |
-| `summary` | text — one line (docstring) | planned |
 | `artifact` | source·manifest·makefile·plan·test-config | planned |
 | `phase` | write·lint-repair·test-repair·pre-flight·plan | planned |
 | `idempotent` | bool (`f(f(x))==f(x)` — the runner relies on it) | planned |
@@ -123,14 +125,14 @@ refactors are behaviour-preserving and gated by golden tests.
 
 ## 6. SQLite store — DDL
 
-The actual schema today (`reflexdb._SCHEMA`). The richer per-reflex columns in §3
-(`summary`, `artifact`, `phase`, `idempotent`, `risk`, `evidence`) and `firing.phase`/
-`firing.ts` are **planned**, not in this DDL yet.
+The actual schema today (`reflexdb._SCHEMA`). The remaining per-reflex columns in §3
+(`artifact`, `phase`, `idempotent`, `risk`, `evidence`) and `firing.phase`/`firing.ts`
+are **planned**, not in this DDL yet.
 
 ```sql
 CREATE TABLE reflex (                    -- §3 'built' fields + the efficacy stub
   id TEXT PRIMARY KEY, toolchain TEXT, error_class TEXT,
-  trigger TEXT, scope TEXT, efficacy REAL    -- efficacy: null until ablated (§9)
+  trigger TEXT, scope TEXT, summary TEXT, efficacy REAL  -- efficacy: null until ablated (§9)
 );
 CREATE TABLE session (
   session_id TEXT PRIMARY KEY, problem_id TEXT, model TEXT, model_family TEXT,
@@ -241,15 +243,14 @@ plan-time predictor (the firing happened *because* of the eventual outcome).
 
 ## 11. Validation discipline
 
-How we know a KB-driven change is real, not noise. **Status:** the suite is just
-starting — `tests/test_reflex_ablation.py` pins the ablation hook (below), and
-`registry.unregistered()` is a callable completeness check. The rest below is the
-intended discipline, not yet wired into CI.
+How we know a KB-driven change is real, not noise. **Status:** the suite has started —
+`tests/` covers the registry contracts, the ablation hook, and the combination report.
+The model-in-the-loop parts (calibration, ablation Δ, no-regression) remain the intended
+discipline, not yet automated.
 
-- **Completeness:** every public `fix_*` in `reflexes/` is registered with non-null
-  required fields, and `error_class`/`trigger`/`scope` ∈ controlled sets.
-  `registry.unregistered()` computes this today (currently returns empty); wiring it
-  into CI is pending.
+- **Completeness (built):** `tests/test_registry.py` asserts `registry.unregistered()`
+  is empty (every public `fix_*`/`apply_*` is cataloged), every reflex has a one-line
+  summary, derived `trigger`/`scope` ∈ controlled sets, and ids are unique.
 - **Idempotency:** each `scan` reflex satisfies `f(f(x)) == f(x)` on a recorded fixture
   — the property the fixpoint runner depends on.
 - **Interval calibration:** simulate K reflexes with known true rates, build 95%
