@@ -1,4 +1,4 @@
-.PHONY: install deps venv openvino
+.PHONY: install deps venv
 
 # Create a local .venv and install mu in editable mode with dev extras.
 # Symlinks .venv/bin/mu into ~/.local/bin so `mu` is on PATH without
@@ -15,19 +15,6 @@ venv:
 	        "\n  bash/zsh: echo 'export PATH=\"\$$HOME/.local/bin:\$$PATH\"' >> ~/.zshrc" ;; \
 	esac
 
-# Install OpenVINO stack and download the right Mistral model.
-# NPU detected  →  int4 channel-wise (Meteor Lake NPU-optimised)
-# CPU/GPU       →  int4 asymmetric
-# Safe to re-run: skips the ~3.6 GB download if the model is already present.
-openvino: venv
-	@echo "==> OpenVINO setup"
-	@.venv/bin/pip install --quiet -e '.[openvino]'
-	@.venv/bin/python scripts/setup_openvino.py --yes
-
-# deps: full setup including OpenVINO on Intel Linux.
 deps: venv
-	@if grep -q "GenuineIntel" /proc/cpuinfo 2>/dev/null; then \
-	    $(MAKE) --no-print-directory openvino; \
-	fi
 
 install: venv
