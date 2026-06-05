@@ -62,11 +62,13 @@ If `--model` and `MU_AGENT_MODEL` are both unset, mu uses the first model loaded
 
 On 8 GB unified memory, CPU + GPU share the pool — headroom is tight (a loaded 7B ≈ 4.5 GB).
 
-- **Context window.** `mu dojo run` defaults to `MU_NUM_CTX=8192`, the measured sweet spot for the dojo's `granite-4.1-3b` (~2 GB): bigger is *not* better — 8192 → 3/10 vs 16384 → 1/10 (at 16384 it keeps tool-calling but loses coherence in the multi-turn repair loop). For a 7B (~4.5 GB), ~6000 is the balance — 8192 triggers swap (measured 2.6–6× slower), 16384 isn't viable. `client.load_model` loads with `MU_NUM_CTX + 2048` headroom; without it LM Studio's 4096 JIT default silently caps the model and prompts >4096 are rejected HTTP 400 mid-run. Override with `MU_NUM_CTX` / `MU_LOAD_CTX`.
-- **Temperature.** mu hardcodes `0.1` (`client.py`) — low randomness for stable structured output; 0.1 rather than 0 avoids the repetition loops pure greedy decoding triggers on some models.
-- **GPU layers.** Leave at max (all on GPU); CPU offload is a 5–10× slowdown.
-- **Quantization.** `Q4_K_M` is the sweet spot for 8 GB — fits with room for the KV cache and produces correct code; `Q8_0` doesn't fit alongside context.
-- **Memory pressure.** Above ~8096 ctx on 8 GB the system runs near-zero free RAM with active swap → slower generation and repair-loop timeouts. Timeouts aren't exclusive to large contexts: a sustained repair loop can trigger swap even at low ctx.
+- **Context window.** The knob that matters most. `mu dojo run` defaults to `MU_NUM_CTX=8192`, the measured sweet spot for the dojo's `granite-4.1-3b` (~2 GB). Bigger is *not* better: granite scores 3/10 at 8192 but only 1/10 at 16384, where it keeps calling tools but loses coherence in the multi-turn repair loop. A 7B (~4.5 GB) wants less — about 6000; at 8192 it starts swapping (2.6–6× slower) and 16384 isn't viable.
+
+  `client.load_model` adds 2048 tokens of headroom on top of `MU_NUM_CTX`. Without that headroom, LM Studio's 4096-token JIT default silently caps the model and any prompt over 4096 is rejected with HTTP 400 mid-run. Override with `MU_NUM_CTX` (or `MU_LOAD_CTX`).
+- **Temperature.** Hardcoded to `0.1` (`client.py`) — low enough for stable structured output, but not a flat `0`, which can send some models into repetition loops.
+- **GPU layers.** Leave at the maximum (all on GPU). CPU offload is a 5–10× slowdown.
+- **Quantization.** `Q4_K_M` is the sweet spot for 8 GB — it fits with room for the KV cache and still produces correct code. `Q8_0` won't fit alongside a useful context.
+- **Memory pressure.** Above ~8096 context on 8 GB, the system runs with almost no free RAM and active swap, which means slower generation and repair-loop timeouts. Timeouts aren't exclusive to large contexts, though — a sustained repair loop can trigger swap even at a low context.
 
 | Parameter | Safe value (M2 8 GB) | Avoid |
 |---|---|---|
@@ -79,14 +81,19 @@ On 8 GB unified memory, CPU + GPU share the pool — headroom is tight (a loaded
 
 ## Model characterization (profiles)
 
-The section above is about *picking* a model; this is about *describing* one from
-data, so observations, reflexes, skills, and tuning can be attributed to and chosen
-for a model. Granite (3B) and qwen2.5-coder (7B) fail in different ways; a profile
-makes those differences explicit and queryable. Two layers: **declared** attributes
-(from the catalog) and **empirical** attributes (learned from that model's tagged
-sessions — `meta.json.model`, via `observe.py`). Every empirical attribute carries
-provenance — `n` sessions and a 95% credible interval (Beta-Binomial) — so we never
-characterize a model from three lucky runs.
+The section above is about *picking* a model; this is about *describing* one from its
+own data, so that observations, reflexes, skills, and tuning can be attributed to — and
+chosen for — a specific model. Granite (3B) and qwen2.5-coder (7B) fail in different
+ways, and a profile makes those differences explicit and queryable.
+
+A profile has two layers:
+
+- **Declared** attributes, from the catalog.
+- **Empirical** attributes, learned from that model's tagged sessions (`meta.json.model`, via `observe.py`).
+
+Every empirical attribute carries its provenance — the number of sessions and a 95%
+credible interval (Beta-Binomial) — so we never characterize a model from three lucky
+runs.
 
 Built by `mu kb` (`reflexdb._build_model_profiles`), which writes a `model_profile`
 row per model alongside the reflex KB; rebuildable from the session archive, never
@@ -109,10 +116,10 @@ regresses), `repeat_penalty` (granite 1.1), `stochasticity` (run-to-run variance
 the spread of `mu dojo measure` outcomes with `MU_SEED` set vs unset), and whether
 forced `tool_choice` helps (granite yes — kills the prose spiral).
 
-**Honest caveats.** The fingerprint says *where* a model errs, not *why* (it's
-observational). A profile is tied to a `model_version` — re-quantizing invalidates the
-empirical fields. `competence_by_toolchain` is only fair when the same problems were
-run. Most cells are sparse — hence the `n≥5` gate (`observe.Posterior.enough`) and
-intervals everywhere; below it the attribute reads "insufficient data" rather than a
-number.
+**Honest caveats.**
+
+- The fingerprint says *where* a model errs, not *why* — it is observational.
+- A profile is tied to a `model_version`; re-quantizing the model invalidates the empirical fields.
+- `competence_by_toolchain` is only comparable when the same problems were run.
+- Most cells are sparse, so there is an `n≥5` gate (`observe.Posterior.enough`) and an interval everywhere. Below the gate, an attribute reads "insufficient data" instead of a number.
 

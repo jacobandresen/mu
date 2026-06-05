@@ -121,7 +121,11 @@ Recorded phases: `planner`, `writer`, `repair`, `lint-repair`, `architect`, `sta
 - High `writer` prompt share with many turns means the model is not calling the Write tool on the first try; the writer nudge loop is expensive.
 - Compare `tokens_by_phase.repair.prompt` across problems to find which goals trigger the most repair work.
 
-**Where tokens go.** The **writer** dominates (multi-turn, up to 15 turns — later turns are mostly accumulated history, not new instructions). **Skills** are ~40% of prompt tokens (a framework goal loads several at plan *and* writer time). The **repair loop** re-sends the full project context + growing history every iteration, so a long "still failing" run is the worst case.
+**Where tokens go:**
+
+- The **writer** dominates. It is multi-turn (up to 15 turns), and the later turns are mostly accumulated history rather than new instructions.
+- **Skills** are about 40% of prompt tokens — a framework goal loads several, at both plan time and writer time.
+- The **repair loop** re-sends the full project context plus a growing history on every iteration, so a long "still failing" run is the worst case.
 
 **Reduction levers** (prompt management only — no change to the model, dojo, or reflexes):
 
@@ -133,11 +137,26 @@ Recorded phases: `planner`, `writer`, `repair`, `lint-repair`, `architect`, `sta
 
 Most of the dojo's stochasticity is **self-inflicted by the formulation**, not intrinsic to coding. With a mature reflex layer, the model-tagged data (granite n=34 pass 0.33; qwen n=32 pass 0.65) shows *no deterministic cause recurring across multiple problems* — failures are dominated by writer-stalls/degeneration. So the next lever is shrinking what the model must decide, not more reflexes.
 
-> Note: `build-rule-structure` has the top *firing* rate for both models, but firings are the Makefile reflexes **winning**, not failing (a session has one outcome — a >1/session rate can't be a failure rate). "Fixture away the Makefile" is therefore *not* the top lever. The real residue is degeneration (the ceiling) and planner variance.
+> **A caveat that shaped the plan.** `build-rule-structure` has the highest *firing* rate for both models — but a firing means a Makefile reflex *succeeded*, not failed. (A session has one outcome, so a rate above 1-per-session can't be a failure rate.) So "fixture away the Makefile" is not the top lever: the reflexes already handle it. The real residue is degeneration and planner variance.
 
-**Where the variance comes from** (ranked): (1) the **planner** — a fresh decomposition/filenames/test-command each run; `mu dojo measure` from a frozen plan is reproducible (5/5 with `MU_SEED`) while the same problem live swings pass↔stall. (2) **inferred structure** — the model invents filenames/symbols when the goal doesn't state the contract. (3) **degeneration** — the model ceiling, unreachable by reflexes. (4) **cross-file coupling** (p7/p8, p10). (5) **out-of-competence** runs (granite 0.0 on python/rust/go = pure noise).
+### Where the variance comes from
 
-**The levers:** pin the plan (`mu dojo measure`, shipped), provide manifest/config/test as a **fixture** (shipped), pin filenames + test command (`improve-plan`, partial), route by competence (`mu dojo run --route`, shipped). The principle: **specify everything except the one thing you're measuring** — to test "can it implement `fib()`", give the project, Makefile, and test, ask only for the body.
+Ranked by how much each moves the outcome:
+
+1. **The planner.** A fresh decomposition, set of filenames, and test command on every run. This is the biggest source: run a problem from a *frozen* plan and it is reproducible (5/5 with `MU_SEED`), but run it live and it swings between pass and stall.
+2. **Inferred structure.** When the goal doesn't state the contract, the model invents filenames and exported symbols — each a guess.
+3. **Degeneration.** The model loops or stalls. This is the model's ceiling; no reflex can reach it.
+4. **Cross-file coupling.** Multi-file tasks (p7, p8, p10) add import/symbol-resolution failures.
+5. **Out-of-competence runs.** Granite scores 0.0 on python/rust/go — running it there is pure noise.
+
+### The levers
+
+The guiding principle: **specify everything except the one thing you're measuring.** To test "can the model implement `fib()`," hand it the project, the Makefile, and the test, and ask only for the body.
+
+- **Pin the plan** — `mu dojo measure` (shipped).
+- **Provide the manifest, config, or test as a fixture** (shipped).
+- **Pin filenames and the test command** — `improve-plan` (partial).
+- **Route by competence** — `mu dojo run --route` (shipped).
 
 **The minimization ladder** — a declared level per problem (`problems-catalog.json` `minimize`), each rung the one below plus a fixture:
 

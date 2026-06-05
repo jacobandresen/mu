@@ -176,9 +176,13 @@ mu dojo measure p8-node-todo --runs 5 --seed 42                          # basel
 mu dojo measure p8-node-todo --runs 5 --seed 42 --disable fix_js_duplicate_require
 ```
 
-Pass rate drops → load-bearing; Δ≈0 across seeds → dead weight. **Ordering (built):**
-`mu kb`'s ablation shortlist (§7) is the §8 posteriors choosing which to ablate first.
-**Planned:** automatically storing the measured Δ in `reflex.efficacy`.
+If the pass rate drops, the reflex was load-bearing. If the change is negligible across
+seeds, it is dead weight.
+
+**Ordering (built).** `mu kb`'s ablation shortlist (§7) uses the §8 posteriors to choose
+which reflexes to ablate first.
+
+**Planned.** Storing the measured Δ automatically in `reflex.efficacy`.
 
 ---
 
