@@ -34,6 +34,31 @@ def guard_enabled() -> bool:
     return os.environ.get("MU_DEGEN_GUARD", "1") != "0"
 
 
+# ── refusal counter (per session) ─────────────────────────────────────────────
+# Mirrors reflexes.core's firing recorder: the guard notes each refusal so the
+# session can record *how often this model degenerated*. The agent resets it at
+# session start (AgentSession.__init__) and persists the count to meta.json at
+# archive time, where per-model analysis (observe.py / `mu kb`) can read it.
+# Degeneration is a per-model trait (granite-high, qwen-near-zero), so capturing
+# it at the source is what makes that claim measurable rather than asserted.
+_REFUSALS = 0
+
+
+def reset_refusals() -> None:
+    global _REFUSALS
+    _REFUSALS = 0
+
+
+def note_refusal() -> None:
+    """Record that the guard refused one degenerate write/edit."""
+    global _REFUSALS
+    _REFUSALS += 1
+
+
+def refusal_count() -> int:
+    return _REFUSALS
+
+
 def is_degenerate(text: str) -> bool:
     """True if *text* is dominated by a short unit repeated back-to-back.
 

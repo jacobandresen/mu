@@ -72,6 +72,11 @@ class AgentSession:
             reset_firings()
         except Exception:
             pass
+        try:  # start a clean degeneration-guard refusal count for this episode
+            from mu.degeneration import reset_refusals
+            reset_refusals()
+        except Exception:
+            pass
         self.start_time = datetime.now(timezone.utc)
         self.archive_path = os.path.join(archive_dir, self.id)
         self.max_iter = max_iter
@@ -110,6 +115,14 @@ class AgentSession:
             tasks_total=tasks_total,
             tasks_done=tasks_done,
         )
+        try:  # how often the degeneration guard refused a corrupt write this episode
+            from mu.degeneration import refusal_count
+            degen_refusals = refusal_count()
+        except Exception:
+            degen_refusals = 0
+        if degen_refusals:
+            print(f"==> [mu-agent] Degeneration guard refused {degen_refusals} "
+                  f"write(s) this session.", flush=True)
         meta = {
             'session_id': self.id, 'goal': self.goal,
             'model': self.model,
@@ -119,6 +132,7 @@ class AgentSession:
             'duration_seconds': wall_seconds,
             'max_iterations': self.max_iter,
             'exit_code': exit_code,
+            'degeneration_refusals': degen_refusals,
             **utility.as_dict(),
         }
         try:

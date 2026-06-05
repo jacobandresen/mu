@@ -6,8 +6,10 @@ normal source — indentation, repeated `self.`, big literals, many blank lines 
 is *not* flagged, and only true back-to-back token loops are.
 """
 
+import json
 import os
 import sys
+from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
@@ -107,6 +109,57 @@ def test_guard_enabled_default(monkeypatch=None):
         assert guard_enabled() is False
     finally:
         os.environ.pop('MU_DEGEN_GUARD', None)
+
+
+# ── Refusal counter ───────────────────────────────────────────────────────────
+
+def test_counter_increments_and_resets():
+    from mu.degeneration import reset_refusals, note_refusal, refusal_count
+    reset_refusals()
+    assert refusal_count() == 0
+    note_refusal()
+    note_refusal()
+    assert refusal_count() == 2
+    reset_refusals()
+    assert refusal_count() == 0
+
+
+def test_refusal_count_round_trips_to_meta_and_back():
+    """The signal must survive the path it actually travels in a measure run:
+    AgentSession resets it → writes flagged → finalize() persists it to meta.json
+    → a reader (SessionMeta) loads it. A pure in-memory counter test would pass
+    even if this path were broken and every real run silently reported 0."""
+    import tempfile
+    from mu.archive import AgentSession
+    from mu.degeneration import note_refusal
+    from mu.dojo.sessions import _load
+
+    with tempfile.TemporaryDirectory() as tmp:
+        archive = os.path.join(tmp, 'archive')
+        logs = os.path.join(tmp, 'logs')
+        os.makedirs(archive)
+        os.makedirs(logs)
+        # __init__ resets the counter, just like a real session start.
+        sess = AgentSession('test goal', archive, logs, max_iter=1)
+        # Then the guard fires twice during the (simulated) writer loop.
+        note_refusal()
+        note_refusal()
+        sess.finalize(0, None)
+
+        meta_path = Path(sess.archive_path) / 'meta.json'
+        meta = json.loads(meta_path.read_text())
+        assert meta['degeneration_refusals'] == 2          # persisted to disk
+        assert _load(meta_path).degeneration_refusals == 2  # and read back out
+
+
+def test_old_meta_without_field_loads_as_zero():
+    """A meta.json written before this field existed must still load."""
+    import tempfile
+    from mu.dojo.sessions import _load
+    with tempfile.TemporaryDirectory() as tmp:
+        meta_path = Path(tmp) / 'meta.json'
+        meta_path.write_text(json.dumps({'session_id': 'x', 'outcome': 'success'}))
+        assert _load(meta_path).degeneration_refusals == 0
 
 
 if __name__ == '__main__':

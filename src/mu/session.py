@@ -17,7 +17,7 @@ from mu.reflexes import fix_requirements_path_entries
 
 from mu import tools
 from mu.client import chat_or_retry
-from mu.degeneration import guard_enabled, is_degenerate
+from mu.degeneration import guard_enabled, is_degenerate, note_refusal
 from mu.diagnose import distill_test_errors
 
 
@@ -142,6 +142,7 @@ class Session:
                     if ok and code and guard_enabled() and is_degenerate(code):
                         # Repetition loop in the extracted block — don't commit a
                         # corrupt file; fall through to resample (CHALLENGES.md #1).
+                        note_refusal()
                         print("==> [mu-agent] Degeneration guard: discarded a "
                               "repetition-loop code block; resampling.")
                         ok = False

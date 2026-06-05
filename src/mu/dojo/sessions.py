@@ -26,6 +26,7 @@ class SessionMeta:
     project_dir: str
     model: str
     repair_iters: int
+    degeneration_refusals: int  # times the degeneration guard refused a write
 
     @property
     def dir(self) -> Path:
@@ -56,6 +57,7 @@ def _load(meta_path: Path) -> Optional[SessionMeta]:
         project_dir=d.get('project_dir') or 'unknown',
         model=d.get('model') or '?',
         repair_iters=int(d.get('repair_iters') or 0),
+        degeneration_refusals=int(d.get('degeneration_refusals') or 0),
     )
 
 
