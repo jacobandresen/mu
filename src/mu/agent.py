@@ -1252,12 +1252,17 @@ def _run_planning_phase(goal: str, model: str, planner_timeout: int, complexity:
         if not Path(plan_file).exists():
             log("Attempt %d: no %s produced", attempt, plan_file)
             continue
-        data = Path(plan_file).read_bytes()
-        if not re.search(rb'(?m)^- \[[ x~]\]', data):
+        text = Path(plan_file).read_text(errors='replace')
+        # Use the real parser, not a raw regex, to decide "has a task checklist".
+        # parse_content normalizes malformed bullets the model emits (e.g.
+        # `- - [ ] main.py`, `  - [ ] main.py`); a raw `^- \[ \]` check rejects
+        # those and retries to failure even though every downstream read recovers
+        # the tasks fine — the same reject-only anti-pattern as the blocking-Go
+        # guard below. Agreeing with the parser fixes the class.
+        if not parse_content(text).tasks:
             log("Attempt %d: %s has no task checklist (wrong format) — retrying",
                 attempt, plan_file)
             continue
-        text = data.decode('utf-8', errors='replace')
         if _plan_has_blocking_go_cmd(text):
             # The model reliably re-emits the blocking `./binary` command on every
             # attempt (a Go HTTP server runs forever), so retrying just burns the
