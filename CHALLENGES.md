@@ -165,3 +165,9 @@ One common pitfall is leaving triple‑quoted strings open (missing the closing 
 52. **Mocking conflicts**
   - Conflicting imports between mocks and actual modules can cause build errors; ensure mocks are used lazily or with unique names to avoid clashes.
 
+53. **Syntax error in Go code**
+  - Watch for unexpected newlines and missing commas or closing braces in composite literals. Ensure proper indentation and syntax consistency.
+
+54. **Missing semicolon in JavaScript**
+  - Ensure every statement ends with a semicolon to avoid syntax errors during parsing.
+
