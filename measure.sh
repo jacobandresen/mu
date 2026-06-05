@@ -75,14 +75,24 @@ for run in $(seq 1 "$N"); do
   ri=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('repair_iters',0))" "$meta" 2>/dev/null)
   iters_sum=$((iters_sum + ${ri:-0}))
   if [ "$oc" = "success" ]; then pass=$((pass + 1)); mark="PASS"; else mark="${oc:-?}"; fi
+  outcomes="${outcomes}${oc:-?} "          # for the stochasticity metric
   printf '  run %d/%d: %-8s repair_iters=%s\n' "$run" "$N" "$mark" "${ri:-?}"
 done
 
 echo
-python3 - "$ID" "$pass" "$N" "$iters_sum" "${MU_SEED:-}" <<'PYEOF'
+python3 - "$ID" "$pass" "$N" "$iters_sum" "${MU_SEED:-}" "$outcomes" <<'PYEOF'
 import sys
+from collections import Counter
 pid, ok, n, isum, seed = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4]), sys.argv[5]
+outcomes = sys.argv[6].split()
 rate = 100 * ok // n
+# Stochasticity: fraction of runs that differ from the most common outcome.
+# 0 = fully reproducible (every run identical); higher = noisier. With MU_SEED it
+# should be ~0; unseeded, it is how much intrinsic variance this problem+level has
+# (the metric the minimization ladder is meant to drive down — docs/PROBLEM_SPACE.md).
+modal = Counter(outcomes).most_common(1)[0][1] if outcomes else 0
+stoch = 1 - modal / n if n else 0
 note = f" · seed={seed}" if seed else " · sampled (set MU_SEED to pin)"
-print(f"{pid}: {ok}/{n} passed ({rate}%) · avg repair iters {isum/n:.1f} · plan frozen{note}")
+print(f"{pid}: {ok}/{n} passed ({rate}%) · avg repair iters {isum/n:.1f} · "
+      f"stochasticity {stoch:.2f} · plan frozen{note}")
 PYEOF

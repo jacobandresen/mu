@@ -648,6 +648,20 @@ def run(goal: str, model: str = '', target_dir: str = '',
         else:
             log("Skipping contextual skills (constrained token budget: %d tokens).", max_prompt_tokens())
 
+        # Provided fixtures: a task whose file already exists (non-empty) in the
+        # work dir was supplied (e.g. a correct Makefile copied in by fixture
+        # mode, docs/PROBLEM_SPACE.md L2+). It is not the model's job — mark it
+        # done so the writer skips it. This is how a fixture removes a whole
+        # failure class: the model never writes (and fails) the provided file.
+        marked = False
+        for t in p.tasks:
+            if not t.done and Path(t.file_path).exists() and Path(t.file_path).stat().st_size > 0:
+                mark_task_done(plan_file, t.file_path)
+                log("Provided fixture: %s — skipping (not rewritten).", t.file_path)
+                marked = True
+        if marked:
+            p = parse(plan_file)
+
         for i in range(1, max_iter + 1):
             task = next_task(p)
             if task is None:

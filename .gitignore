@@ -9,12 +9,14 @@ __pycache__/
 build/
 dist/
 
-# Ignore dojo working dirs, except the committed golden plans that measure.sh
-# runs from (frozen plans remove planner variance from measurement).
+# Ignore dojo working dirs, except the committed golden plans (measure.sh) and
+# fixtures (fixture mode — files given to the model to remove failure classes).
 dojo/*
 !dojo/golden/
 dojo/golden/*/*
 !dojo/golden/*/PLAN.md
+!dojo/fixtures/
+!dojo/fixtures/**
 # Exclude temporary main file for local testing
 tmp_main.rs
 

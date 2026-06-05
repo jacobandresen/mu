@@ -117,10 +117,23 @@ run_problem() {
   local folder="$1"
   local goal="$2"
   local workdir="./dojo/${folder}"
+  # Competence routing (opt-in): skip a problem the chosen model is measured
+  # hopeless at, so rounds aren't burned generating noise (docs/PROBLEM_SPACE.md).
+  if [ -n "${MU_ROUTE:-}" ] && [ -n "${MU_AGENT_MODEL:-}" ]; then
+    if python3 -m mu.fixtures skip "${MU_AGENT_MODEL}" "${folder}" 2>/dev/null; then
+      echo "Routing: skipping '${folder}' — ${MU_AGENT_MODEL} is measured hopeless on its toolchain."
+      return 0
+    fi
+  fi
   if [ -z "${SKIP_CLEAN:-}" ]; then
     rm -rf "${workdir}"   # fresh dir prevents stale PLAN.md from a prior run
   fi
   mkdir -p "${workdir}"
+  # Fixture mode: copy any committed fixtures for this problem into the work dir.
+  # The agent marks a provided file's task done, so the writer skips it — the
+  # given file can't be written wrong (docs/PROBLEM_SPACE.md L2+).
+  provided=$(python3 -m mu.fixtures apply "${folder}" "${workdir}" 2>/dev/null)
+  [ -n "${provided}" ] && echo "Fixtures provided for '${folder}': $(echo ${provided} | tr '\n' ' ')"
   pushd "${workdir}" >/dev/null
   echo "Running problem '${folder}'"
   "${MU_CMD}" agent "${goal}" --dir . || true   # non-zero exit swallowed; outcome in session archive
