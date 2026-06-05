@@ -22,6 +22,7 @@ __all__ = [
     'fix_jest_config_js',
     'fix_package_json_bare_jest',
     'fix_package_json_builtin_deps',
+    'fix_js_duplicate_require',
 ]
 
 
@@ -306,6 +307,46 @@ def fix_js_missing_requires(file_path: str) -> bool:
         lines.insert(insert_at, stmt)
     Path(file_path).write_text('\n'.join(lines) + '\n')
     print(f"==> [mu-agent] Reflex: added {len(to_add)} missing Node.js require(s) to {file_path}")
+    return True
+
+
+# `const NAME = require(...)` / `import NAME = require(...)`, captured by NAME.
+_JS_REQUIRE_DECL_RE = re.compile(
+    r'^\s*(?:const|let|var)\s+(?P<name>\w+)\s*=\s*require\(')
+
+
+def fix_js_duplicate_require(file_path: str) -> bool:
+    """Remove a duplicate top-level ``const X = require(...)`` declaration.
+
+    A weak model sometimes emits the same require twice (observed:
+    ``const fs = require('fs')`` on two lines), which is a hard
+    ``SyntaxError: Identifier 'fs' has already been declared`` — Jest/Babel can't
+    even parse the file. Keep the first declaration of each name and drop later
+    ones. General: re-declaring the same identifier with ``const`` is always
+    invalid JS, in any file — the JS analogue of fix_rust_duplicate_use.
+    """
+    ext = Path(file_path).suffix.lower()
+    if ext not in ('.js', '.jsx', '.mjs', '.ts', '.tsx'):
+        return False
+    try:
+        lines = Path(file_path).read_text().splitlines()
+    except OSError:
+        return False
+    seen: set[str] = set()
+    out, removed = [], 0
+    for line in lines:
+        m = _JS_REQUIRE_DECL_RE.match(line)
+        if m:
+            name = m.group('name')
+            if name in seen:
+                removed += 1
+                continue  # drop the redeclaration
+            seen.add(name)
+        out.append(line)
+    if not removed:
+        return False
+    Path(file_path).write_text('\n'.join(out) + '\n')
+    print(f"==> [mu-agent] Reflex: removed {removed} duplicate require declaration(s) from {file_path}")
     return True
 
 def fix_js_extra_closing_brace(file_path: str, test_output: str = '') -> bool:

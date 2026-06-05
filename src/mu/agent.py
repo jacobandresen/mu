@@ -59,6 +59,7 @@ from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
                          fix_missing_flask_client_fixture,
                          fix_sqlite_missing_row_factory,
                          fix_flask_post_missing_201,
+                         fix_js_duplicate_require,
                          fix_js_env_data_file,
                          fix_js_extra_closing_brace,
                          fix_js_missing_requires,
@@ -781,7 +782,9 @@ def run(goal: str, model: str = '', target_dir: str = '',
                 if fix_vue_test_utils_import(task.file_path):
                     log("Fixed %s: corrected Vue test-utils import.", task.file_path)
 
-            if Path(task.file_path).suffix.lower() in ('.js', '.jsx', '.mjs'):
+            if Path(task.file_path).suffix.lower() in ('.js', '.jsx', '.mjs', '.ts', '.tsx'):
+                if fix_js_duplicate_require(task.file_path):
+                    log("Fixed %s: removed duplicate require declaration(s).", task.file_path)
                 if fix_js_env_data_file(task.file_path):
                     log("Fixed %s: converted env-var constant to getter function.", task.file_path)
                 if fix_js_missing_requires(task.file_path):
@@ -1315,7 +1318,8 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
                 if Path(test_log).exists():
                     if fix_csharp_missing_using(t.file_path, _tail_file(test_log, 60)):
                         log("Repair reapply: added missing using directive(s) to %s.", t.file_path)
-            elif Path(t.file_path).suffix.lower() in ('.js', '.jsx', '.mjs'):
+            elif Path(t.file_path).suffix.lower() in ('.js', '.jsx', '.mjs', '.ts', '.tsx'):
+                fix_js_duplicate_require(t.file_path)
                 fix_js_env_data_file(t.file_path)
                 fix_js_missing_requires(t.file_path)
                 fix_literal_newlines(t.file_path)
