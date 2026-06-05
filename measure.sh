@@ -60,7 +60,7 @@ fi
 
 marker=$(mktemp /tmp/measure-mark.XXXXXX)
 trap 'rm -f "$marker"; rm -rf "dojo/$ID"' EXIT
-pass=0; iters_sum=0
+pass=0; iters_sum=0; outcomes=""
 echo "Measuring $ID over $N run(s) from the frozen plan${MU_SEED:+ (seed=$MU_SEED, temp 0)}…"
 
 for run in $(seq 1 "$N"); do
