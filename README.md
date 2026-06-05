@@ -2,6 +2,10 @@
 
 Local AI coding toolkit. Drives an autonomous coding loop from a plain-English goal using a local LLM via [LM Studio](https://lmstudio.ai) or [OpenVINO](https://docs.openvino.ai) (CPU inference, no GPU required).
 
+**mu is an agent harness that employs *reflexes* — deterministic, condition→action fixers — to repair the mistakes weaker local models make.** A small model (e.g. a 3B) writes plausible but broken code: an invalid `Cargo.toml` dependency, a test that forgets to import `app`, a Makefile recipe without a tab, a Go test command that blocks forever. Each reflex corrects one *general class* of such error before the lint/test gate runs, so a weak model lands working code far more often than its raw output would allow.
+
+**The reflexes are trained in the `practice.sh` loop by stronger models.** `practice.sh` runs the dojo repeatedly with a weak model, distills the root cause of every failure, and surfaces the chronic ones; a stronger model (the developer, or an LLM agent like Claude) then reads those failures and encodes a new general reflex or normalizer. Over rounds, the harness accumulates the fixes a weak model can't make for itself. Reflexes must fix a *general* class — never a specific dojo problem.
+
 **Requires:** Python 3.11+, and one of:
 - **LM Studio** running at `localhost:1234` (default), or
 - **OpenVINO GenAI** (`pip install openvino openvino-genai`) with a converted model
@@ -158,11 +162,39 @@ dojo/                  stress-test working directories (gitignored)
 
 ## Dojo
 
-The dojo stress-tests mu against a fixed problem set. Problems are defined in `problems-catalog.json`; only problems whose toolchains are installed are run.
+The dojo stress-tests mu against a fixed problem set of ten goals spanning C, Python, Go, Rust, C#, Node, and full-stack TypeScript. Problems are defined in `problems-catalog.json`; only problems whose toolchains are installed are run.
 
 ```sh
-bash sit.sh            # run all available problems
+bash sit.sh            # run all available problems once
 bash sit.sh p6-rust    # run one problem
+bash practice.sh       # repeated rounds: run, distill failures, reflect, repeat
 ```
 
-Current baseline: **7/7** with `qwen2.5-coder-7b-instruct`. See [DOJO.md](DOJO.md) and [PRACTICE.md](PRACTICE.md).
+`practice.sh` is the training loop (see the intro): each round runs the full set, tags every failed session with its distilled root cause, and prints a per-problem pass-rate table worst-first so the next reflex to write is obvious.
+
+### Problem status
+
+Outcomes are stochastic (a weak model varies run to run); this reflects recent practice rounds with `qwen2.5-coder-7b-instruct` after the current reflex set.
+
+| Problem | Goal | Toolchain | Status | Reflex that carries it |
+|---|---|---|---|---|
+| p1-helloworld | C hello world | clang | ✅ reliable | Makefile tab/target normalizers |
+| p2-sqlite | Python SQLite todo + pytest | python3 | ✅ reliable | SQLite test-isolation, stdlib/import fixers |
+| p3-sdl2 | Draw a line via SDL2 | clang, sdl2 | ✅ reliable | `sdl2-config` Makefile fixers |
+| p4-fibonacci | C# Fibonacci | dotnet | ✅ reliable | C# using/brace/duplicate-class fixers |
+| p5-gin | Go HTTP `/ping` (Gin) | go | ✅ reliable | blocking `./binary` test command rewritten to `go test ./...` |
+| p6-rust | Rust Fibonacci CLI | cargo | ✅ reliable | `Cargo.toml` bad-dependency guard at the test gate |
+| p7-flask | Flask REST + SQLite + pytest | python3 | ✅ reliable | runtime-`NameError` → `from main import app` resolver |
+| p8-node-todo | Node todo + jest | node | ✅ reliable | jest config / `npx jest` / package.json fixers |
+| p9-vue-todo | Vue 3 + TS todo + vitest | node | ⚠️ stochastic | vitest globals/run-mode, `@vue/test-utils` install |
+| p10-dotnet-vue-blog | ASP.NET + Vue full-stack blog | dotnet, node | ❌ hard | architect mode; multi-project ceiling |
+
+✅ passes nearly every round · ⚠️ passes some rounds · ❌ rarely passes
+
+### Top 3 challenges to solve
+
+1. **Degenerate generation.** Weak models fall into repetition loops or emit malformed structured output — a `print(f"{task[print(f"{task[…` loop that corrupts a file from the first token, or a Vue `<template>` with an `Invalid end tag` from a duplicated block (p9). These cannot be reconstructed by a reflex (you can't recover intent from a loop), so they must be *prevented* at the sampler. Partly addressed by a windowed `repeat_penalty` (`MU_REPEAT_PENALTY`); not fully solved.
+2. **Full-stack orchestration (p10).** Coordinating a backend, a frontend, and a cross-language test harness (dotnet + vitest) exceeds a small model's planning coherence within the context budget. Architect mode and staged plans help but it remains the hardest problem.
+3. **Separating model-ceiling failures from deterministic ones.** A failure that recurs with the *same* root cause every round is a general class to turn into a reflex; one that varies run to run is model quality and must not be overfit. This is why `practice.sh` measures across rounds — the discipline that keeps reflexes general rather than problem-specific.
+
+See [DOJO.md](DOJO.md) and [PRACTICE.md](PRACTICE.md) for detail.
