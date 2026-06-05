@@ -1,9 +1,16 @@
 # Reflex Knowledge Base — Design & Reference
 
-Status: **implemented** (`reflexes/registry.py`, `reflexdb.py`, `observe.py`; built
-by `mu kb`). Turns ~80 ad-hoc reflexes into a queryable, de-duplicated knowledge
-base and reasons **probabilistically** about which reflexes (and combinations) help —
-without overclaiming from confounded data.
+Status: **partially implemented.** Goal: turn ~80 ad-hoc reflexes into a queryable,
+de-duplicated knowledge base and reason **probabilistically** about which reflexes
+(and combinations) help — without overclaiming from confounded data.
+
+- **Built:** the catalog + miner + model profiles (`reflexes/registry.py`,
+  `reflexdb.py`, built by `mu kb`); the Beta-Binomial posterior (`observe.py`); the
+  completeness check (`registry.unregistered()`).
+- **Planned (not yet built):** the ablation loop (§9 — `MU_DISABLE_REFLEX`, the
+  `efficacy` column is created but never written), the combination-analysis report
+  (§7), the extra schema fields (§3/§6), and the validation suite (§11). These are
+  marked inline below.
 
 ---
 
@@ -32,14 +39,14 @@ session archive (~/.mu/sessions/*)         # source of truth
         │  mine logs
         ▼
 ~/.mu/mu.db  (SQLite, rebuildable via `mu kb`)
-   ├── reflex   (static catalog, from reflexes.registry)
-   ├── session  (outcome labels, tagged with model)
-   ├── firing   (one row per reflex application)
-   └── model_profile (per-model aggregates — docs/MODELS.md)
+   ├── reflex   (static catalog, from reflexes.registry)          [built]
+   ├── session  (outcome labels, tagged with model)               [built]
+   ├── firing   (one row per reflex application)                  [built]
+   └── model_profile (per-model aggregates — docs/MODELS.md)      [built]
         │
-        ├── SQL co-occurrence / conditional report (§7)
-        ├── Beta-Binomial posteriors (observe.py, §8)
-        └── ablation (MU_DISABLE_REFLEX + mu dojo measure) → causal efficacy (§9)
+        ├── Beta-Binomial posteriors (observe.py, §8)             [built]
+        ├── SQL co-occurrence / conditional report (§7)           [planned]
+        └── ablation (MU_DISABLE_REFLEX + mu dojo measure) → efficacy (§9)  [planned]
 ```
 
 Dependency posture: `sqlite3` + `math` are stdlib. The probabilistic core is a small
@@ -53,26 +60,27 @@ aggregation (counts) → probability (beliefs) → ablation (truth); none reache
 
 One row per reflex; every field derivable from code or cheap to curate. The `reflex`
 table and the registry record *are* the per-reflex docs — a reader learns a reflex
-from its row, not its body.
+from its row, not its body. **Built today:** the rows below marked *(built)*; the rest
+are the intended schema, **not yet populated**.
 
-| Attribute | Type / vocabulary | Source |
+| Attribute | Type / vocabulary | Status |
 |---|---|---|
-| `id` | text PK — function name | code |
-| `summary` | text — one line | docstring |
-| `toolchain` | python·rust·go·csharp·js·makefile·cargo·npm·dotnet·`*` | module |
-| `artifact` | source·manifest·makefile·plan·test-config | code |
-| `error_class` | controlled vocab (§4) | curated |
-| `trigger` | scan·lint-out·test-out·project·plan | function signature |
-| `phase` | write·lint-repair·test-repair·pre-flight·plan | call site |
-| `idempotent` | bool (`f(f(x))==f(x)` — the fixpoint runner depends on it) | test |
-| `scope` | file·project·multi-file | signature |
-| `risk` | syntactic-safe·heuristic·intent-reconstruction | curated |
-| `evidence` | dojo problem + cause + commit that surfaced it | git/CHALLENGES |
-| `efficacy` | Δ pass-rate from ablation (null until measured) | §9 |
+| `id` | text PK — function name | built |
+| `toolchain` | python·rust·go·csharp·js·makefile·cargo·npm·dotnet·`*` | built |
+| `error_class` | controlled vocab (§4) | built |
+| `trigger` | scan·lint-out·test-out·project·plan | built |
+| `scope` | file·project·multi-file | built |
+| `efficacy` | Δ pass-rate from ablation (§9) | column exists, **never written** |
+| `summary` | text — one line (docstring) | planned |
+| `artifact` | source·manifest·makefile·plan·test-config | planned |
+| `phase` | write·lint-repair·test-repair·pre-flight·plan | planned |
+| `idempotent` | bool (`f(f(x))==f(x)` — the runner relies on it) | planned |
+| `risk` | syntactic-safe·heuristic·intent-reconstruction | planned |
+| `evidence` | dojo problem + cause + commit that surfaced it | planned |
 
-`reflexes/registry.py` builds these records from the reflex function objects (id from
-`__name__`, toolchain from `__module__`, trigger from `inspect.signature`); `reflexdb.py`
-upserts them into the `reflex` table.
+`reflexes/registry.py` builds the *(built)* fields from the reflex function objects (id
+from `__name__`, toolchain from `__module__`, trigger from `inspect.signature`);
+`reflexdb.py` upserts them into the `reflex` table.
 
 ---
 
@@ -97,8 +105,9 @@ upserts them into the `reflex` table.
 
 ## 5. Sharing reflexes across toolchains
 
-Several semantic groups are *one algorithm + a per-toolchain table*; the target is a
-**generic core + thin adapter** (a new toolchain = add `(parser, predicate)`):
+Several semantic groups are *one algorithm + a per-toolchain table*; the **planned**
+target (not yet done — reflexes are still per-language copies) is a **generic core +
+thin adapter** (a new toolchain = add `(parser, predicate)`):
 
 - dependency-hygiene → `strip_manifest_deps(manifest, parse, forbidden_pred)` — Cargo
   (invalid semver), requirements.txt (stdlib), package.json (node builtins).
@@ -112,21 +121,28 @@ refactors are behaviour-preserving and gated by golden tests.
 
 ## 6. SQLite store — DDL
 
+The actual schema today (`reflexdb._SCHEMA`). The richer per-reflex columns in §3
+(`summary`, `artifact`, `phase`, `idempotent`, `risk`, `evidence`) and `firing.phase`/
+`firing.ts` are **planned**, not in this DDL yet.
+
 ```sql
-CREATE TABLE reflex (
-  id TEXT PRIMARY KEY, summary TEXT, toolchain TEXT, artifact TEXT,
-  error_class TEXT, trigger TEXT, phase TEXT, idempotent INT,
-  scope TEXT, risk TEXT, evidence TEXT, efficacy REAL  -- null until ablated
+CREATE TABLE reflex (                    -- §3 'built' fields + the efficacy stub
+  id TEXT PRIMARY KEY, toolchain TEXT, error_class TEXT,
+  trigger TEXT, scope TEXT, efficacy REAL    -- efficacy: null until ablated (§9)
 );
 CREATE TABLE session (
-  session_id TEXT PRIMARY KEY, problem_id TEXT, model TEXT,
+  session_id TEXT PRIMARY KEY, problem_id TEXT, model TEXT, model_family TEXT,
   outcome TEXT, success INT, repair_iters INT, first_try INT,
-  prompt_tokens INT, ts TEXT
+  tasks_total INT, prompt_tokens INT, ts TEXT
 );
 CREATE TABLE firing (
-  session_id TEXT, reflex_id TEXT, file TEXT, pass_index INT, phase TEXT, ts TEXT,
-  FOREIGN KEY(session_id) REFERENCES session(session_id),
-  FOREIGN KEY(reflex_id)  REFERENCES reflex(id)
+  session_id TEXT, reflex_id TEXT, file TEXT, pass_index INT,
+  FOREIGN KEY(session_id) REFERENCES session(session_id)
+);
+CREATE TABLE model_profile (             -- per-model aggregates (docs/MODELS.md)
+  model_family TEXT PRIMARY KEY, n_sessions INT, pass_rate REAL, pass_lo REAL,
+  pass_hi REAL, first_try_rate REAL, avg_repair_iters REAL,
+  competence_by_toolchain TEXT, error_class_propensity TEXT, updated TEXT
 );
 ```
 
@@ -136,7 +152,10 @@ it is never the source of truth.
 
 ---
 
-## 7. Combination analysis — pure SQL
+## 7. Combination analysis — pure SQL *(planned)*
+
+Not yet wired to a command — `mu kb` today reports only the error-class catalog and
+the model profiles. The queries below are the intended report over the `firing` table:
 
 ```sql
 -- conditional success: P(success | reflex)
@@ -167,23 +186,27 @@ P̂(✓) = α/(α+β)                          # posterior mean, shrinks small-N
 
 Rank by **posterior mean *and* interval width**: a combo at 3/3 with a wide interval
 ranks below 40/50 with a tight one — the honest fix for the "lucky 5/5" trap. The
-decision question — *which reflex set maximises P(fixed) for error signature E?* — is
-used to **offline-learn a fixed chain order** baked into the runner, never online
-sampling (which would reintroduce non-determinism). A small Bayesian net
+posterior itself (`observe.beta_binomial`) is built; the uses below are **planned**.
+The decision question — *which reflex set maximises P(fixed) for error signature E?* —
+would **offline-learn a fixed chain order** baked into the runner, never online sampling
+(which would reintroduce non-determinism). Today `run_reflexes` uses a static catalog
+order. A small Bayesian net
 `features → error_class → {reflexes} → outcome` (hand-rolled CPTs; `pgmpy` optional)
 can capture interactions and learned contradictions, complementing the runner's cycle
 guard.
 
 ---
 
-## 9. Causality guard — ablation is the arbiter
+## 9. Causality guard — ablation is the arbiter *(planned)*
 
-Firing data is **observational and confounded**: a reflex fires *because* the model
-erred, so `P(✓|A)` is entangled with problem difficulty. The probabilistic layer
-**proposes**; it never concludes. Causal test: `MU_DISABLE_REFLEX=<id>` (read by
-`run_reflexes`) on a **frozen, seeded** baseline (`mu dojo measure` + `MU_SEED`),
-re-measure, read Δ pass-rate and Δ repair-iters. That Δ — not the posterior — is what
-`reflex.efficacy` records. Posteriors merely order which ablations to run first.
+The design's causal arbiter — **not yet built** (`MU_DISABLE_REFLEX` is unread, no
+`--disable` flag, and `reflex.efficacy` is never written). The rationale stands:
+firing data is **observational and confounded** (a reflex fires *because* the model
+erred, so `P(✓|A)` is entangled with problem difficulty), so the probabilistic layer
+must only **propose**, never conclude. The intended causal test: `MU_DISABLE_REFLEX=<id>`
+(to be read by `run_reflexes`) on a **frozen, seeded** baseline (`mu dojo measure` +
+`MU_SEED`), re-measure, read Δ pass-rate and Δ repair-iters. That Δ — not the posterior —
+would populate `reflex.efficacy`. Posteriors merely order which ablations to run first.
 
 ---
 
@@ -201,11 +224,14 @@ plan-time predictor (the firing happened *because* of the eventual outcome).
 
 ## 11. Validation discipline
 
-How we know a KB-driven change is real, not noise:
+How we *intend* to know a KB-driven change is real, not noise. **Status:** there is no
+`tests/` suite yet — only `registry.unregistered()` exists as a callable check (it is
+not run by CI). The rest below is the planned discipline.
 
-- **Completeness (CI):** every public `fix_*` in `reflexes/` is registered with
-  non-null required fields, and `error_class`/`trigger`/`phase`/`risk` ∈ controlled
-  sets. `registry.unregistered()` enforces it.
+- **Completeness:** every public `fix_*` in `reflexes/` is registered with non-null
+  required fields, and `error_class`/`trigger`/`scope` ∈ controlled sets.
+  `registry.unregistered()` computes this today (currently returns empty); wiring it
+  into CI is pending.
 - **Idempotency:** each `scan` reflex satisfies `f(f(x)) == f(x)` on a recorded fixture
   — the property the fixpoint runner depends on.
 - **Interval calibration:** simulate K reflexes with known true rates, build 95%

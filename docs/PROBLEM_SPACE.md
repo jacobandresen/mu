@@ -103,6 +103,11 @@ Minimization is a **declared, measurable level** per problem (`problems-catalog.
 `minimize: "L0"…"L4"`), not an ad-hoc choice. Each rung is the rung below plus one
 fixture; each problem states what capability it measures.
 
+> **Status:** the `minimize` field exists in the catalog but is **not yet read by any
+> code** — it's a declared intent. What runs today is the generic mechanism below
+> (copy a problem's `dojo/fixtures/<id>/*`, regardless of level) plus competence
+> *skip*; the level is descriptive, not enforced.
+
 | Level | What is given | Measures |
 |---|---|---|
 | **L0 open** | goal only (current default) | scaffolding + structure + logic (max variance) |
@@ -118,10 +123,12 @@ not-provided files — a given file can't be written wrong, so its whole failure
 disappears. Same machinery as `mu dojo measure`'s frozen plan, one level down: there we
 freeze the *plan*, here we freeze *files*. First fixture: `dojo/fixtures/p6-rust/Cargo.toml`.
 
-**Model-adaptive (data-driven):** the effective level is the max of the problem's floor
-and what the model needs, read from `model_profile.competence_by_toolchain` — run at the
-declared level where competence ≳0.7; bump a rung where 0.2–0.7 (qwen on node 0.167);
-**skip** where ≈0 (granite on python/rust/go — `mu dojo run --route`).
+**Model-adaptive (data-driven), partly built:** the intent is that the effective level
+is the max of the problem's floor and what the model needs, read from
+`model_profile.competence_by_toolchain` — run at the declared level where competence
+≳0.7; **bump a rung** where 0.2–0.7 (qwen on node 0.167); **skip** where ≈0. Today only
+the **skip** end is implemented (`fixtures.should_skip_problem`, `mu dojo run --route`);
+the auto-bump is planned.
 
 **Validation (shipped):** `mu dojo measure` reports a **stochasticity** metric
 (`1 − modal/N` over unseeded runs). The claim "higher level ⇒ lower variance" is tested,
