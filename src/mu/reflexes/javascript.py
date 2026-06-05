@@ -21,6 +21,7 @@ __all__ = [
     'fix_jest_no_tests_found',
     'fix_jest_config_js',
     'fix_package_json_bare_jest',
+    'fix_package_json_builtin_deps',
 ]
 
 
@@ -250,6 +251,20 @@ _JS_MODULE_USE_RE = {
     mod: re.compile(rf'\b{re.escape(mod)}\s*\.')
     for mod in _JS_NODE_BUILTINS
 }
+
+# Node.js core modules. These ship with the runtime and are NOT on the npm
+# registry, so listing one in package.json dependencies makes `npm install` fail
+# with ETARGET/"No matching version found". The fuller set (beyond the require-
+# insertion list above) is needed because the model invents versions for any of
+# them (observed: `"fs": "^14.17.0"`).
+_NODE_CORE_MODULES = frozenset({
+    'assert', 'async_hooks', 'buffer', 'child_process', 'cluster', 'console',
+    'constants', 'crypto', 'dgram', 'dns', 'domain', 'events', 'fs', 'http',
+    'http2', 'https', 'inspector', 'module', 'net', 'os', 'path', 'perf_hooks',
+    'process', 'punycode', 'querystring', 'readline', 'repl', 'stream',
+    'string_decoder', 'sys', 'timers', 'tls', 'tty', 'url', 'util', 'v8', 'vm',
+    'worker_threads', 'zlib',
+})
 
 def fix_js_missing_requires(file_path: str) -> bool:
     """Add missing Node.js built-in require() calls to CommonJS JS files.
@@ -633,4 +648,42 @@ def fix_package_json_bare_jest(project_dir: str) -> bool:
     if not changed:
         return False
     pkg_path.write_text(_json.dumps(data, indent=2) + '\n')
+    return True
+
+
+def fix_package_json_builtin_deps(project_dir: str) -> bool:
+    """Remove Node.js core modules from package.json dependencies/devDependencies.
+
+    Node builtins (``fs``, ``path``, ``http`` …) ship with the runtime and are not
+    on the npm registry, so listing one as a dependency makes ``npm install`` fail
+    with ETARGET / "No matching version found" (observed: the model invents
+    ``"fs": "^14.17.0"``). General: a builtin is never a valid npm dependency in
+    any Node project — the JS analogue of stripping stdlib names from
+    requirements.txt or invalid versions from Cargo.toml.
+    """
+    pkg_path = Path(project_dir) / 'package.json'
+    if not pkg_path.exists():
+        return False
+    try:
+        import json as _json
+        data = _json.loads(pkg_path.read_text())
+    except Exception:
+        return False
+    removed: list[str] = []
+    for section in ('dependencies', 'devDependencies'):
+        deps = data.get(section)
+        if not isinstance(deps, dict):
+            continue
+        for name in list(deps):
+            # Match both bare ("fs") and node:-prefixed ("node:fs") spellings.
+            core = name[5:] if name.startswith('node:') else name
+            if core in _NODE_CORE_MODULES:
+                del deps[name]
+                removed.append(name)
+        if not deps:
+            data.pop(section, None)
+    if not removed:
+        return False
+    pkg_path.write_text(_json.dumps(data, indent=2) + '\n')
+    print(f"==> [mu-agent] Reflex: removed Node builtin(s) from {pkg_path}: {removed}")
     return True

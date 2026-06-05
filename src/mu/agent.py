@@ -53,6 +53,7 @@ from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
                          fix_jest_no_tests_found,
                          fix_json_unclosed_brackets,
                          fix_package_json_bare_jest,
+                         fix_package_json_builtin_deps,
                          fix_flask_test_route_decorators,
                          fix_flask_init_db_import,
                          fix_missing_flask_client_fixture,
@@ -815,7 +816,10 @@ def run(goal: str, model: str = '', target_dir: str = '',
                 log("Applied Makefile reflexes to %s.", task.file_path)
 
             if Path(task.file_path).name.lower() == 'package.json':
-                if fix_package_json_bare_jest(str(Path(task.file_path).parent)):
+                pkg_dir = str(Path(task.file_path).parent)
+                if fix_package_json_builtin_deps(pkg_dir):
+                    log("Fixed %s: removed Node builtin(s) from dependencies.", task.file_path)
+                if fix_package_json_bare_jest(pkg_dir):
                     log("Fixed %s: replaced bare jest with npx jest.", task.file_path)
 
             lint_cmd = _lint_command(task.file_path, p)
@@ -1334,6 +1338,9 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
         for t in p.tasks:
             if t.file_path.endswith('package.json') and Path(t.file_path).exists():
                 pkg_dir = Path(t.file_path).parent
+                # Strip Node builtins (e.g. an invented `"fs": "^14"`) first — npm
+                # install fails with ETARGET on any of them.
+                fix_package_json_builtin_deps(str(pkg_dir))
                 if not (pkg_dir / 'node_modules').exists():
                     subprocess.run(['npm', 'install'], cwd=str(pkg_dir),
                                    capture_output=True, timeout=120)
@@ -1390,6 +1397,7 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
     for t in p.tasks:
         if t.file_path.endswith('package.json') and Path(t.file_path).exists():
             pkg_dir = Path(t.file_path).parent
+            fix_package_json_builtin_deps(str(pkg_dir))  # strip builtins before install
             if not (pkg_dir / 'node_modules').exists():
                 subprocess.run(['npm', 'install'], cwd=str(pkg_dir),
                                capture_output=True, timeout=120)

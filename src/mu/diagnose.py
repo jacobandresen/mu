@@ -67,6 +67,9 @@ _RULES: list[_Rule] = [
     # ReferenceError too — same shape, same useful hint.
     _rule(r"(?:^|\s)(?P<kind>TypeError|ReferenceError): (?P<msg>.+)$",
           lambda m: f"{m['kind']}: {_clip(m['msg'])}"),
+    _rule(r"No matching version found for (?P<pkg>\S+)",
+          lambda m: f"package.json: no such package version '{m['pkg']}' "
+                    f"(a Node builtin or a bad version) — fix or remove it"),
 
     # ── Rust / cargo ──
     _rule(r"failed to parse the version requirement [`'](?P<version>[^`']+)[`'] "

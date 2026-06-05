@@ -140,6 +140,9 @@ Tracks the most frequent or significant challenges encountered while running the
 45. **Mock data file not defined**
   - Ensure mock variables are properly declared and initialized before use in test cases.
 
+46. **Missing using directives**
+  - Ensure all necessary namespaces are imported in C# files to avoid type not found errors.
+
 ## Resolved
 
 - **Missing `fix_sqlite_in_memory` function** — obsolete. AST fixer pass and the orphaned sqlite sensor removed in commit `07717cc`.
