@@ -4,13 +4,15 @@ Operating guide for AI agents (and humans) working on the **mu** codebase.
 mu is a local AI coding toolkit: `mu agent "<goal>"` drives an autonomous
 plan → write → verify loop on top of a local LLM via LM Studio or OpenVINO.
 
+**mu is an agent harness that employs reflexes — deterministic condition→action fixers — to repair the general classes of mistake weaker local models make.** The reflexes are *trained* in the `practice.sh` loop by stronger models: the loop runs the dojo with a weak model, distills each failure's root cause, and a stronger model (you) reads those failures and encodes a new general reflex or normalizer. Your job here is that training step.
+
 This file is the source of truth for how to work on mu. If it conflicts with other docs, this file wins.
 
 ---
 
 ## 0. Prime directive: keep the dojo honest
 
-The dojo runs 7 fixed problems to measure the **harness's real capability**, not to score points.
+The dojo runs 10 fixed problems to measure the **harness's real capability**, not to score points.
 
 **Do not optimize against specific dojo problems:**
 - No hardcoded languages or filenames.
@@ -83,6 +85,17 @@ skills/               skill prompts loaded by the planner at runtime
 - `MU_AGENT_MODEL` overrides auto-detection; default is the first model loaded in LM Studio.
 - `num_ctx` default is 6000. Do not set above 8192 on M2 8 GB — causes swap and ~6× slowdown.
 - Open challenges tracked in [CHALLENGES.md](CHALLENGES.md).
+
+---
+
+## 5a. Keep README.md current after dojo rounds
+
+README.md is the front door and must hold **distilled, immediately readable knowledge** — never raw logs. After every dojo round, the problem state is reflected there:
+
+- **Measured block (automated).** `practice.sh` rewrites the region between `<!-- DOJO-RESULTS:START -->` and `<!-- DOJO-RESULTS:END -->` at the end of *each* round with that round's per-problem PASS/FAIL. It shows **only the last round** (it overwrites, never accumulates). Do not hand-edit inside the markers.
+- **Curated knowledge (yours to maintain).** Outside the markers, keep current: the problem-status table's *“reflex that carries it”* column, and the **Top 3 challenges to solve**. When you add or change a reflex, update these so they stay true.
+- **Always keep the run instructions** (Quick start, Commands) in README — distilling the dojo state must never remove how to run mu.
+- Reflexes stay general, never problem-specific (§0).
 
 ---
 
