@@ -123,7 +123,7 @@ deterministic cause recurs across multiple problems at n≥3 (the only recurring
 `MSB1003` on p10, is confined to a single problem, so adding a reflex would violate the
 honest-harness rule). The reflex layer is mature; reflex-amenability is itself a model
 attribute (the 3B model resists it). The lever now is **problem-space minimization**
-(fixtures, smaller units — see [docs/PROBLEM_SPACE.md](docs/PROBLEM_SPACE.md)) and
+(fixtures, smaller units — see [DOJO.md](DOJO.md#problem-space-minimization)) and
 **model routing** (skip a toolchain a model is measured hopeless on), not more reflexes.
 
 ### Top 3 challenges to solve

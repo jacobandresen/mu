@@ -58,6 +58,25 @@ If `--model` and `MU_AGENT_MODEL` are both unset, mu uses the first model loaded
 
 ---
 
+## Tuning (LM Studio, Mac M2 8 GB)
+
+On 8 GB unified memory, CPU + GPU share the pool — headroom is tight (a loaded 7B ≈ 4.5 GB).
+
+- **Context window.** `mu dojo run` defaults to `MU_NUM_CTX=8192`, the measured sweet spot for the dojo's `granite-4.1-3b` (~2 GB): bigger is *not* better — 8192 → 3/10 vs 16384 → 1/10 (at 16384 it keeps tool-calling but loses coherence in the multi-turn repair loop). For a 7B (~4.5 GB), ~6000 is the balance — 8192 triggers swap (measured 2.6–6× slower), 16384 isn't viable. `client.load_model` loads with `MU_NUM_CTX + 2048` headroom; without it LM Studio's 4096 JIT default silently caps the model and prompts >4096 are rejected HTTP 400 mid-run. Override with `MU_NUM_CTX` / `MU_LOAD_CTX`.
+- **Temperature.** mu hardcodes `0.1` (`client.py`) — low randomness for stable structured output; 0.1 rather than 0 avoids the repetition loops pure greedy decoding triggers on some models.
+- **GPU layers.** Leave at max (all on GPU); CPU offload is a 5–10× slowdown.
+- **Quantization.** `Q4_K_M` is the sweet spot for 8 GB — fits with room for the KV cache and produces correct code; `Q8_0` doesn't fit alongside context.
+- **Memory pressure.** Above ~8096 ctx on 8 GB the system runs near-zero free RAM with active swap → slower generation and repair-loop timeouts. Timeouts aren't exclusive to large contexts: a sustained repair loop can trigger swap even at low ctx.
+
+| Parameter | Safe value (M2 8 GB) | Avoid |
+|---|---|---|
+| Context length | 8192 (granite) / 6000 (7B) | >10000 (OOM/swap) |
+| Temperature | 0.1 (mu default) | >0.5 (breaks structured output) |
+| GPU layers | All | CPU-only (5–10× slowdown) |
+| Quantization | Q4_K_M | Q8_0 (won't fit with context) |
+
+---
+
 ## Model characterization (profiles)
 
 The section above is about *picking* a model; this is about *describing* one from

@@ -2,7 +2,7 @@
 
 Loads the catalog, drops problems whose toolchains aren't installed, and runs
 each remaining one through ``mu agent``. Two opt-in minimization levers wrap the
-run (docs/PROBLEM_SPACE.md): competence **routing** (``MU_ROUTE`` skips a problem
+run (DOJO.md § Problem-space minimization): competence **routing** (``MU_ROUTE`` skips a problem
 the chosen model is measured hopeless on) and **fixtures** (committed boilerplate
 copied in so the model can't write it wrong).
 

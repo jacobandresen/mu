@@ -650,7 +650,7 @@ def run(goal: str, model: str = '', target_dir: str = '',
 
         # Provided fixtures: a task whose file already exists (non-empty) in the
         # work dir was supplied (e.g. a correct Makefile copied in by fixture
-        # mode, docs/PROBLEM_SPACE.md L2+). It is not the model's job — mark it
+        # mode — DOJO.md § Problem-space minimization, L2+). Not the model's job — mark it
         # done so the writer skips it. This is how a fixture removes a whole
         # failure class: the model never writes (and fails) the provided file.
         marked = False

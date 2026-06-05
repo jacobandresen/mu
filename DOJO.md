@@ -87,7 +87,7 @@ Open challenges tracked in [CHALLENGES.md](CHALLENGES.md).
 
 ## Model / tuning
 
-See [docs/MODELS.md](docs/MODELS.md) and [docs/TUNING.md](docs/TUNING.md).
+See [docs/MODELS.md](docs/MODELS.md) — recommendation, tuning, and the model-profile scheme.
 
 ## Token Tracking
 
@@ -128,3 +128,29 @@ Recorded phases: `planner`, `writer`, `repair`, `lint-repair`, `architect`, `sta
 - **Prompt-cache layout** (`MU_PROMPT_CACHE=1`) — put stable content (skills, rules, challenges, example) in the *system* message so LM Studio's KV cache (`cache_prompt`) reuses the prefix across writer calls; only DIR/GOAL stay volatile.
 - **Selective challenge retrieval** (`MU_ENRICH_LESSONS=1`, `enrich.py`) — send only the retrieved relevant lessons instead of the whole Open section of `CHALLENGES.md`.
 - *Planned:* narrow the repair context to the file(s) just changed (turns 1+), prune repair history to a sliding window, and send only the source-under-test to a test-file writer task.
+
+## Problem-space minimization
+
+Most of the dojo's stochasticity is **self-inflicted by the formulation**, not intrinsic to coding. With a mature reflex layer, the model-tagged data (granite n=34 pass 0.33; qwen n=32 pass 0.65) shows *no deterministic cause recurring across multiple problems* — failures are dominated by writer-stalls/degeneration. So the next lever is shrinking what the model must decide, not more reflexes.
+
+> Note: `build-rule-structure` has the top *firing* rate for both models, but firings are the Makefile reflexes **winning**, not failing (a session has one outcome — a >1/session rate can't be a failure rate). "Fixture away the Makefile" is therefore *not* the top lever. The real residue is degeneration (the ceiling) and planner variance.
+
+**Where the variance comes from** (ranked): (1) the **planner** — a fresh decomposition/filenames/test-command each run; `mu dojo measure` from a frozen plan is reproducible (5/5 with `MU_SEED`) while the same problem live swings pass↔stall. (2) **inferred structure** — the model invents filenames/symbols when the goal doesn't state the contract. (3) **degeneration** — the model ceiling, unreachable by reflexes. (4) **cross-file coupling** (p7/p8, p10). (5) **out-of-competence** runs (granite 0.0 on python/rust/go = pure noise).
+
+**The levers:** pin the plan (`mu dojo measure`, shipped), provide manifest/config/test as a **fixture** (shipped), pin filenames + test command (`improve-plan`, partial), route by competence (`mu dojo run --route`, shipped). The principle: **specify everything except the one thing you're measuring** — to test "can it implement `fib()`", give the project, Makefile, and test, ask only for the body.
+
+**The minimization ladder** — a declared level per problem (`problems-catalog.json` `minimize`), each rung the one below plus a fixture:
+
+| Level | What is given | Measures |
+|---|---|---|
+| **L0 open** | goal only (default) | scaffolding + structure + logic (max variance) |
+| **L1 contract** | + filenames, symbols, test command in PLAN.md | structure + logic |
+| **L2 scaffold** | + manifest/Makefile/config as fixtures | logic + test authoring |
+| **L3 test-pinned** | + the test file as a fixture | implementation only |
+| **L4 fill-in** | + impl stub with fixed signatures | function bodies only (min variance) |
+
+L0–L1 are **capability probes** (accept variance, many rounds); L2–L4 are **logic probes** (low variance). Record each problem's level with its result — a 95%-pass at L4 isn't a 95%-pass at L0.
+
+- **Fixture mode (L2–L4 mechanism, shipped):** `dojo/fixtures/<id>/` files are copied in and their task marked done, so the writer only fills the rest — a given file can't be written wrong. First fixture: `dojo/fixtures/p6-rust/Cargo.toml`.
+- **Model-adaptive (partial):** intended to run at the declared level, **bump a rung** for mid-competence, **skip** for ≈0. Only the skip end is built (`fixtures.should_skip_problem`); auto-bump and reading the `minimize` field are planned.
+- **Validation (shipped):** `mu dojo measure` reports a **stochasticity** metric (`1 − modal/N`); higher level should mean lower variance, ≈0 at L4 for an in-competence model.

@@ -29,7 +29,7 @@ def _default_host() -> str:
 LMS_HOST = _default_host()
 # Context window sent per-request so the API setting overrides whatever LM Studio
 # UI value is loaded. Default 6000: fits Q4_K_M + system overhead on M2 8 GB
-# without triggering swap (8192 causes 6x slowdown per TUNING.md).
+# without triggering swap (8192 causes 6x slowdown — see docs/MODELS.md Tuning).
 _NUM_CTX = int(os.environ.get("MU_NUM_CTX", "6000"))
 
 # Anti-degeneration: small models at near-greedy temperature with no repetition

@@ -1,7 +1,8 @@
 """Fixture mode + competence routing — problem-space minimization.
 
-The dojo's variance is mostly self-inflicted (docs/PROBLEM_SPACE.md): we hand a
-weak model boilerplate it gets wrong, then measure the noise. Two levers here:
+The dojo's variance is mostly self-inflicted (see DOJO.md § Problem-space
+minimization): we hand a weak model boilerplate it gets wrong, then measure the
+noise. Two levers here:
 
 - **Fixtures** — files a problem ships in ``dojo/fixtures/<id>/`` that are GIVEN
   to the model (a correct Makefile, manifest, or test). ``apply()`` copies them

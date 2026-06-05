@@ -104,7 +104,7 @@ def _print_summary(problem_id: str, outcomes: list[str], repair_total: int,
     # Stochasticity: fraction of runs that differ from the most common outcome.
     # 0 = fully reproducible (every run identical); higher = noisier. With a seed
     # it should be ~0; unseeded, it is the intrinsic variance of this problem at
-    # this minimization level (the number the ladder drives down — PROBLEM_SPACE).
+    # this minimization level (the number the ladder drives down — DOJO.md).
     modal = Counter(outcomes).most_common(1)[0][1] if outcomes else 0
     stoch = 1 - modal / n if n else 0
     note = f" · seed={seed}" if seed else " · sampled (set MU_SEED to pin)"
