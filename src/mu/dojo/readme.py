@@ -8,9 +8,9 @@ challenges elsewhere in README are left untouched.
 
 import os
 import re
-from datetime import datetime
 from pathlib import Path
 
+from .env import iso_now
 from .sessions import SessionMeta
 
 _START = '<!-- DOJO-RESULTS:START'
@@ -41,7 +41,7 @@ def render_block(round_sessions: list[SessionMeta]) -> str:
     for s in round_sessions:
         by_pid.setdefault(s.problem_id, []).append(s)
 
-    stamp = datetime.now().astimezone().isoformat(timespec='seconds')
+    stamp = iso_now()
     model = os.environ.get('MU_AGENT_MODEL') or 'recommended'
     rows = [f"| {pid} | {_result(by_pid[pid])} |"
             for pid in sorted(by_pid, key=_problem_index)]

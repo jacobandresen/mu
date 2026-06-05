@@ -5,6 +5,25 @@ import os
 import shutil
 from pathlib import Path
 
+# Common tool install locations a non-login shell often omits (dotnet + Homebrew
+# on Apple Silicon + Cargo). The canonical list — the CLI and the dojo rig both
+# prepend it via prepend_tool_paths() so a subprocess can find clang/dotnet/cargo.
+_TOOL_DIRS = (
+    '/usr/local/share/dotnet',
+    str(Path.home() / '.dotnet'),
+    str(Path.home() / '.cargo' / 'bin'),
+    '/opt/homebrew/bin',
+)
+
+
+def prepend_tool_paths() -> None:
+    """Prepend the common tool dirs to ``$PATH`` (idempotent). Non-existent dirs
+    are harmless; the shell just skips them."""
+    parts = os.environ.get('PATH', '').split(os.pathsep)
+    missing = [d for d in _TOOL_DIRS if d not in parts]
+    if missing:
+        os.environ['PATH'] = os.pathsep.join(missing + parts)
+
 # Toolchain name → binaries that must all be present on PATH
 TOOLCHAINS: dict[str, dict] = {
     'clang':   {'bins': ['clang'],          'hint': 'brew install llvm / apt install clang'},

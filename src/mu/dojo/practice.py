@@ -21,11 +21,10 @@ import subprocess
 import sys
 import time
 from collections import Counter
-from datetime import datetime
 from pathlib import Path
 
 from . import readme, sessions
-from .env import augment_path, lmstudio_host, mu_cmd
+from .env import augment_path, iso_now, lmstudio_host, mu_cmd
 from .sessions import SessionMeta
 
 _DIGEST_HEADER = """# Dojo Practice Digest
@@ -99,7 +98,7 @@ def _failure_line(s: SessionMeta) -> str:
 def _append_round(digest: Path, round_num: int, round_sessions: list[SessionMeta]) -> None:
     fails = [s for s in round_sessions if not s.passed]
     parts = [
-        f"\n## round {round_num} — {datetime.now().astimezone().isoformat(timespec='seconds')}",
+        f"\n## round {round_num} — {iso_now()}",
         f"\nsuccesses: {len(round_sessions) - len(fails)}  failures: {len(fails)}\n",
     ]
     if fails:
@@ -270,7 +269,6 @@ def run() -> int:
         summary = _pass_rate_summary(all_sessions)
         print(f"\nper-problem pass rate (worst first):\n{summary}")
         with digest.open('a', encoding='utf-8') as f:
-            f.write(f"\n## per-problem summary — "
-                    f"{datetime.now().astimezone().isoformat(timespec='seconds')}\n\n")
+            f.write(f"\n## per-problem summary — {iso_now()}\n\n")
             f.write(summary + '\n')
     return 0

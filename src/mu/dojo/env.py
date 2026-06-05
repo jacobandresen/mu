@@ -10,24 +10,13 @@ import os
 import sys
 from pathlib import Path
 
-# Tool install locations that are often missing from a non-login shell's PATH
-# (dotnet + Homebrew on Apple Silicon + Cargo). Non-existent dirs are harmless.
-_TOOL_DIRS = (
-    '/usr/local/share/dotnet',
-    str(Path.home() / '.dotnet'),
-    str(Path.home() / '.cargo/bin'),
-    '/opt/homebrew/bin',
-)
-
 
 def augment_path() -> None:
-    """Prepend the common tool dirs to ``$PATH`` (idempotent). Mirrors the
-    ``export PATH=…`` line the scripts all carried, so a subprocess `mu agent`
-    can find clang/dotnet/cargo even when launched from a bare environment."""
-    parts = os.environ.get('PATH', '').split(os.pathsep)
-    missing = [d for d in _TOOL_DIRS if d not in parts]
-    if missing:
-        os.environ['PATH'] = os.pathsep.join(missing + parts)
+    """Prepend the common tool dirs to ``$PATH`` so a subprocess `mu agent` can
+    find clang/dotnet/cargo from a bare environment. The canonical list lives in
+    mu.toolchain (shared with the product CLI's _extend_path)."""
+    from ..toolchain import prepend_tool_paths
+    prepend_tool_paths()
 
 
 def archive_dir() -> Path:
@@ -37,8 +26,10 @@ def archive_dir() -> Path:
 
 
 def lmstudio_host() -> str:
-    """Base URL for the LM Studio preflight check (``MU_LMSTUDIO_HOST``)."""
-    return os.environ.get('MU_LMSTUDIO_HOST', 'http://localhost:1234')
+    """Base URL for the LM Studio preflight check — the same resolution the
+    client uses (env > ~/.mu/config.json > default), not a second copy."""
+    from ..client import LMS_HOST
+    return LMS_HOST
 
 
 def mu_cmd() -> list[str]:
@@ -52,3 +43,10 @@ def catalog_path() -> str:
     """Path to the problems catalog (``MU_PROBLEMS_CATALOG`` or the repo default
     resolved by ``mu.toolchain``)."""
     return os.environ.get('MU_PROBLEMS_CATALOG', '')
+
+
+def iso_now() -> str:
+    """Local timestamp like ``2026-06-05T16:43:35+02:00`` — the stamp used in the
+    digest and the README results block (was ``date -Iseconds`` in the script)."""
+    from datetime import datetime
+    return datetime.now().astimezone().isoformat(timespec='seconds')

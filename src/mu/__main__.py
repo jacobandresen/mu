@@ -16,16 +16,8 @@ from mu import theme as _theme
 
 def _extend_path() -> None:
     """Prepend common tool install locations that shells may not include."""
-    extra = [
-        '/usr/local/share/dotnet',
-        str(Path.home() / '.dotnet'),
-        str(Path.home() / '.cargo' / 'bin'),
-        '/opt/homebrew/bin',
-    ]
-    current = os.environ.get('PATH', '')
-    prefix = ':'.join(d for d in extra if d not in current.split(':'))
-    if prefix:
-        os.environ['PATH'] = prefix + ':' + current
+    from mu.toolchain import prepend_tool_paths
+    prepend_tool_paths()
 
 
 def main() -> int:
