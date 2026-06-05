@@ -111,6 +111,21 @@ _Last round: 2026-06-05T15:21:03+02:00 · model: qwen/qwen2.5-coder-7b-instruct_
 
 ✅ passes nearly every round · ⚠️ passes some rounds · ❌ rarely passes
 
+#### Two-model profile (n=66, reflex KB)
+
+| Model | Pass rate | Weak toolchains |
+|---|---|---|
+| `ibm/granite-4.1-3b` | 0.33 `[0.19, 0.49]` | 0.0 on python3 / cargo / go (ceiling-bound) |
+| `qwen/qwen2.5-coder-7b` | 0.65 `[0.48, 0.80]` | 0.167 on node |
+
+Failures are dominated by writer-stalls and degeneration for **both** models — no
+deterministic cause recurs across multiple problems at n≥3 (the only recurring one,
+`MSB1003` on p10, is confined to a single problem, so adding a reflex would violate the
+honest-harness rule). The reflex layer is mature; reflex-amenability is itself a model
+attribute (the 3B model resists it). The lever now is **problem-space minimization**
+(fixtures, smaller units — see [docs/PROBLEM_SPACE.md](docs/PROBLEM_SPACE.md)) and
+**model routing** (skip a toolchain a model is measured hopeless on), not more reflexes.
+
 ### Top 3 challenges to solve
 
 1. **Degenerate generation.** Weak models fall into repetition loops or emit malformed structured output — a `print(f"{task[print(f"{task[…` loop that corrupts a file from the first token, or a Vue `<template>` with an `Invalid end tag` from a duplicated block (p9). These cannot be reconstructed by a reflex (you can't recover intent from a loop), so they must be *prevented* at the sampler. Partly addressed by a windowed `repeat_penalty` (`MU_REPEAT_PENALTY`); not fully solved.
