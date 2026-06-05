@@ -7,6 +7,7 @@ original.
 
 import hashlib
 import json
+import os
 import re
 from pathlib import Path
 
@@ -45,6 +46,14 @@ def note_fired(reflex_id: str, file: str = '', pass_index: int = 0) -> None:
     """Record that a reflex changed a file. Cheap no-op when unused."""
     _FIRINGS.append({'reflex_id': reflex_id, 'file': file, 'pass_index': pass_index})
 
+
+def disabled_reflexes() -> set[str]:
+    """Reflex names switched off via ``MU_DISABLE_REFLEX`` (comma-separated) — the
+    ablation hook (docs/REFLEX_KB.md §9). Read per call so a subprocess set by
+    ``mu dojo measure --disable`` takes effect, and tests can toggle it. Empty by
+    default, so normal runs are unaffected."""
+    return {n.strip() for n in os.environ.get('MU_DISABLE_REFLEX', '').split(',') if n.strip()}
+
 def run_reflexes(fns, target: str, max_passes: int = 4) -> None:
     """Apply a chain of single-arg reflexes to a fixpoint — safely.
 
@@ -63,6 +72,9 @@ def run_reflexes(fns, target: str, max_passes: int = 4) -> None:
     idempotent; the guards make a non-idempotent or contradictory pair *safe*
     (it stops, logged) instead of hanging.
     """
+    disabled = disabled_reflexes()
+    if disabled:
+        fns = [fn for fn in fns if getattr(fn, '__name__', '') not in disabled]
     last = _file_sha(target)
     seen = {last}
     for pass_index in range(max_passes):

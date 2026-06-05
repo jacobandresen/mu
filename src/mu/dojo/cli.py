@@ -39,6 +39,10 @@ def _build_parser() -> argparse.ArgumentParser:
                    help='pin the writer RNG (greedy, near-deterministic); $MU_SEED')
     m.add_argument('--regen', action='store_true', default=_env_flag('REGEN'),
                    help='regenerate the golden plan even if cached')
+    m.add_argument('--disable', default=os.environ.get('MU_DISABLE_REFLEX', ''),
+                   metavar='ID[,ID...]',
+                   help='ablation: switch off these reflex(es) for the run, to '
+                        'measure their efficacy (docs/REFLEX_KB.md §9)')
 
     # -- run ----------------------------------------------------------------
     r = sub.add_parser('run', help='run one problem, or all available')
@@ -98,6 +102,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             os.environ['MU_SEED'] = args.seed
         if args.regen:
             os.environ['REGEN'] = '1'
+        if args.disable:
+            os.environ['MU_DISABLE_REFLEX'] = args.disable  # reaches the iterate subprocess
         from . import measure
         return measure.run(args.problem_id)
 

@@ -64,7 +64,9 @@ def run(problem_id: str) -> int:
 
     work = Path('dojo') / problem_id
     seed_note = f" (seed={seed}, temp 0)" if seed else ""
-    print(f"Measuring {problem_id} over {n} run(s) from the frozen plan{seed_note}…")
+    disabled = os.environ.get('MU_DISABLE_REFLEX', '')
+    abl_note = f" · reflex(es) DISABLED: {disabled}" if disabled else ""
+    print(f"Measuring {problem_id} over {n} run(s) from the frozen plan{seed_note}{abl_note}…")
 
     outcomes: list[str] = []
     repair_total = 0

@@ -6,11 +6,13 @@ de-duplicated knowledge base and reason **probabilistically** about which reflex
 
 - **Built:** the catalog + miner + model profiles (`reflexes/registry.py`,
   `reflexdb.py`, built by `mu kb`); the Beta-Binomial posterior (`observe.py`); the
-  completeness check (`registry.unregistered()`).
-- **Planned (not yet built):** the ablation loop (§9 — `MU_DISABLE_REFLEX`, the
-  `efficacy` column is created but never written), the combination-analysis report
-  (§7), the extra schema fields (§3/§6), and the validation suite (§11). These are
-  marked inline below.
+  completeness check (`registry.unregistered()`); the **ablation mechanism** (§9 —
+  `MU_DISABLE_REFLEX` honored by `run_reflexes`, `mu dojo measure --disable`,
+  `tests/test_reflex_ablation.py`).
+- **Planned (not yet built):** *writing* `reflex.efficacy` automatically (the
+  mechanism above lets you measure Δ by hand; nothing stores it yet), the
+  combination-analysis report (§7), the extra schema fields (§3/§6), and the broader
+  validation suite (§11). Marked inline below.
 
 ---
 
@@ -46,7 +48,8 @@ session archive (~/.mu/sessions/*)         # source of truth
         │
         ├── Beta-Binomial posteriors (observe.py, §8)             [built]
         ├── SQL co-occurrence / conditional report (§7)           [planned]
-        └── ablation (MU_DISABLE_REFLEX + mu dojo measure) → efficacy (§9)  [planned]
+        └── ablation: MU_DISABLE_REFLEX + mu dojo measure --disable [built]
+              → write Δ into reflex.efficacy                       [planned]
 ```
 
 Dependency posture: `sqlite3` + `math` are stdlib. The probabilistic core is a small
@@ -197,16 +200,29 @@ guard.
 
 ---
 
-## 9. Causality guard — ablation is the arbiter *(planned)*
+## 9. Causality guard — ablation is the arbiter
 
-The design's causal arbiter — **not yet built** (`MU_DISABLE_REFLEX` is unread, no
-`--disable` flag, and `reflex.efficacy` is never written). The rationale stands:
-firing data is **observational and confounded** (a reflex fires *because* the model
+Firing data is **observational and confounded** (a reflex fires *because* the model
 erred, so `P(✓|A)` is entangled with problem difficulty), so the probabilistic layer
-must only **propose**, never conclude. The intended causal test: `MU_DISABLE_REFLEX=<id>`
-(to be read by `run_reflexes`) on a **frozen, seeded** baseline (`mu dojo measure` +
-`MU_SEED`), re-measure, read Δ pass-rate and Δ repair-iters. That Δ — not the posterior —
-would populate `reflex.efficacy`. Posteriors merely order which ablations to run first.
+must only **propose**, never conclude. Causation comes from ablation.
+
+**Mechanism (built).** `run_reflexes` honors `MU_DISABLE_REFLEX` (comma-separated reflex
+names, matched on `__name__`), skipping exactly those fixers; `tests/test_reflex_ablation.py`
+pins this deterministically. To run an ablation, measure a **frozen, seeded** baseline
+twice and read the Δ:
+
+```sh
+mu dojo measure p8-node-todo --runs 5 --seed 42                          # baseline
+mu dojo measure p8-node-todo --runs 5 --seed 42 --disable fix_js_duplicate_require
+# compare the two summary lines: Δ pass-rate and Δ avg-repair-iters
+```
+
+If disabling a reflex drops the pass rate, it was load-bearing; if Δ≈0 across seeds, it
+is dead weight. The seeded frozen plan makes the Δ signal, not noise.
+
+**Planned.** Automatically *storing* that Δ in `reflex.efficacy` (today the column
+exists but is never written) and an `argmax`/ranking that orders which ablations to run
+first from the §8 posteriors.
 
 ---
 
@@ -224,9 +240,10 @@ plan-time predictor (the firing happened *because* of the eventual outcome).
 
 ## 11. Validation discipline
 
-How we *intend* to know a KB-driven change is real, not noise. **Status:** there is no
-`tests/` suite yet — only `registry.unregistered()` exists as a callable check (it is
-not run by CI). The rest below is the planned discipline.
+How we know a KB-driven change is real, not noise. **Status:** the suite is just
+starting — `tests/test_reflex_ablation.py` pins the ablation hook (below), and
+`registry.unregistered()` is a callable completeness check. The rest below is the
+intended discipline, not yet wired into CI.
 
 - **Completeness:** every public `fix_*` in `reflexes/` is registered with non-null
   required fields, and `error_class`/`trigger`/`scope` ∈ controlled sets.
@@ -238,9 +255,10 @@ not run by CI). The rest below is the planned discipline.
   intervals, assert empirical coverage ∈ [0.93, 0.97]. A miscalibrated estimator fails.
 - **Ablation = causal proof:** any "this reflex/combo helps (or is dead weight)" claim
   promoted to a code change must clear an ablation Δ whose **credible interval excludes
-  0** across ≥3 seeds — never a single lucky round (AGENTS §5z). The
-  `fix_js_duplicate_require` positive control (disable on the frozen p8 baseline → the
-  duplicate-`fs` SyntaxError returns; enable → gone) is pinned as a regression fixture.
+  0** across ≥3 seeds — never a single lucky round (AGENTS §5z). The hook for this is
+  now built (§9); a candidate positive control is `fix_js_duplicate_require` on a frozen
+  p8 baseline (disable → the duplicate-`fs` SyntaxError should return; enable → gone),
+  not yet committed as a pinned fixture.
 - **No regression:** after any KB-driven change, the frozen-baseline suite
   (`mu dojo measure` over all problems × ≥3 seeds) shows pass-rate non-decreasing.
 - **Honesty audit:** the KB surfaces any reflex whose `evidence` ties it to exactly one
