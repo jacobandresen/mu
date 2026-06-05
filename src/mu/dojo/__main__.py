@@ -16,8 +16,11 @@ def main(argv: list[str]) -> int:
             sys.exit("usage: python -m mu.dojo measure <problem-id>   (N=, MU_SEED=, REGEN= via env)")
         from . import measure
         return measure.run(argv[1])
-    # 'run' and 'practice' land in later phases (docs/DOJO_PYTHON_PORT.md).
-    sys.exit("usage: python -m mu.dojo measure <problem-id>")
+    if cmd == 'run':
+        from . import runner
+        return runner.run(argv[1] if len(argv) > 1 else '')
+    # 'practice' lands in a later phase (docs/DOJO_PYTHON_PORT.md).
+    sys.exit("usage: python -m mu.dojo <measure|run> [problem-id]")
 
 
 if __name__ == '__main__':
