@@ -54,17 +54,27 @@ When a model mistake is general to a language, the right fix is a prompt rule in
 
 ---
 
-## 3a. Write for humans first
+## 3a. Write for humans first — readable *and* modular
 
 This code is read far more often than it is run — by the next person, and by the
-weak model whose mistakes you are encoding. **Optimize for human readability.**
+weak model whose mistakes you are encoding. **Optimize for human readability and
+modularity.** They are the same goal at two scales: a reader should understand
+one function from its shape, and one module from its name.
 
+**Readable (the function/line scale):**
 - A reader should grasp *what* a function does and *why* from its name, docstring, and shape — without tracing control flow.
 - Make the data self-describing: prefer **named** regex groups (`m['file']`) over positional ones (`m.group(1)`), small named constants over magic numbers, and a named helper over an inline lambda doing real work. `src/mu/diagnose.py` is the reference style — a table of `_rule(...)` entries each readable on its own line.
 - Separate concerns: one function decides *what matches*, another decides *how to phrase it*; don't braid them.
-- A docstring states the contract and the *why* (the failure it prevents), not a paraphrase of the code.
-- Comments explain intent and non-obvious trade-offs, not mechanics.
-- When you refactor purely for readability, prove behavior is unchanged (diff old vs new output across many inputs) and say so in the commit.
+- A docstring states the contract and the *why* (the failure it prevents), not a paraphrase of the code. Comments explain intent and non-obvious trade-offs, not mechanics.
+
+**Modular (the file/package scale):**
+- **One concern per module, named for it.** `reflexes/` is the reference: split per language (`python`, `rust`, `go`, …) with a `core` for the shared runner and each module carrying an explicit `__all__`. A reader finds the Rust fixers in `rust.py`, not by grepping a 3700-line file.
+- **Keep modules small and cohesive.** When a file grows two unrelated responsibilities, split it (verbatim move first, prove the public API is unchanged, then evolve — see the reflexes package split).
+- **Factor a shared family into a generic core + thin adapter** rather than copy-paste across toolchains (the dependency-hygiene / duplicate-declaration families — see `docs/REFLEX_KB.md` §5). The core holds the algorithm; the adapter holds the per-language table.
+- **Depend in one direction:** `core` ← language modules ← package `__init__`. No lateral imports between sibling modules; shared helpers live in `core`.
+- A new language or error class should be a *new small file plus a registration*, not an edit threaded through an existing large one.
+
+**For any refactor — readability or modularity — prove behavior is unchanged** (diff old vs new output across many inputs, keep the name-set/public API identical) and say so in the commit.
 
 Clever-but-opaque loses to plain-but-obvious every time. If a teammate would need you to explain it, rewrite it.
 

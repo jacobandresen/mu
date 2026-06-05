@@ -50,6 +50,25 @@ Dependency posture: `sqlite3` is stdlib (the same store the dojo tests use). The
 probabilistic core is ~30 lines of stdlib math. `scipy.stats` / `pgmpy` are
 **optional** upgrades, gated like `scikit-learn` already is in `predict.py`.
 
+### Design principles (AGENTS §3a — readable and modular)
+
+This is new code; build it the way the rest of mu is built:
+
+- **One concern per module, named for it:** `registry.py` (the `@reflex`
+  decorator + in-memory registry), `reflexdb.py` (SQLite schema + miner),
+  `reflex_prob.py` (probabilistic analysis). No god-module.
+- **Schema is the documentation.** The `reflex` table and the `@reflex(...)`
+  fields *are* the per-reflex docs — a reader learns a reflex from its row, not
+  by reading its body.
+- **Separate the layers, depend one way:** mining (facts) → SQL aggregation
+  (counts) → probability (beliefs) → ablation (truth). Each reads only the layer
+  below; none reaches back up.
+- **Readable analysis:** named SQL views over clever one-liners; a `Posterior`
+  dataclass with `mean`/`lo`/`hi` over bare tuples; the Beta-Binomial in one
+  small, named, unit-tested function.
+- **Optional deps stay optional,** gated behind a clear import guard, so the core
+  runs on stdlib alone.
+
 ---
 
 ## 3. Characterising a reflex — the schema
