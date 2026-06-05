@@ -31,6 +31,11 @@ def _extend_path() -> None:
 def main() -> int:
     """Parse CLI arguments and dispatch to the requested mu sub-command."""
     _extend_path()
+    # `mu dojo …` is the test rig — hidden from the product CLI and handed off
+    # verbatim to its own argparse (so `mu dojo --help` etc. work cleanly).
+    if len(sys.argv) > 1 and sys.argv[1] == 'dojo':
+        from mu.dojo.cli import main as dojo_main
+        return dojo_main(sys.argv[2:])
     parser = argparse.ArgumentParser(
         prog='mu',
         description='mu — local AI coding toolkit',
