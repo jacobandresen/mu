@@ -160,8 +160,9 @@ it is never the source of truth.
 
 Emitted by `mu kb` (`reflexdb.combination_report`): per-reflex conditional success
 (interval-aware via §8's Beta-Binomial, so small-N reads "insufficient data"),
-co-occurrence pairs, and sequence edges. Observational — a ranking of hypotheses to
-ablate (§9), never a causal claim. The core queries over the `firing` table:
+co-occurrence pairs, sequence edges, and an **ablation shortlist** (§9 — which reflexes
+to ablate first). Observational — a ranking of hypotheses to ablate, never a causal
+claim. The core queries over the `firing` table:
 
 ```sql
 -- conditional success: P(success | reflex)
@@ -223,9 +224,14 @@ mu dojo measure p8-node-todo --runs 5 --seed 42 --disable fix_js_duplicate_requi
 If disabling a reflex drops the pass rate, it was load-bearing; if Δ≈0 across seeds, it
 is dead weight. The seeded frozen plan makes the Δ signal, not noise.
 
-**Planned.** Automatically *storing* that Δ in `reflex.efficacy` (today the column
-exists but is never written) and an `argmax`/ranking that orders which ablations to run
-first from the §8 posteriors.
+**Ordering (built).** `mu kb` prints an **ablation shortlist** — reflexes that fire
+enough (n≥5) but whose conditional-success interval still contains the base rate, so
+their effect isn't distinguishable in the confounded firing data — most-fired first,
+with the `--disable` command to run. That's the §8 posteriors choosing which ablations
+to run first.
+
+**Planned.** Automatically *storing* the measured Δ in `reflex.efficacy` (today the
+column exists but is never written).
 
 ---
 

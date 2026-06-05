@@ -197,10 +197,26 @@ def combination_report(con: sqlite3.Connection) -> list[str]:
         "  SELECT DISTINCT f.session_id, f.reflex_id, s.success"
         "  FROM firing f JOIN session s USING(session_id)"
         ") GROUP BY reflex_id ORDER BY n DESC").fetchall()
+    shortlist = []  # (n, reflex_id): enough data, but effect not yet distinguishable
     for r in rows:
         post = observe.beta_binomial(r['hits'] or 0, r['n'], base)
         desc = summaries.get(r['reflex_id'])
         out.append(f"- `{r['reflex_id']}`  {post}" + (f" — {desc}" if desc else ""))
+        if post.enough and post.lo <= base <= post.hi:
+            shortlist.append((r['n'], r['reflex_id']))
+
+    if shortlist:
+        # The posteriors order which ablations to run first (§8.3, §9): a reflex whose
+        # interval still contains the base rate has no *distinguishable* effect in the
+        # (confounded) firing data — ablation is the only way to decide. Most-fired
+        # first, since ablating those resolves the most.
+        out += ["", "### Ablation shortlist — effect not yet distinguishable from base",
+                "_Run a seeded frozen baseline with/without each, compare Δ (§9):_",
+                "```sh",
+                "mu dojo measure <problem> --runs 5 --seed 42 --disable " + shortlist[0][1],
+                "```"]
+        for n, rid in sorted(shortlist, reverse=True):
+            out.append(f"- `{rid}` (fired in {n} sessions)")
 
     pairs = con.execute(
         "SELECT a.reflex_id x, b.reflex_id y, COUNT(DISTINCT a.session_id) n "

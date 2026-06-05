@@ -49,6 +49,13 @@ def test_co_occurrence_and_sequence():
     assert '`R1` → `R2`  ×2' in text         # R1 (pass 0) precedes R2 (pass 1)
 
 
+def test_ablation_shortlist_respects_n_gate():
+    text = '\n'.join(combination_report(_db()))
+    assert '### Ablation shortlist' in text
+    assert '`R1` (fired in 6 sessions)' in text   # n=6, effect ≈ base → listed
+    assert '`R2` (fired in' not in text           # n=2 below the n≥5 gate
+
+
 def test_empty_firing_is_empty():
     con = sqlite3.connect(':memory:')
     con.row_factory = sqlite3.Row
