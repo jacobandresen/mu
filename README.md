@@ -62,15 +62,6 @@ mu agent "write a Flask REST API with SQLite and pytest tests" --dir myproject
 
 Declared in `pyproject.toml`; installed automatically by pip or pipx. Dependencies: `lmstudio`, `httpx`, `inquirerpy`, `pyflakes`, `autoflake`. All pure-Python.
 
-## Skills
-
-Prompt fragments injected into the planner for specific domains. Stored in `skills/<name>/SKILL.md`, selected automatically based on the goal.
-
-| Skill | What it enforces |
-|-------|-----------------|
-| `python-env` | venv isolation, pytest version rules, stateless tests |
-| `task-planner` | PLAN.md format — flat checklist, explicit filenames, tab-indented Makefile recipes |
-
 ## Dojo
 
 The dojo stress-tests mu against a fixed problem set of ten goals spanning C, Python, Go, Rust, C#, Node, and full-stack TypeScript. Problems are defined in `problems-catalog.json`; only problems whose toolchains are installed are run.
