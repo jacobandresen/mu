@@ -19,8 +19,10 @@ def main(argv: list[str]) -> int:
     if cmd == 'run':
         from . import runner
         return runner.run(argv[1] if len(argv) > 1 else '')
-    # 'practice' lands in a later phase (docs/DOJO_PYTHON_PORT.md).
-    sys.exit("usage: python -m mu.dojo <measure|run> [problem-id]")
+    if cmd == 'practice':
+        from . import practice
+        return practice.run()
+    sys.exit("usage: python -m mu.dojo <measure|run|practice> [problem-id]")
 
 
 if __name__ == '__main__':
