@@ -3,164 +3,66 @@ name: node-env
 description: Node.js project setup rules — npm devDependencies, npx for local binaries, test runner setup. Apply to any Node.js task that installs packages or runs tests.
 ---
 
-## 1. Run devDependency binaries with `npx`, never as bare commands
+## Build & test entry point
+- Run devDependency binaries (`jest`, `vitest`, `ts-node`, `eslint`, …) with `npx` — they live in `node_modules/.bin/`, not on PATH, so bare `jest` fails with `sh: jest: command not found`.
+- Keep the Makefile as the single entry point; don't rely on `npm test` unless the Makefile calls it. `scripts.test` in `package.json` only runs via `npm test`, not via `npx jest`.
+  ```makefile
+  .PHONY: install test
+  install:
+  	npm install
+  test: install
+  	npx jest --forceExit
+  ```
+- Never list a Node builtin (`fs`, `path`, `os`, `http`, …) in `dependencies` — they ship with the runtime, so `npm install` fails with "No matching version found".
 
-`jest`, `vitest`, `ts-node`, `eslint`, and any other tool listed in
-`devDependencies` are installed inside `node_modules/.bin/`. They are NOT
-on the shell PATH. Calling them as bare commands fails:
+## Jest config & test-file naming
+- Inline a simple Jest config in `package.json` (`"jest": {"testEnvironment": "node"}`) — no separate config file.
+- Name test files `todo.test.js` / `todo.spec.js` (dot-separated). Jest's default `testMatch` does NOT match `todo_test.js` (underscore, Python-style) — it reports "No tests found" and exits 1. If you must use another convention, add `testRegex` to the jest config: `".*\\.(test|spec|_test)\\.js$"`.
 
-```
-sh: jest: command not found
-```
+## CommonJS, no fs mocks, path at call time
+- Node defaults to CommonJS — don't mix `import`/`export` with `require`/`module.exports` unless `"type": "module"` is set. Use CJS for Jest without extra config.
+- Do NOT `jest.mock('fs', …)`: Jest hoists mocks above outer variables → `ReferenceError`. Use a real temp file via `os.tmpdir()`.
+- Read the data path at CALL time, not as a module-level constant — otherwise a `beforeEach` that sets `process.env.TODO_FILE` has no effect:
+  ```js
+  // todo.js — CJS, path resolved per call
+  const fs = require('fs');
+  function getDataFile() { return process.env.TODO_FILE || 'data.json'; }
 
-Always prefix with `npx`:
-
-```makefile
-test: install
-	npx jest          # correct
-	# jest            # fails: not on PATH
-
-install:
-	npm install
-```
-
-## 2. `package.json` scripts section is optional — Makefile is sufficient
-
-Do not rely on `npm test` to invoke the test runner unless the Makefile
-calls it as `npm test`. A `scripts.test` in `package.json` is only executed
-by `npm test`, not by `npx jest`. Keep the Makefile as the single entry point:
-
-```makefile
-.PHONY: install test
-
-install:
-	npm install
-
-test: install
-	npx jest --forceExit
-```
-
-## 3. Jest config belongs in `package.json`, not a separate file
-
-For a simple project, inline the Jest config:
-
-```json
-{
-  "name": "my-project",
-  "devDependencies": {
-    "jest": "^29.0.0"
-  },
-  "jest": {
-    "testEnvironment": "node"
+  function addTodo(task) {
+    const todos = listTodos();
+    todos.push({ task, id: Date.now() });
+    fs.writeFileSync(getDataFile(), JSON.stringify(todos, null, 2));
   }
-}
-```
-
-## 4. Test files MUST use `.test.js` (or `.spec.js`) suffix — never `_test.js`
-
-Jest's default `testMatch` pattern is:
-```
-**/__tests__/**/*.[jt]s?(x)
-**/?(*.)+(spec|test).[tj]s?(x)
-```
-
-`todo_test.js` (underscored, like Python) does NOT match. Jest will report
-"No tests found" and exit 1 even though the file exists. Name the test file
-`todo.test.js` (dot-separated):
-
-```
-todo.js          # implementation
-todo.test.js     # test — matches Jest's testMatch
-```
-
-If you must use a different naming convention, add `testRegex` to the `jest`
-config in `package.json`:
-
-```json
-{
-  "jest": {
-    "testEnvironment": "node",
-    "testRegex": ".*\\.(test|spec|_test)\\.js$"
+  function listTodos() {
+    try { return JSON.parse(fs.readFileSync(getDataFile(), 'utf8')) || []; }
+    catch (e) { return []; }
   }
-}
-```
+  function deleteTodo(id) {
+    const todos = listTodos().filter(t => t.id !== id);
+    fs.writeFileSync(getDataFile(), JSON.stringify(todos, null, 2));
+  }
+  module.exports = { addTodo, listTodos, deleteTodo };
+  ```
+- Give each test its own temp file (no shared state):
+  ```js
+  // todo.test.js — CJS, real temp file per test
+  const os = require('os');
+  const path = require('path');
+  const fs = require('fs');
+  const { addTodo, listTodos } = require('./todo');
 
-## 5. CommonJS vs ESM — pick one; test against a temp file, not mocks
+  let tmpFile;
+  beforeEach(() => {
+    tmpFile = path.join(os.tmpdir(), `todos_${Date.now()}.json`);
+    process.env.TODO_FILE = tmpFile;
+  });
+  afterEach(() => {
+    if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
+    delete process.env.TODO_FILE;
+  });
 
-Node.js defaults to CommonJS. Do not mix `import`/`export` (ESM) with
-`require`/`module.exports` (CJS) in the same project unless `"type": "module"`
-is set in `package.json`. For Jest without additional config, use CommonJS:
-
-```js
-// todo.js — CJS, reads/writes data.json
-const fs = require('fs');
-const DATA_FILE = process.env.TODO_FILE || 'data.json';
-function addTodo(task) { ... }
-function listTodos() { ... }
-function deleteTodo(id) { ... }
-module.exports = { addTodo, listTodos, deleteTodo };
-```
-
-**Do NOT use `jest.mock('fs', ...)`.** Mocking the fs module in the factory
-function is error-prone — Jest hoists mocks to the top of the file where
-outer variables are not yet initialized, causing `ReferenceError`. Instead,
-use a real temp file via `os.tmpdir()`.
-
-**CRITICAL — read the file path at call time, not module load time.** If the
-implementation captures the path as a module-level constant:
-```js
-const DATA_FILE = process.env.TODO_FILE || 'data.json';  // WRONG: captured once at load
-```
-then `beforeEach` changes to `process.env.TODO_FILE` have no effect — the
-constant never updates. Instead, read the env var inside each function:
-
-```js
-// todo.js — CJS, reads/writes from path determined at call time
-const fs = require('fs');
-
-function getDataFile() { return process.env.TODO_FILE || 'data.json'; }
-
-function addTodo(task) {
-  const todos = listTodos();
-  todos.push({ task, id: Date.now() });
-  fs.writeFileSync(getDataFile(), JSON.stringify(todos, null, 2));
-}
-
-function listTodos() {
-  try { return JSON.parse(fs.readFileSync(getDataFile(), 'utf8')) || []; }
-  catch (e) { return []; }
-}
-
-function deleteTodo(id) {
-  const todos = listTodos().filter(t => t.id !== id);
-  fs.writeFileSync(getDataFile(), JSON.stringify(todos, null, 2));
-}
-
-module.exports = { addTodo, listTodos, deleteTodo };
-```
-
-```js
-// todo.test.js — CJS, uses a real temp file
-const os = require('os');
-const path = require('path');
-const fs = require('fs');
-const { addTodo, listTodos, deleteTodo } = require('./todo');
-
-let tmpFile;
-beforeEach(() => {
-  tmpFile = path.join(os.tmpdir(), `todos_${Date.now()}.json`);
-  process.env.TODO_FILE = tmpFile;
-});
-afterEach(() => {
-  if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
-  delete process.env.TODO_FILE;
-});
-
-test('adds a todo', () => {
-  addTodo('buy milk');
-  const todos = listTodos();
-  expect(todos.some(t => t.task === 'buy milk')).toBe(true);
-});
-```
-
-This pattern gives each test its own isolated file, no shared state between tests.
+  test('adds a todo', () => {
+    addTodo('buy milk');
+    expect(listTodos().some(t => t.task === 'buy milk')).toBe(true);
+  });
+  ```
