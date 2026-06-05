@@ -729,9 +729,15 @@ def _cmd_token_report(args) -> int:
                 'tighten repair prompts or add reflexes to handle frequent error patterns '
                 'before the LLM repair loop fires.')
         elif top_phase == 'writer' and top_pct >= 50:
+            wr_ratio = top_bucket['prompt'] / (top_bucket['generated'] or 1)
+            wr_avg = top_bucket['prompt'] // (top_bucket['sessions'] or 1)
             recs.append(
-                f'**Writer phase uses {top_pct}% of tokens** — '
-                'consider reducing max_turns or tightening the writer system prompt.')
+                f'**Writer phase uses {top_pct}% of tokens**, sending {wr_ratio:.0f}x more '
+                f'prompt than it generates (~{wr_avg:,} prompt tokens/session). The system '
+                f'prompt + per-language skills are re-sent every writer turn, so prompt size '
+                f'dominates: trim verbose skills (`skills/*/SKILL.md`) to imperative rules and '
+                f'load only the skills the file being written needs. Cutting max_turns helps '
+                f'only if the ratio is low (it is not).')
         elif top_phase == 'planner' and top_pct >= 30:
             recs.append(
                 f'**Planner phase uses {top_pct}% of tokens** — '
@@ -779,13 +785,19 @@ def _cmd_token_report(args) -> int:
         '',
         '## Phase Breakdown (totals across all sessions)',
         '',
-        '| Phase | Prompt | Generated | % of all tokens |',
-        '|---|---|---|---|',
+        # Prompt:Gen is the efficiency signal: a high ratio means the prompt is
+        # re-sent far more than it produces output, so the lever is prompt SIZE,
+        # not turn count. Avg prompt/session is that cost per run.
+        '| Phase | Prompt | Generated | Prompt:Gen | Avg prompt/session | % of all tokens |',
+        '|---|---|---|---|---|---|',
     ]
     for phase, bucket in phase_rows:
         pct = 100 * (bucket['prompt'] + bucket['generated']) // total_all
+        ratio = bucket['prompt'] / (bucket['generated'] or 1)
+        avg_ps = bucket['prompt'] // (bucket['sessions'] or 1)
         lines.append(
-            f'| {phase} | {bucket["prompt"]:,} | {bucket["generated"]:,} | {pct}% |')
+            f'| {phase} | {bucket["prompt"]:,} | {bucket["generated"]:,} | '
+            f'{ratio:.0f}:1 | {avg_ps:,} | {pct}% |')
     lines += [
         '',
         '## Recommendations',
