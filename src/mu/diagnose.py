@@ -12,55 +12,96 @@ not change any file. It is deliberately conservative — only high-confidence,
 well-known error shapes produce a hint; anything unrecognized yields ``''`` and
 the repair prompt is unchanged. No ML, no dependency: the structure is already
 in the text, and a regex extracts it at 100% precision for free.
+
+To teach it a new error shape, add one ``_rule(...)`` to ``_RULES`` below: a
+regex with **named** groups and a one-line ``render`` that names the entity and
+the error class but does NOT prescribe the fix (the model decides that).
 """
 
 import re
+from typing import Callable, NamedTuple, Optional
 
-# Each entry: (compiled pattern, formatter). Patterns are matched per line, in
-# file order; the first few distinct messages become the FOCUS hint. Formatters
-# turn match groups into a short, location-anchored phrase — they name the entity
-# and the error class WITHOUT prescribing the fix (the model decides that).
-_DIAGNOSERS: list[tuple[re.Pattern, object]] = [
-    # ── Python: CPython syntax errors + pyflakes/ruff + runtime tracebacks ──
-    (re.compile(r'^(.+?):(\d+):\d+:\s*(?:E999 )?(?:invalid-syntax: )?'
-                r'(unterminated (?:string|triple-quoted string) literal)', re.I),
-     lambda m: f"{m.group(1)}:{m.group(2)}: {m.group(3)} — close the quote on that line"),
-    (re.compile(r"^(.+?):(\d+):\d+:?\s*(?:F821 )?undefined name [`']([^`']+)[`']", re.I),
-     lambda m: f"{m.group(1)}:{m.group(2)}: undefined name '{m.group(3)}' (missing import or definition)"),
-    (re.compile(r"^\s*File \"(.+?)\", line (\d+)"),
-     lambda m: f"{m.group(1)}:{m.group(2)}: see traceback below"),
-    (re.compile(r"^(?:E\s+)?ModuleNotFoundError: No module named ['\"]([^'\"]+)['\"]"),
-     lambda m: f"ModuleNotFoundError: '{m.group(1)}' — import it or add it to requirements/install step"),
-    (re.compile(r"^(?:E\s+)?NameError: name ['\"]([^'\"]+)['\"] is not defined"),
-     lambda m: f"NameError: '{m.group(1)}' is not defined"),
-    (re.compile(r"^(?:E\s+)?(?:ImportError|AttributeError): (.+)$"),
-     lambda m: f"{m.group(1).strip()[:90]}"),
-    (re.compile(r"^(?:E\s+)?(SyntaxError|IndentationError|TabError): (.+)$"),
-     lambda m: f"{m.group(1)}: {m.group(2).strip()[:90]}"),
-    (re.compile(r"^E\s+(assert\b.+)$"),
-     lambda m: f"failing assertion: {m.group(1).strip()[:90]}"),
+
+class _Rule(NamedTuple):
+    """One error grammar: a compiled pattern and how to phrase a match."""
+    pattern: re.Pattern
+    render: Callable[[re.Match], str]
+
+
+def _rule(regex: str, render: Callable[[re.Match], str], flags: int = 0) -> _Rule:
+    return _Rule(re.compile(regex, flags), render)
+
+
+def _clip(text: str, limit: int = 90) -> str:
+    """Trim a captured compiler message to keep the hint to one tidy line."""
+    return text.strip()[:limit]
+
+
+# Error grammars, grouped by toolchain. Tried top-to-bottom against each line;
+# the first match wins. Named groups keep the render functions readable.
+_RULES: list[_Rule] = [
+    # ── Python: CPython syntax errors, pyflakes/ruff, runtime tracebacks ──
+    _rule(r"^(?P<file>.+?):(?P<line>\d+):\d+:\s*(?:E999 )?(?:invalid-syntax: )?"
+          r"(?P<msg>unterminated (?:string|triple-quoted string) literal)",
+          lambda m: f"{m['file']}:{m['line']}: {m['msg']} — close the quote on that line",
+          re.I),
+    _rule(r"^(?P<file>.+?):(?P<line>\d+):\d+:?\s*(?:F821 )?undefined name [`'](?P<name>[^`']+)[`']",
+          lambda m: f"{m['file']}:{m['line']}: undefined name '{m['name']}' (missing import or definition)",
+          re.I),
+    _rule(r"^\s*File \"(?P<file>.+?)\", line (?P<line>\d+)",
+          lambda m: f"{m['file']}:{m['line']}: see traceback below"),
+    _rule(r"^(?:E\s+)?ModuleNotFoundError: No module named ['\"](?P<module>[^'\"]+)['\"]",
+          lambda m: f"ModuleNotFoundError: '{m['module']}' — import it or add it to requirements/install step"),
+    _rule(r"^(?:E\s+)?NameError: name ['\"](?P<name>[^'\"]+)['\"] is not defined",
+          lambda m: f"NameError: '{m['name']}' is not defined"),
+    _rule(r"^(?:E\s+)?(?:ImportError|AttributeError): (?P<msg>.+)$",
+          lambda m: _clip(m['msg'])),
+    _rule(r"^(?:E\s+)?(?P<kind>SyntaxError|IndentationError|TabError): (?P<msg>.+)$",
+          lambda m: f"{m['kind']}: {_clip(m['msg'])}"),
+    _rule(r"^E\s+(?P<expr>assert\b.+)$",
+          lambda m: f"failing assertion: {_clip(m['expr'])}"),
+
     # ── Rust / cargo ──
-    (re.compile(r"failed to parse the version requirement [`']([^`']+)[`'] "
-                r"for dependency [`']([^`']+)[`']"),
-     lambda m: f"Cargo.toml: dependency '{m.group(2)}' has an invalid version '{m.group(1)}' — remove that dependency line"),
-    (re.compile(r"^error\[E\d+\]:\s*(cannot find \w+ [`'][^`']+[`'] in this scope)", re.I),
-     lambda m: f"{m.group(1)}"),
-    (re.compile(r"^error\[(E\d+)\]:\s*(.+)$"),
-     lambda m: f"rustc {m.group(1)}: {m.group(2).strip()[:90]}"),
+    _rule(r"failed to parse the version requirement [`'](?P<version>[^`']+)[`'] "
+          r"for dependency [`'](?P<dep>[^`']+)[`']",
+          lambda m: f"Cargo.toml: dependency '{m['dep']}' has an invalid version "
+                    f"'{m['version']}' — remove that dependency line"),
+    _rule(r"^error\[E\d+\]:\s*(?P<phrase>cannot find \w+ [`'][^`']+[`'] in this scope)",
+          lambda m: m['phrase'],
+          re.I),
+    _rule(r"^error\[(?P<code>E\d+)\]:\s*(?P<msg>.+)$",
+          lambda m: f"rustc {m['code']}: {_clip(m['msg'])}"),
+
     # ── Go ──
-    (re.compile(r"undefined:\s*(\w+)"),
-     lambda m: f"Go: undefined symbol '{m.group(1)}' (missing import or declaration)"),
-    (re.compile(r'"([^"]+)" imported and not used'),
-     lambda m: f"Go: import '{m.group(1)}' is unused — remove it"),
+    _rule(r"undefined:\s*(?P<symbol>\w+)",
+          lambda m: f"Go: undefined symbol '{m['symbol']}' (missing import or declaration)"),
+    _rule(r'"(?P<import>[^"]+)" imported and not used',
+          lambda m: f"Go: import '{m['import']}' is unused — remove it"),
+
     # ── C# / MSBuild ──
-    (re.compile(r"error (CS\d+):\s*(.+?)(?:\s*\[|$)"),
-     lambda m: f"{m.group(1)}: {m.group(2).strip()[:90]}"),
+    _rule(r"error (?P<code>CS\d+):\s*(?P<msg>.+?)(?:\s*\[|$)",
+          lambda m: f"{m['code']}: {_clip(m['msg'])}"),
+
     # ── make ──
-    (re.compile(r"^(?:.*\bmake.*?:\s*)?\*\*\* (missing separator.*)$", re.I),
-     lambda m: f"Makefile: {m.group(1).strip()[:80]} — recipe lines must start with a TAB"),
-    (re.compile(r"\*\*\* No rule to make target ['`]([^'`]+)['`]"),
-     lambda m: f"Makefile: no rule to make target '{m.group(1)}'"),
+    _rule(r"^(?:.*\bmake.*?:\s*)?\*\*\* (?P<msg>missing separator.*)$",
+          lambda m: f"Makefile: {_clip(m['msg'], 80)} — recipe lines must start with a TAB",
+          re.I),
+    _rule(r"\*\*\* No rule to make target ['`](?P<target>[^'`]+)['`]",
+          lambda m: f"Makefile: no rule to make target '{m['target']}'"),
 ]
+
+
+def _hint_for_line(line: str) -> Optional[str]:
+    """Return the FOCUS phrase for the first rule that matches *line*, or None."""
+    for rule in _RULES:
+        match = rule.pattern.search(line)
+        if match is None:
+            continue
+        try:
+            return rule.render(match)
+        except (IndexError, AttributeError):
+            return None
+    return None
 
 
 def distill_test_errors(output: str, max_hints: int = 3) -> str:
@@ -71,26 +112,14 @@ def distill_test_errors(output: str, max_hints: int = 3) -> str:
     prepend the result unconditionally without altering behavior on unrecognized
     output.
     """
-    if not output:
-        return ''
     hints: list[str] = []
-    seen: set[str] = set()
-    for line in output.splitlines():
-        line = line.rstrip()
-        for pat, fmt in _DIAGNOSERS:
-            m = pat.search(line)
-            if not m:
-                continue
-            try:
-                hint = fmt(m)
-            except (IndexError, AttributeError):
-                continue
-            if hint and hint not in seen:
-                seen.add(hint)
-                hints.append(hint)
-            break  # one hint per line
-        if len(hints) >= max_hints:
-            break
+    for line in (output or '').splitlines():
+        hint = _hint_for_line(line.rstrip())
+        if hint and hint not in hints:
+            hints.append(hint)
+            if len(hints) >= max_hints:
+                break
+
     if not hints:
         return ''
     if len(hints) == 1:

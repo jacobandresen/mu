@@ -54,6 +54,22 @@ When a model mistake is general to a language, the right fix is a prompt rule in
 
 ---
 
+## 3a. Write for humans first
+
+This code is read far more often than it is run — by the next person, and by the
+weak model whose mistakes you are encoding. **Optimize for human readability.**
+
+- A reader should grasp *what* a function does and *why* from its name, docstring, and shape — without tracing control flow.
+- Make the data self-describing: prefer **named** regex groups (`m['file']`) over positional ones (`m.group(1)`), small named constants over magic numbers, and a named helper over an inline lambda doing real work. `src/mu/diagnose.py` is the reference style — a table of `_rule(...)` entries each readable on its own line.
+- Separate concerns: one function decides *what matches*, another decides *how to phrase it*; don't braid them.
+- A docstring states the contract and the *why* (the failure it prevents), not a paraphrase of the code.
+- Comments explain intent and non-obvious trade-offs, not mechanics.
+- When you refactor purely for readability, prove behavior is unchanged (diff old vs new output across many inputs) and say so in the commit.
+
+Clever-but-opaque loses to plain-but-obvious every time. If a teammate would need you to explain it, rewrite it.
+
+---
+
 ## 4. Architecture
 
 ```
