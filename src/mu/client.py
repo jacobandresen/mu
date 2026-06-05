@@ -42,6 +42,14 @@ _NUM_CTX = int(os.environ.get("MU_NUM_CTX", "6000"))
 # to disable.
 _REPEAT_PENALTY = float(os.environ.get("MU_REPEAT_PENALTY", "1.1"))
 
+# Reproducibility for measurement runs. By default unset → the server samples
+# freely (different output each run), which is what you want to surface diverse
+# failures. Set MU_SEED to a fixed integer to pin llama.cpp's RNG so the same
+# input yields the same output — used with temperature 0 for clean A/B testing
+# of a deterministic change. A seed only makes runs reproducible when the input
+# is identical; a prompt change still alters the token stream.
+_SEED = os.environ.get("MU_SEED")
+
 
 def normalize_model_bare(name: str) -> str:
     """Normalize a model ID to a bare name for loose equality checks.
@@ -587,6 +595,11 @@ def chat(model: str, messages: list[dict], tools: Optional[list[dict]],
     # the neutral 1.0 so a disabled penalty isn't sent at all.
     if _REPEAT_PENALTY and _REPEAT_PENALTY != 1.0:
         body['repeat_penalty'] = _REPEAT_PENALTY
+    # Measurement mode (see _SEED): pin the RNG and decode greedily so the same
+    # input reproduces the same output for clean A/B testing.
+    if _SEED is not None:
+        body['seed'] = int(_SEED)
+        body['temperature'] = 0.0
     if tools:
         body['tools'] = tools
         # 'required' forces the model to emit a real tool call instead of prose.

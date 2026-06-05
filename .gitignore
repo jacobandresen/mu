@@ -9,8 +9,12 @@ __pycache__/
 build/
 dist/
 
-# Ignore entire dojo directory
-dojo/
+# Ignore dojo working dirs, except the committed golden plans that measure.sh
+# runs from (frozen plans remove planner variance from measurement).
+dojo/*
+!dojo/golden/
+dojo/golden/*/*
+!dojo/golden/*/PLAN.md
 # Exclude temporary main file for local testing
 tmp_main.rs
 
