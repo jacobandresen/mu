@@ -20,8 +20,7 @@ source .venv/bin/activate
 lms server start                  # serve on http://localhost:1234
 lms load ibm/granite-4.1-3b       # load a model
 
-mu check                          # verify dependencies + LM Studio reachable
-mu toolchain                      # show installed compiler toolchains
+mu check                          # verify dependencies + toolchains + LM Studio reachable
 mu setup                          # install missing toolchains (interactive)
 mu agent "write a Flask REST API with SQLite and pytest tests" --dir myproject
 ```
@@ -30,28 +29,22 @@ mu agent "write a Flask REST API with SQLite and pytest tests" --dir myproject
 
 | Command | Description |
 |---|---|
-| `mu agent "goal"` | Autonomous goal-to-code loop |
-| `mu architect "goal"` | Generate ARCHITECTURE.md and staged plan files for hard multi-layer problems |
+| `mu agent "goal"` | Autonomous goal-to-code loop (the main entry point) |
 | `mu plan "goal"` | Generate PLAN.md only (no code writing) |
+| `mu improve-plan` | Tighten an ambiguous PLAN.md — deterministic spec reflexes plus plan lint |
+| `mu architect "goal"` | Generate ARCHITECTURE.md and staged plan files for hard multi-layer problems |
 | `mu iterate` | Continue executing an existing PLAN.md |
-| `mu split` | Split broad plan tasks into smaller, actionable files |
-| `mu flow` | Pair each plan task with a testable step |
-| `mu assess` | Assess each plan task for goal alignment |
-| `mu check` | Verify all dependencies are installed |
-| `mu toolchain` | Show status of all compiler toolchains |
-| `mu toolchain check` | Exit 1 if any toolchain is missing (CI-friendly) |
+| `mu model` / `mu model load <id>` | Browse / load LM Studio models |
+| `mu check` | Verify dependencies and that LM Studio is reachable |
 | `mu setup` | Interactively install missing toolchains |
-| `mu model` | Browse and select LM Studio models |
-| `mu model load <id>` | Load a model |
-| `mu clean` | Report large files |
-| `mu extract <log>` | Salvage files from an agent session log |
-| `mu lint [PLAN.md]` | Report deterministic plan warnings (no LLM) |
 | `mu reflect` | Distil recent failed sessions into CHALLENGES.md |
+| `mu token-report` | Summarise token usage across sessions into token_usage.md |
+| `mu theme` | Pick and apply a base16 colour scheme |
 | `mu version` | Print mu version |
 
 ## Toolchains
 
-`mu toolchain` shows which compiler toolchains are installed and what each dojo problem requires. `mu setup` presents a checklist of missing toolchains and installs only what you select — it never upgrades tools that are already present.
+`mu check` shows which compiler toolchains are installed and whether LM Studio is reachable. `mu setup` presents a checklist of missing toolchains and installs only what you select — it never upgrades tools that are already present.
 
 | Toolchain | Binary | Language |
 |-----------|--------|----------|

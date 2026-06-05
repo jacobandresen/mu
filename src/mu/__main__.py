@@ -3,7 +3,6 @@
 import argparse
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -60,21 +59,6 @@ def main() -> int:
     model_sub.add_parser('ensure-single',
                          help='Abort if more than one non-embedding model is loaded')
 
-    research_p = sub.add_parser('research', help='Search the web and write a factual report')
-    research_p.add_argument('topic', help='Topic to research')
-    research_p.add_argument('output', nargs='?', default='', metavar='FILE',
-                            help='Output file (default: <topic>_report.md)')
-    research_p.add_argument('--model', default='',
-                            help='LM Studio model ID (overrides MU_AGENT_MODEL)')
-
-    deep_p = sub.add_parser('deep', help='Research each PLAN.md task and annotate with actionable context')
-    deep_p.add_argument('goal', nargs='?', default='', metavar='GOAL',
-                        help='Optional plain-English goal to anchor research queries')
-    deep_p.add_argument('-d', '--dir', default='', metavar='PATH',
-                        help='Directory containing PLAN.md (default: current)')
-    deep_p.add_argument('--model', default='',
-                        help='LM Studio model ID (overrides MU_AGENT_MODEL)')
-
     plan_p = sub.add_parser('plan', help='Generate PLAN.md and write file sketches')
     plan_p.add_argument('goal', help='Plain-English coding goal')
     plan_p.add_argument('-d', '--dir', default='', metavar='PATH',
@@ -95,32 +79,6 @@ def main() -> int:
     agent_p.add_argument('--model', default='',
                          help='LM Studio model ID (overrides MU_AGENT_MODEL)')
 
-    split_p = sub.add_parser('split', help='Split PLAN.md tasks into smaller, actionable files')
-    split_p.add_argument('goal', nargs='?', default='', metavar='GOAL',
-                         help='Optional goal hint to focus the split')
-    split_p.add_argument('-d', '--dir', default='', metavar='PATH',
-                         help='Directory containing PLAN.md (default: current)')
-    split_p.add_argument('--model', default='',
-                         help='LM Studio model ID (overrides MU_AGENT_MODEL)')
-
-    flow_p = sub.add_parser('flow', help='Pair each PLAN.md task with a testable step')
-    flow_p.add_argument('goal', nargs='?', default='', metavar='GOAL',
-                        help='Optional goal hint to anchor pairing')
-    flow_p.add_argument('-d', '--dir', default='', metavar='PATH',
-                        help='Directory containing PLAN.md (default: current)')
-    flow_p.add_argument('--model', default='',
-                        help='LM Studio model ID (overrides MU_AGENT_MODEL)')
-
-    assess_p = sub.add_parser('assess', help='Assess each PLAN.md task for missing information and backfill earlier steps')
-    assess_p.add_argument('goal', nargs='?', default='', metavar='GOAL',
-                          help='Optional goal hint to anchor the assessment')
-    assess_p.add_argument('-d', '--dir', default='', metavar='PATH',
-                          help='Directory containing PLAN.md (default: current)')
-    assess_p.add_argument('--plan', default='PLAN.md', metavar='PLAN',
-                          help='Plan file to assess (default: PLAN.md)')
-    assess_p.add_argument('--model', default='',
-                          help='LM Studio model ID (overrides MU_AGENT_MODEL)')
-
     improve_p = sub.add_parser('improve-plan',
                                help='Analyze a PLAN.md and tighten ambiguous specs (filenames, '
                                     'test harness, data contracts, decomposition) so a weak model '
@@ -135,10 +93,6 @@ def main() -> int:
                            help='Rewrite even if the analysis finds the plan adequate')
     improve_p.add_argument('--model', default='',
                            help='LM Studio model ID (overrides MU_AGENT_MODEL)')
-
-    lint_p = sub.add_parser('lint', help='Report deterministic warnings for a PLAN.md (no LLM)')
-    lint_p.add_argument('plan', nargs='?', default='PLAN.md', metavar='PLAN',
-                        help='Path to the plan file (default: PLAN.md)')
 
     architect_p = sub.add_parser('architect',
                                   help='Generate ARCHITECTURE.md and staged plan files for a hard problem')
@@ -179,14 +133,6 @@ def main() -> int:
 
     sub.add_parser('version', help='Print version')
 
-    clean_p = sub.add_parser('clean', help='Scan for large files and suggest cleanup')
-    clean_p.add_argument('--threshold', type=int, default=50, metavar='MB',
-                         help='Size threshold in MB (default: 50)')
-
-    extract_p = sub.add_parser('extract', help='Extract code blocks from log files')
-    extract_p.add_argument('log_file', help='Log file to extract from')
-    extract_p.add_argument('--run', action='store_true', help='Execute shell blocks')
-
     theme_p = sub.add_parser('theme', help='Pick and apply a base16 colour scheme')
     theme_sub = theme_p.add_subparsers(dest='theme_subcmd')
     theme_list_p = theme_sub.add_parser('list', help=argparse.SUPPRESS)
@@ -209,22 +155,14 @@ def main() -> int:
         'check': _cmd_check,
         'setup': _cmd_setup,
         'model': _cmd_model,
-        'research': _cmd_research,
-        'deep': _cmd_deep,
         'plan': _cmd_plan,
         'agent': _cmd_agent,
-        'split': _cmd_split,
-        'flow': _cmd_flow,
-        'assess': _cmd_assess,
         'improve-plan': _cmd_improve_plan,
-        'lint': _cmd_lint,
         'architect': _cmd_architect,
         'iterate': _cmd_iterate,
         'reflect': _cmd_reflect,
         'token-report': _cmd_token_report,
         'version': _cmd_version,
-        'clean': _cmd_clean,
-        'extract': _cmd_extract,
         'theme': _cmd_theme,
     }
     return dispatch[args.command](args) or 0
@@ -676,38 +614,6 @@ def _load_catalog() -> list[dict]:
 
 
 
-# ── research ──────────────────────────────────────────────────────────────────
-
-def _cmd_research(args) -> int:
-    from mu import researcher
-    model = args.model or os.environ.get('MU_AGENT_MODEL', '')
-    if not model:
-        model = agent._select_model()
-        if not model:
-            return 1
-    output = args.output or researcher.report_filename(args.topic)
-    return researcher.research(args.topic, output, model)
-
-
-# ── deep ──────────────────────────────────────────────────────────────────────
-
-def _cmd_deep(args) -> int:
-    from mu import researcher
-    model = args.model or os.environ.get('MU_AGENT_MODEL', '')
-    if not model:
-        model = agent._select_model()
-        if not model:
-            return 1
-    target_dir = args.dir
-    if target_dir:
-        os.chdir(target_dir)
-    plan_path = 'PLAN.md'
-    if not Path(plan_path).exists():
-        print(f"mu-deep: {plan_path} not found — run `mu plan` first", file=sys.stderr)
-        return 1
-    return researcher.deep(plan_path, model, args.goal)
-
-
 # ── plan ──────────────────────────────────────────────────────────────────────
 
 def _cmd_plan(args) -> int:
@@ -722,45 +628,11 @@ def _cmd_agent(args) -> int:
                      max_iter=args.max_iter, force=args.force)
 
 
-# ── split ─────────────────────────────────────────────────────────────────────
-
-def _cmd_split(args) -> int:
-    return agent.split(goal=args.goal, model=args.model, target_dir=args.dir)
-
-
-# ── flow ──────────────────────────────────────────────────────────────────────
-
-def _cmd_flow(args) -> int:
-    return agent.flow(goal=args.goal, model=args.model, target_dir=args.dir)
-
-
-# ── assess ────────────────────────────────────────────────────────────────────
-
-def _cmd_assess(args) -> int:
-    return agent.assess(goal=args.goal, model=args.model, target_dir=args.dir,
-                        plan_file=args.plan)
-
+# ── improve-plan ──────────────────────────────────────────────────────────────
 
 def _cmd_improve_plan(args) -> int:
     return agent.improve_plan(goal=args.goal, model=args.model, target_dir=args.dir,
                               plan_file=args.plan, force=args.force)
-
-
-# ── lint ──────────────────────────────────────────────────────────────────────
-
-def _cmd_lint(args) -> int:
-    from mu.lint import lint_plan
-    if not Path(args.plan).exists():
-        print(f"mu-lint: {args.plan} not found — run `mu plan` first", file=sys.stderr)
-        return 1
-    warnings = lint_plan(args.plan)
-    if not warnings:
-        print(f"{args.plan}: no warnings.")
-        return 0
-    for w in warnings:
-        print(f"- {w}")
-    print(f"\n{len(warnings)} warning(s).")
-    return 1
 
 
 # ── architect ─────────────────────────────────────────────────────────────────
@@ -932,76 +804,6 @@ def _cmd_token_report(args) -> int:
 
 def _cmd_version(args) -> int:
     print(f"mu version {__version__}")
-    return 0
-
-
-# ── clean ─────────────────────────────────────────────────────────────────────
-
-def _cmd_clean(args) -> int:
-    threshold = args.threshold * 1024 * 1024
-    found = []
-    for root, dirs, files in os.walk('.'):
-        dirs[:] = [d for d in dirs if d not in ('.git', 'node_modules', '__pycache__')]
-        for f in files:
-            path = os.path.join(root, f)
-            try:
-                size = os.path.getsize(path)
-                if size >= threshold:
-                    found.append((size, path))
-            except OSError:
-                pass
-    if not found:
-        print(f"No files larger than {args.threshold}MB found.")
-        return 0
-    found.sort(reverse=True)
-    print(f"Large files (>{args.threshold}MB):")
-    for size, path in found:
-        print(f"  {size / (1024 * 1024):6.1f}MB  {path}")
-    print("\nTo remove:")
-    for _, path in found:
-        print(f"  rm {path!r}")
-    return 0
-
-
-# ── extract ───────────────────────────────────────────────────────────────────
-
-def _cmd_extract(args) -> int:
-    try:
-        data = Path(args.log_file).read_text()
-    except OSError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
-    fence_re = re.compile(r'^```(\w+)?\s*$')
-    close_re = re.compile(r'^```\s*$')
-    path_re = re.compile(r'^(?://|#)\s*(\S+\.\S+)\s*$')
-    lines, i, extracted = data.splitlines(), 0, []
-    while i < len(lines):
-        m = fence_re.match(lines[i])
-        if m:
-            lang = m.group(1) or ''
-            i += 1
-            block = []
-            while i < len(lines) and not close_re.match(lines[i]):
-                block.append(lines[i])
-                i += 1
-            i += 1
-            if not block:
-                continue
-            pm = path_re.match(block[0])
-            if pm:
-                fp = pm.group(1)
-                print(f"Extracting: {fp} ({lang})")
-                try:
-                    Path(fp).parent.mkdir(parents=True, exist_ok=True)
-                    Path(fp).write_text('\n'.join(block[1:]))
-                    extracted.append(fp)
-                except OSError as e:
-                    print(f"  Error: {e}")
-            elif lang in ('sh', 'bash', 'shell') and args.run:
-                subprocess.run(['bash', '-c', '\n'.join(block)])
-        else:
-            i += 1
-    print(f"\nExtracted {len(extracted)} file(s)." if extracted else "No files extracted.")
     return 0
 
 

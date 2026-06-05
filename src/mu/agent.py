@@ -78,7 +78,6 @@ from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
                          fix_python_undefined_imports,
                          fix_requirements_path_entries,
                          fix_requirements_stdlib_entries,
-                         fix_makefile_pip_install_empty,
                          fix_csharp_keyword_prefix_artifacts,
                          fix_csharp_verbatim_string_escape,
                          fix_csharp_using_order,
@@ -266,308 +265,6 @@ def _select_model() -> str:
     return ''
 
 
-def split(goal: str = '', model: str = '', target_dir: str = '',
-          plan_file: str = 'PLAN.md') -> int:
-    """Rewrite the plan so pending tasks are split into smaller, more actionable files."""
-    import time
-    if not model:
-        model = os.environ.get('MU_AGENT_MODEL', '')
-    if not model:
-        model = _select_model()
-        if not model:
-            return 1
-    _log_backend(model)
-
-    if target_dir:
-        os.chdir(target_dir)
-    if not Path(plan_file).exists():
-        print(f"mu-split: no {plan_file} found — run `mu plan` first", file=sys.stderr)
-        return 1
-
-    original = Path(plan_file).read_text()
-    p = parse(plan_file)
-    pending = [t for t in p.tasks if not t.done and not t.in_progress]
-    if not pending:
-        log("No pending tasks — nothing to split.")
-        return 0
-
-    timeout = _COMPLEXITY_PLANNER['simple']
-    log("Splitting %d pending task(s) (timeout=%ds)", len(pending), timeout)
-
-    system = (
-        f"You refine {plan_file} by splitting broad or vague pending tasks into smaller, "
-        f"more actionable file-level tasks. Output ONLY the raw plan markdown — "
-        "no preamble, no explanation, no code fences."
-    )
-    rules = (
-        "Rules:\n"
-        "- Keep every `- [x]` (done) task exactly as-is, in the same position.\n"
-        "- For each `- [ ]` task that is broad, multi-purpose, or vague, split it\n"
-        "  into 2-4 concrete files, each with a single clear responsibility.\n"
-        "- If a task is already narrow and single-purpose, leave it unchanged.\n"
-        "- Use the exact format: `- [ ] path/to/file.ext — short purpose`.\n"
-        "- Stay in the dominant language already used in the plan.\n"
-        "- Preserve `## Summary`, `## Test Command`, `## Dependencies`, and all other sections verbatim.\n"
-        "- Do NOT write code, prose, or file contents — only the task checklist."
-    )
-    user = (
-        f"Current {plan_file}:\n\n{original}\n\n{rules}\n\n"
-        + (f"GOAL: {goal}\n\n" if goal else "")
-        + "Output the revised plan now. Preserve ## Summary if present, then ## Files."
-    )
-
-    msgs = [{'role': 'system', 'content': system},
-            {'role': 'user', 'content': user}]
-    print("  Splitting...", flush=True)
-    t0 = time.time()
-    set_chat_context('split')
-    try:
-        msg, stats = chat(model, msgs, None, float(timeout))
-    except Exception as e:
-        log("Split error: %s", e)
-        return 1
-    elapsed = time.time() - t0
-    log("chat: prompt=%d gen=%d time=%.1fs",
-        stats.prompt_tokens, stats.generated_tokens, elapsed)
-
-    content = extract_plan_content(msg.get('content') or '')
-    if not content or not re.search(r'(?m)^- \[([ x])\] ', content):
-        log("Split: response had no valid task checklist — leaving PLAN.md unchanged.")
-        return 1
-
-    new_p = parse_content(content)
-    new_pending = [t for t in new_p.tasks if not t.done and not t.in_progress]
-    if len(new_pending) <= len(pending):
-        log("Split: no new tasks produced (%d -> %d pending) — leaving %s unchanged.",
-            len(pending), len(new_pending), plan_file)
-        return 0
-
-    os.makedirs(LOG_DIR, exist_ok=True)
-    backup = os.path.join(LOG_DIR, f'{Path(plan_file).stem}-before-split.md')
-    Path(backup).write_text(original)
-    Path(plan_file).write_text(content)
-    log("Split: %d -> %d pending tasks. Backup saved to %s.",
-        len(pending), len(new_pending), backup)
-    print()
-    print(content, flush=True)
-    return 0
-
-
-def flow(goal: str = '', model: str = '', target_dir: str = '',
-         plan_file: str = 'PLAN.md') -> int:
-    """Reorganize the plan so each write step is immediately followed by a testable step."""
-    import time
-    if not model:
-        model = os.environ.get('MU_AGENT_MODEL', '')
-    if not model:
-        model = _select_model()
-        if not model:
-            return 1
-    _log_backend(model)
-
-    if target_dir:
-        os.chdir(target_dir)
-    if not Path(plan_file).exists():
-        print(f"mu-flow: no {plan_file} found — run `mu plan` first", file=sys.stderr)
-        return 1
-
-    original = Path(plan_file).read_text()
-    p = parse(plan_file)
-    pending = [t for t in p.tasks if not t.done and not t.in_progress]
-    if not pending:
-        log("No pending tasks — nothing to flow.")
-        return 0
-
-    timeout = _COMPLEXITY_PLANNER['simple']
-    log("Flowing %d pending task(s) into write+test pairs (timeout=%ds)", len(pending), timeout)
-
-    system = (
-        f"You reorganize {plan_file} so every source file task is immediately followed by a "
-        f"testable step that exercises it. Output ONLY the raw plan markdown — "
-        "no preamble, no explanation, no code fences."
-    )
-    rules = (
-        "Rules:\n"
-        "- Keep every `- [x]` (done) task exactly as-is, in the same position.\n"
-        "- Build files (Makefile, Cargo.toml, go.mod, pyproject.toml, package.json, "
-        "  CMakeLists.txt, etc.) stay at the top in their current order; no test pair needed.\n"
-        "- Config-only files (.toml, .json, .yaml, .lock, requirements.txt, .mod, .sum) "
-        "  need no test pair unless they ARE the build artifact.\n"
-        "- For each pending source file (non-build, non-config, non-test), ensure the very "
-        "  next task is a test or verification file that directly exercises it.\n"
-        "  - If a test file for that source already exists in the plan, move it to immediately "
-        "    follow the source file.\n"
-        "  - If no test file exists, add a new task right after the source file using the "
-        "    naming convention appropriate for the language (e.g. test_X.py for Python, "
-        "    X_test.go for Go, X.test.ts for TypeScript, X_spec.rb for Ruby). "
-        "    Give it a description like 'verify <source file>'.\n"
-        "- Test files that are already paired must stay paired; do not scatter them.\n"
-        "- Use the exact format: `- [ ] path/to/file.ext — short purpose`.\n"
-        "- Preserve `## Summary`, `## Test Command`, `## Dependencies`, and all other sections verbatim.\n"
-        "- Do NOT write code, prose, or file contents — only the task checklist."
-    )
-    user = (
-        f"Current {plan_file}:\n\n{original}\n\n{rules}\n\n"
-        + (f"GOAL: {goal}\n\n" if goal else "")
-        + "Output the revised plan now. Preserve ## Summary if present, then ## Files."
-    )
-
-    msgs = [{'role': 'system', 'content': system},
-            {'role': 'user', 'content': user}]
-    print("  Flowing...", flush=True)
-    t0 = time.time()
-    set_chat_context('flow')
-    try:
-        msg, stats = chat(model, msgs, None, float(timeout))
-    except Exception as e:
-        log("Flow error: %s", e)
-        return 1
-    elapsed = time.time() - t0
-    log("chat: prompt=%d gen=%d time=%.1fs",
-        stats.prompt_tokens, stats.generated_tokens, elapsed)
-
-    content = extract_plan_content(msg.get('content') or '')
-    if not content or not re.search(r'(?m)^- \[([ x])\] ', content):
-        log("Flow: response had no valid task checklist — leaving %s unchanged.", plan_file)
-        return 1
-
-    new_p = parse_content(content)
-    new_pending = [t for t in new_p.tasks if not t.done and not t.in_progress]
-    if len(new_pending) < len(pending):
-        log("Flow: pending count decreased (%d -> %d) — leaving %s unchanged.",
-            len(pending), len(new_pending), plan_file)
-        return 1
-
-    os.makedirs(LOG_DIR, exist_ok=True)
-    backup = os.path.join(LOG_DIR, f'{Path(plan_file).stem}-before-flow.md')
-    Path(backup).write_text(original)
-    Path(plan_file).write_text(content)
-    log("Flow: %d -> %d pending tasks. Backup saved to %s.",
-        len(pending), len(new_pending), backup)
-    print()
-    print(content, flush=True)
-    return 0
-
-
-def assess(goal: str = '', model: str = '', target_dir: str = '',
-           plan_file: str = 'PLAN.md') -> int:
-    """Assess each plan step for goal alignment; revise or skip deviating tasks."""
-    import time
-    if not model:
-        model = os.environ.get('MU_AGENT_MODEL', '')
-    if not model:
-        model = _select_model()
-        if not model:
-            return 1
-    _log_backend(model)
-
-    if target_dir:
-        os.chdir(target_dir)
-    if not Path(plan_file).exists():
-        print(f"mu-assess: no {plan_file} found — run `mu plan` first", file=sys.stderr)
-        return 1
-
-    original = Path(plan_file).read_text()
-    p = parse(plan_file)
-    pending = [t for t in p.tasks if not t.done and not t.in_progress]
-    if not pending:
-        log("No pending tasks — nothing to assess.")
-        return 0
-
-    timeout = _COMPLEXITY_PLANNER['simple']
-    log("Assessing %d pending task(s) for goal alignment (timeout=%ds)",
-        len(pending), timeout)
-
-    system = (
-        "You are a strict plan reviewer. Your job is to ensure every pending task "
-        "directly serves the stated GOAL — removing or revising tasks that deviate, "
-        "and enriching descriptions so each task has what the implementer needs. "
-        "Output ONLY the raw plan markdown — no preamble, no explanation, no code fences."
-    )
-    rules = (
-        "Rules:\n"
-        "- Keep every `- [x]` (done) task exactly as-is, in the same position.\n"
-        "- For each `- [ ]` pending task, ask: does this task directly contribute to the GOAL?\n"
-        "  - If YES and description is sufficient: keep it unchanged.\n"
-        "  - If YES but the description lacks needed context (interface, data structure, "
-        "    function signature): enrich the description (after `—`) with that contract.\n"
-        "  - If the task can be REVISED to better align with the GOAL: update its description.\n"
-        "  - If the task clearly DEVIATES from the GOAL and cannot be salvaged: remove it entirely.\n"
-        "- Only the description part (after `—`) of a kept task may change. The file path "
-        "  (before `—`) must remain byte-for-byte identical.\n"
-        "- Do NOT add new tasks.\n"
-        "- Preserve the relative order of kept tasks.\n"
-        "- Use the exact format: `- [ ] path/to/file.ext — description`.\n"
-        "- Preserve `## Summary`, `## Test Command`, `## Dependencies`, and all other sections verbatim.\n"
-        "- Do NOT write code, prose outside descriptions, or file contents."
-    )
-    goal_line = f"GOAL: {goal}\n\n" if goal else ""
-    user = (
-        f"{goal_line}Current {plan_file}:\n\n{original}\n\n{rules}\n\n"
-        "Output the assessed plan now. Preserve ## Summary if present, then ## Files."
-    )
-
-    msgs = [{'role': 'system', 'content': system},
-            {'role': 'user', 'content': user}]
-    print("  Assessing...", flush=True)
-    t0 = time.time()
-    set_chat_context('assess')
-    try:
-        msg, stats = chat(model, msgs, None, float(timeout))
-    except Exception as e:
-        log("Assess error: %s", e)
-        return 1
-    elapsed = time.time() - t0
-    log("chat: prompt=%d gen=%d time=%.1fs",
-        stats.prompt_tokens, stats.generated_tokens, elapsed)
-
-    content = extract_plan_content(msg.get('content') or '')
-    if not content or not re.search(r'(?m)^- \[([ x])\] ', content):
-        log("Assess: response had no valid task checklist — leaving %s unchanged.", plan_file)
-        return 1
-
-    new_p = parse_content(content)
-    orig_paths = {t.file_path for t in p.tasks}
-    new_paths = [t.file_path for t in new_p.tasks]
-
-    # All kept paths must be from the original set (no new tasks added)
-    added = [fp for fp in new_paths if fp not in orig_paths]
-    if added:
-        log("Assess: response added new tasks (%s) — leaving %s unchanged.",
-            ', '.join(added), plan_file)
-        return 1
-
-    # Done tasks must all be preserved
-    orig_done = [t.file_path for t in p.tasks if t.done]
-    new_done = [t.file_path for t in new_p.tasks if t.done]
-    if orig_done != new_done:
-        log("Assess: done tasks were altered — leaving %s unchanged.", plan_file)
-        return 1
-
-    orig_pending_paths = [t.file_path for t in p.tasks if not t.done]
-    new_pending_paths = [t.file_path for t in new_p.tasks if not t.done]
-    skipped = [fp for fp in orig_pending_paths if fp not in new_pending_paths]
-    if skipped:
-        log("Assess: skipped %d off-goal task(s): %s", len(skipped), ', '.join(skipped))
-
-    merged = _merge_header_pairs(content)
-    if merged != content:
-        merged_paths = {t.file_path for t in parse_content(merged).tasks}
-        header_merged = [fp for fp in new_pending_paths if fp not in merged_paths]
-        log("Assess: merged %d header/impl pair(s): %s",
-            len(header_merged), ', '.join(sorted(header_merged)))
-
-    os.makedirs(LOG_DIR, exist_ok=True)
-    backup = os.path.join(LOG_DIR, f'{Path(plan_file).stem}-before-assess.md')
-    Path(backup).write_text(original)
-    Path(plan_file).write_text(merged)
-    log("Assess: plan updated (%d pending -> %d pending). Backup saved to %s.",
-        len(orig_pending_paths), len(new_pending_paths), backup)
-    print()
-    print(merged, flush=True)
-    return 0
-
-
 _VAGUE_DESC_RE = re.compile(r'\b(module|logic|functionality|implement the|various|etc|handle)\b', re.I)
 
 
@@ -643,6 +340,20 @@ def improve_plan(goal: str = '', model: str = '', target_dir: str = '',
     p = parse(plan_file)
     if not goal:
         goal = p.plan_context[:200].strip()
+
+    # ── Phase 0: deterministic plan lint (no LLM) ─────────────────────────────
+    # Folded in from the former `mu lint` command: report spaCy-based warnings
+    # (entity inconsistencies, vague verbs, underspecified tasks). Fail-soft —
+    # lint_plan returns [] when spaCy isn't installed.
+    try:
+        from mu.lint import lint_plan
+        warnings = lint_plan(plan_file)
+    except Exception:
+        warnings = []
+    if warnings:
+        log("improve-plan: %d lint warning(s):", len(warnings))
+        for w in warnings:
+            print(f"  - {w}")
 
     # ── Phase 1: analyze ──────────────────────────────────────────────────────
     log("improve-plan: analyzing plan adequacy …")

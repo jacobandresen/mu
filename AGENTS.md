@@ -40,7 +40,7 @@ mu is a learning agent with four components:
 
 ## 2. The reflex test
 
-`reflexes.py` holds deterministic post-write fixers. Before adding one:
+`reflexes/` holds deterministic post-write fixers, grouped per language. Before adding one:
 
 > **Would I write this fix for any program in this language, independent of the dojo? If "no, only because problem X needs it" — don't add it.**
 
@@ -59,14 +59,15 @@ When a model mistake is general to a language, the right fix is a prompt rule in
 ```
 src/mu/agent.py       plan → write → lint → test → repair
 src/mu/session.py     Session.run (writer) + Session.repair_loop (critic)
-src/mu/plan.py        PLAN.md parsing and manipulation
-src/mu/reflexes.py    deterministic post-write fixers
+src/mu/plan.py        PLAN.md parsing, normalizers (e.g. blocking-Go test cmd)
+src/mu/reflexes/      deterministic post-write fixers, grouped per language
+src/mu/diagnose.py    repair-loop sensor: distils a test/lint log to a FOCUS hint
 src/mu/tools.py       actuators (Write/Edit) + percepts (Read)
 src/mu/client.py      LM Studio HTTP client
 src/mu/archive.py     session tombstones + Utility record
 src/mu/reflect.py     offline learner: distills failures into CHALLENGES.md
 src/mu/enrich.py      retrieval: fetches relevant challenges at plan time
-src/mu/lint.py        pre-execution plan critic (opt-in via MU_LINT_PLAN=1)
+src/mu/lint.py        pre-execution plan critic (used by improve-plan + MU_LINT_PLAN)
 src/mu/__main__.py    CLI and all commands
 skills/               skill prompts loaded by the planner at runtime
 ```

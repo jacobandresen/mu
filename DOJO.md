@@ -1,6 +1,6 @@
 # Dojo
 
-Stress-tests mu by driving a guest model through 7 fixed problems and recording where the autonomous loop breaks.
+Stress-tests mu by driving a guest model through 10 fixed problems and recording where the autonomous loop breaks.
 
 > **Honest-harness rule.** Reflexes must fix a *general class* of model error, never a specific dojo problem. A fixer that pattern-matches one problem's output measures the author's knowledge of the test, not the agent.
 
@@ -22,7 +22,7 @@ Stress-tests mu by driving a guest model through 7 fixed problems and recording 
 ## Running
 
 ```sh
-bash sit.sh           # all 7 problems, shuffled
+bash sit.sh           # all problems, shuffled
 bash sit.sh p3-sdl2   # single problem
 ```
 
