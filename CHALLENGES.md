@@ -143,6 +143,19 @@ Tracks the most frequent or significant challenges encountered while running the
 46. **Missing using directives**
   - Ensure all necessary namespaces are imported in C# files to avoid type not found errors.
 
+47. **Unterminated string literal**
+
+One common pitfall is leaving triple‑quoted strings open (missing the closing `"""`), which causes syntax errors later in the file when Python expects a matching delimiter. Always ensure every multi‑line string literal you start with ``"""`` ends with the same sequence, and check for stray backslashes or missing quotes near long comment blocks.
+
+48. **Unknown option in Jest command**
+  - Watch for using unrecognized options with Jest; ensure commands are correctly spelled and supported.
+
+49. **Incorrect text assertion in test**
+  - Tests often assert on the wrong text content; ensure assertions match expected output accurately.
+
+50. **Syntax error in JavaScript code**
+  - Syntax errors in the source code can cause tests to fail. Ensure proper syntax and correct use of language features.
+
 ## Resolved
 
 - **Missing `fix_sqlite_in_memory` function** — obsolete. AST fixer pass and the orphaned sqlite sensor removed in commit `07717cc`.
