@@ -170,6 +170,10 @@ def _write(path: str, content: str) -> str:
 def _edit(path: str, old_str: str, new_str: str) -> str:
     if _is_generated_path(path):
         return f"refused: {path} is inside a generated directory — do not modify package manager files"
+    if guard_enabled() and is_degenerate(new_str):
+        print(f"==> [mu-agent] Degeneration guard: refused corrupt edit to {path}")
+        return (f"refused: the replacement text for {path} is a repetition loop "
+                "(degenerate output), not real code — regenerate it from scratch")
     try:
         data = Path(path).read_text()
     except Exception as e:
