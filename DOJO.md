@@ -121,4 +121,10 @@ Recorded phases: `planner`, `writer`, `repair`, `lint-repair`, `architect`, `sta
 - High `writer` prompt share with many turns means the model is not calling the Write tool on the first try; the writer nudge loop is expensive.
 - Compare `tokens_by_phase.repair.prompt` across problems to find which goals trigger the most repair work.
 
-See [docs/token-usage-report.md](docs/token-usage-report.md) for a full analysis of where tokens go and how to reduce them.
+**Where tokens go.** The **writer** dominates (multi-turn, up to 15 turns — later turns are mostly accumulated history, not new instructions). **Skills** are ~40% of prompt tokens (a framework goal loads several at plan *and* writer time). The **repair loop** re-sends the full project context + growing history every iteration, so a long "still failing" run is the worst case.
+
+**Reduction levers** (prompt management only — no change to the model, dojo, or reflexes):
+
+- **Prompt-cache layout** (`MU_PROMPT_CACHE=1`) — put stable content (skills, rules, challenges, example) in the *system* message so LM Studio's KV cache (`cache_prompt`) reuses the prefix across writer calls; only DIR/GOAL stay volatile.
+- **Selective challenge retrieval** (`MU_ENRICH_LESSONS=1`, `enrich.py`) — send only the retrieved relevant lessons instead of the whole Open section of `CHALLENGES.md`.
+- *Planned:* narrow the repair context to the file(s) just changed (turns 1+), prune repair history to a sliding window, and send only the source-under-test to a test-file writer task.
