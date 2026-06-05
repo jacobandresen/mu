@@ -7,12 +7,11 @@ de-duplicated knowledge base and reason **probabilistically** about which reflex
 - **Built:** the catalog + miner + model profiles (`reflexes/registry.py`,
   `reflexdb.py`, built by `mu kb`); the Beta-Binomial posterior (`observe.py`); the
   completeness check (`registry.unregistered()`); the **ablation mechanism** (§9 —
-  `MU_DISABLE_REFLEX` honored by `run_reflexes`, `mu dojo measure --disable`,
-  `tests/test_reflex_ablation.py`).
+  `MU_DISABLE_REFLEX` honored by `run_reflexes`, `mu dojo measure --disable`); the
+  **combination-analysis report** (§7, in `mu kb`); tests for both.
 - **Planned (not yet built):** *writing* `reflex.efficacy` automatically (the
-  mechanism above lets you measure Δ by hand; nothing stores it yet), the
-  combination-analysis report (§7), the extra schema fields (§3/§6), and the broader
-  validation suite (§11). Marked inline below.
+  mechanism above lets you measure Δ by hand; nothing stores it yet), the extra schema
+  fields (§3/§6), and the broader validation suite (§11). Marked inline below.
 
 ---
 
@@ -47,7 +46,7 @@ session archive (~/.mu/sessions/*)         # source of truth
    └── model_profile (per-model aggregates — docs/MODELS.md)      [built]
         │
         ├── Beta-Binomial posteriors (observe.py, §8)             [built]
-        ├── SQL co-occurrence / conditional report (§7)           [planned]
+        ├── SQL co-occurrence / conditional report (§7, in mu kb)  [built]
         └── ablation: MU_DISABLE_REFLEX + mu dojo measure --disable [built]
               → write Δ into reflex.efficacy                       [planned]
 ```
@@ -155,10 +154,12 @@ it is never the source of truth.
 
 ---
 
-## 7. Combination analysis — pure SQL *(planned)*
+## 7. Combination analysis — pure SQL
 
-Not yet wired to a command — `mu kb` today reports only the error-class catalog and
-the model profiles. The queries below are the intended report over the `firing` table:
+Emitted by `mu kb` (`reflexdb.combination_report`): per-reflex conditional success
+(interval-aware via §8's Beta-Binomial, so small-N reads "insufficient data"),
+co-occurrence pairs, and sequence edges. Observational — a ranking of hypotheses to
+ablate (§9), never a causal claim. The core queries over the `firing` table:
 
 ```sql
 -- conditional success: P(success | reflex)

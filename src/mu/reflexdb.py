@@ -168,6 +168,52 @@ def build(db_path: str = DEFAULT_DB, sessions_dir: str | None = None) -> dict:
 
 # ── reporting ─────────────────────────────────────────────────────────────────
 
+def combination_report(con: sqlite3.Connection) -> list[str]:
+    """The §7 combination analysis over the `firing` table: per-reflex conditional
+    success (interval-aware, via the Beta-Binomial), which reflexes co-fire, and
+    which fire in sequence. Observational and confounded — a ranking of hypotheses
+    to ablate (§9), never a causal claim. Returns report lines (empty if no firings).
+    """
+    if not con.execute("SELECT 1 FROM firing LIMIT 1").fetchone():
+        return []
+    base = con.execute("SELECT AVG(success) r FROM session").fetchone()['r'] or 0.5
+    out = ["", "## Combination analysis",
+           "_Observational (a reflex fires *because* the model erred) — hypotheses to "
+           "ablate, not proof. See §9._",
+           "", f"### Conditional success P(✓ | reflex)  ·  base rate {base:.2f}"]
+
+    # One (session, reflex, outcome) row per session a reflex fired in (a reflex can
+    # fire several times per session — collapse to distinct sessions before averaging).
+    rows = con.execute(
+        "SELECT reflex_id, SUM(success) hits, COUNT(*) n FROM ("
+        "  SELECT DISTINCT f.session_id, f.reflex_id, s.success"
+        "  FROM firing f JOIN session s USING(session_id)"
+        ") GROUP BY reflex_id ORDER BY n DESC").fetchall()
+    for r in rows:
+        post = observe.beta_binomial(r['hits'] or 0, r['n'], base)
+        out.append(f"- `{r['reflex_id']}`  {post}")
+
+    pairs = con.execute(
+        "SELECT a.reflex_id x, b.reflex_id y, COUNT(DISTINCT a.session_id) n "
+        "FROM firing a JOIN firing b "
+        "  ON a.session_id=b.session_id AND a.reflex_id < b.reflex_id "
+        "GROUP BY 1,2 ORDER BY n DESC LIMIT 10").fetchall()
+    if pairs:
+        out += ["", "### Co-occurrence (reflexes that fire together, top 10)"]
+        out += [f"- `{p['x']}` + `{p['y']}`  ×{p['n']}" for p in pairs]
+
+    seq = con.execute(
+        "SELECT a.reflex_id before_, b.reflex_id after_, COUNT(DISTINCT a.session_id) n "
+        "FROM firing a JOIN firing b "
+        "  ON a.session_id=b.session_id AND a.pass_index < b.pass_index "
+        "     AND a.reflex_id != b.reflex_id "
+        "GROUP BY 1,2 ORDER BY n DESC LIMIT 10").fetchall()
+    if seq:
+        out += ["", "### Sequence (A fires on an earlier pass than B, top 10)"]
+        out += [f"- `{s['before_']}` → `{s['after_']}`  ×{s['n']}" for s in seq]
+    return out
+
+
 def report(db_path: str = DEFAULT_DB) -> str:
     con = connect(db_path)
     out = ["# Reflex KB", ""]
@@ -190,6 +236,8 @@ def report(db_path: str = DEFAULT_DB) -> str:
     else:
         out += ["", "_No model-tagged sessions yet — run the dojo with the new "
                 "code (each session now records its model)._"]
+
+    out += combination_report(con)
     con.close()
     return '\n'.join(out)
 
