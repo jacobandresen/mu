@@ -637,9 +637,11 @@ def run(goal: str, model: str = '', target_dir: str = '',
 
         project_dir = os.getcwd()
         auto_system = _build_autonomous_system(project_dir, plan_file)
+        loaded_skills: set[str] = set()
         if max_prompt_tokens() >= 2000:
             for _skill_name, _skill_content in _contextual_skills(goal, p):
                 auto_system += '\n\n' + _skill_content
+                loaded_skills.add(_skill_name)
                 log("Loaded %s skill.", _skill_name)
         else:
             log("Skipping contextual skills (constrained token budget: %d tokens).", max_prompt_tokens())
@@ -652,7 +654,8 @@ def run(goal: str, model: str = '', target_dir: str = '',
 
             log("Iteration %d / %d: %s", i, max_iter, task.file_path)
             companion = _companion_header(task.description)
-            write_prompt = _build_write_prompt(goal, task, p, companion, plan_file)
+            write_prompt = _build_write_prompt(goal, task, p, companion, plan_file,
+                                               loaded_skills)
 
             if not _run_writer(model, task.file_path, write_prompt, auto_system, writer_timeout,
                                companion):
@@ -2027,11 +2030,23 @@ def _python_relevant(goal: str, p: Plan) -> bool:
                                    'python', 'requirements.txt'))
 
 
+# A loaded skill whose content already states these contracts makes the matching
+# inline block below redundant. The writer system prompt (with skills) is re-sent
+# on every writer turn, so dropping the duplicate saves those tokens each turn
+# without changing the guidance the model receives. All three test-isolation
+# skills carry the per-test-fresh-state rule; makefile-writer carries the
+# target/tab rules.
+_TEST_ISOLATION_SKILLS = frozenset({'python-writer', 'test-isolation', 'dotnet-mvc'})
+_MAKEFILE_SKILLS = frozenset({'makefile-writer'})
+
+
 def _build_write_prompt(goal: str, task, p: Plan, companion: str = '',
-                        plan_file: str = 'PLAN.md') -> str:
+                        plan_file: str = 'PLAN.md',
+                        loaded_skills: set[str] | None = None) -> str:
     # On a very small context window keep the prompt minimal so the model has
     # enough budget left to write the file.
     compact = max_prompt_tokens() < 2000
+    loaded_skills = loaded_skills or set()
     parts = [f"GOAL: {goal}\n\n## Plan\n{p.plan_context}"]
     existing = relevant_files_context(p, task.file_path)
     if existing:
@@ -2045,13 +2060,15 @@ def _build_write_prompt(goal: str, task, p: Plan, companion: str = '',
     if task.description:
         parts.append(f"\nPurpose: {task.description}")
     if not compact:
-        if is_test_file(task.file_path):
+        # Emit each inline contract only when no loaded skill already states it —
+        # the skill (in the re-sent system prompt) covers the model otherwise.
+        if is_test_file(task.file_path) and not (loaded_skills & _TEST_ISOLATION_SKILLS):
             parts.append("\n\nTEST ISOLATION: give each test its own fresh state. Construct the "
                          "code under test with an in-memory or per-test temporary store (e.g. a "
                          "`:memory:` database, or a tmp file/dir via a fixture), or reset state in "
                          "setup/teardown. Never assert exact row counts or contents against a store "
                          "that other tests in the file also write — they will accumulate and fail.")
-        if Path(task.file_path).name.lower() == 'makefile':
+        if Path(task.file_path).name.lower() == 'makefile' and not (loaded_skills & _MAKEFILE_SKILLS):
             parts.append("\n\nMAKEFILE RULES: every name used as a prerequisite must have its own "
                          "`target:` rule or be a real file — if you write `all: run`, you must also "
                          "define a `run:` rule. Recipe lines are tab-indented.")
