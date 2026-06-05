@@ -158,3 +158,10 @@ One common pitfall is leaving triple‑quoted strings open (missing the closing 
 
 
 *This file is intended to be updated continuously as new challenges arise.*
+
+51. **Incorrect HTML template syntax**
+  - Ensure proper HTML tags and attributes are used in Vue components to avoid parsing errors during build processes.
+
+52. **Mocking conflicts**
+  - Conflicting imports between mocks and actual modules can cause build errors; ensure mocks are used lazily or with unique names to avoid clashes.
+
