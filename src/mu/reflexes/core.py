@@ -8,7 +8,6 @@ original.
 import hashlib
 import json
 import os
-import re
 from pathlib import Path
 
 
@@ -143,8 +142,6 @@ def fix_json_unclosed_brackets(file_path: str) -> bool:
     except (json.JSONDecodeError, OSError):
         pass
     # Count brackets outside strings
-    depth_sq = 0  # [ ]
-    depth_cu = 0  # { }
     stack = []
     i = 0
     while i < len(text):

@@ -12,7 +12,6 @@ unless MU_PREDICT is set.
 """
 
 import json
-import os
 import re
 from pathlib import Path
 
@@ -141,36 +140,6 @@ def train(sessions_dir: Path | None = None, verbose: bool = True) -> dict:
         print(classification_report(y, (proba >= 0.5).astype(int),
                                     target_names=['stalled', 'success'], zero_division=0))
     return metrics
-
-
-def recommend_plan_expansion(goal: str, tasks_total: int, max_iterations: int = 10,
-                             delta: int = 2, min_gain: float = 0.05) -> dict | None:
-    """Counterfactual: would a larger plan raise P(success) for this goal?
-
-    Reuses the trained P(success) model, holding the goal fixed and varying only
-    the task count. If predicted success rises by at least *min_gain* when the
-    plan grows by *delta* tasks, recommend expansion. This is honest about the
-    data: plan size is confounded with difficulty, so for most goals the model
-    finds little or negative gain — and this function will say so rather than
-    reflexively recommending more tasks.
-
-    Returns {'expand': bool, 'current_proba', 'expanded_proba', 'gain',
-    'suggested_tasks'} or None if no model is trained.
-    """
-    base = predict_success_proba(goal, tasks_total, max_iterations)
-    if base is None:
-        return None
-    bigger = predict_success_proba(goal, tasks_total + delta, max_iterations)
-    if bigger is None:
-        return None
-    gain = bigger - base
-    return {
-        'expand': gain >= min_gain,
-        'current_proba': base,
-        'expanded_proba': bigger,
-        'gain': gain,
-        'suggested_tasks': tasks_total + delta if gain >= min_gain else tasks_total,
-    }
 
 
 def predict_success_proba(goal: str, tasks_total: int, max_iterations: int) -> float | None:

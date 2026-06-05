@@ -5,7 +5,6 @@ monolithic reflexes module so each language's fixers live together. No logic
 changes from the original.
 """
 
-import json
 import re
 import shutil
 from pathlib import Path

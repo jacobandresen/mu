@@ -5,10 +5,7 @@ module so each language's fixers live together. No logic changes from the
 original.
 """
 
-import hashlib
 import re
-import shutil
-import subprocess
 from pathlib import Path
 
 

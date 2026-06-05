@@ -57,52 +57,6 @@ def status() -> list[dict]:
     return rows
 
 
-# File extension → toolchain
-_EXT_TOOL: dict[str, str] = {
-    '.c':   'clang',
-    '.cpp': 'clang',
-    '.go':  'go',
-    '.rs':  'cargo',
-    '.cs':  'dotnet',
-    '.py':  'python3',
-    '.js':  'node',
-    '.ts':  'node',
-}
-
-# Test-command substring → toolchain
-_CMD_TOOL: list[tuple[str, str]] = [
-    ('cargo',  'cargo'),
-    ('dotnet', 'dotnet'),
-    ('go ',    'go'),
-    ('clang',  'clang'),
-    ('gcc',    'clang'),
-    ('pytest', 'python3'),
-    ('python', 'python3'),
-    ('node',   'node'),
-    ('npm',    'node'),
-    ('sdl2',   'sdl2'),
-]
-
-
-def required_by_plan(file_paths: list[str], test_cmd: str) -> set[str]:
-    """Infer toolchain names needed to build and test a plan."""
-    needed: set[str] = set()
-    for fp in file_paths:
-        tool = _EXT_TOOL.get(Path(fp).suffix.lower())
-        if tool:
-            needed.add(tool)
-    cmd = (test_cmd or '').lower()
-    for fragment, tool in _CMD_TOOL:
-        if fragment in cmd:
-            needed.add(tool)
-    return needed
-
-
-def missing_for_plan(file_paths: list[str], test_cmd: str) -> set[str]:
-    """Return toolchains the plan needs but are not installed."""
-    return required_by_plan(file_paths, test_cmd) - available()
-
-
 def load_problems_catalog(catalog_path: str | None = None) -> list[dict]:
     """Load the problems catalog from disk."""
     default = Path(__file__).parent.parent.parent / 'problems-catalog.json'
@@ -111,12 +65,3 @@ def load_problems_catalog(catalog_path: str | None = None) -> list[dict]:
         return json.loads(path.read_text(encoding='utf-8')).get('problems', [])
     except Exception:
         return []
-
-
-def available_problems(catalog_path: str | None = None) -> list[dict]:
-    """Return problems whose required toolchains are all installed."""
-    avail = available()
-    return [
-        p for p in load_problems_catalog(catalog_path)
-        if set(p.get('toolchains', [])) <= avail
-    ]

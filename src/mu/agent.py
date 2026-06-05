@@ -1685,10 +1685,6 @@ def _is_multilayer(goal: str) -> bool:
         'frontend', 'vue', 'react', 'svelte', 'angular', 'ui', 'web app',
         'webapp', 'browser', 'component', 'page', 'vite', 'vitest',
     ))
-    has_model = any(k in g for k in (
-        'model', 'schema', 'database', 'sqlite', 'migration', 'entity',
-        'table', 'orm', 'ef core', 'entityframework',
-    ))
     return has_backend and has_frontend
 
 
@@ -2238,59 +2234,6 @@ def _tail_file(path: str, n: int) -> str:
 
 def _head_file(path: str, n: int) -> str:
     return _read_file_lines(path, n, tail=False)
-
-
-_IMPL_EXTS = frozenset({'.c', '.cpp', '.cc', '.cxx'})
-_HEADER_EXTS = frozenset({'.h', '.hpp', '.hh', '.hxx'})
-
-
-def _merge_header_pairs(plan_text: str) -> str:
-    """Merge pending .h tasks into their paired pending .c/.cpp tasks.
-
-    When both foo.h and foo.c are pending, the .h task is removed and a note
-    is appended to the .c task so both files are written in one step.
-    Only pairs where BOTH tasks are pending are merged; done tasks are left alone.
-    """
-    pending_re = re.compile(r'^- \[ \] (\S+)', re.MULTILINE)
-
-    pending_h: dict[str, str] = {}  # stem -> file_path
-    pending_c: dict[str, str] = {}
-
-    for m in pending_re.finditer(plan_text):
-        fp = m.group(1)
-        ext = Path(fp).suffix.lower()
-        stem = str(Path(fp).parent / Path(fp).stem)
-        if ext in _HEADER_EXTS:
-            pending_h[stem] = fp
-        elif ext in _IMPL_EXTS:
-            pending_c[stem] = fp
-
-    pairs: dict[str, str] = {}  # h_fp -> c_fp
-    for stem, h_fp in pending_h.items():
-        if stem in pending_c:
-            pairs[h_fp] = pending_c[stem]
-
-    if not pairs:
-        return plan_text
-
-    c_to_h = {c: h for h, c in pairs.items()}
-    result: list[str] = []
-    for line in plan_text.splitlines(keepends=True):
-        m = re.match(r'^(- \[ \] )(\S+)(.*?)(\n?)$', line)
-        if not m:
-            result.append(line)
-            continue
-        fp, rest, nl = m.group(2), m.group(3).rstrip(), m.group(4)
-        if fp in pairs:
-            continue  # remove the .h task line
-        if fp in c_to_h:
-            h_fp = c_to_h[fp]
-            note = f'also write `{h_fp}`'
-            rest = rest + f'; {note}' if rest.strip() else f' — {note}'
-            result.append(f'{m.group(1)}{fp}{rest}{nl}')
-        else:
-            result.append(line)
-    return ''.join(result)
 
 
 def _companion_header(description: str) -> str:
