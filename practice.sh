@@ -124,12 +124,12 @@ _refresh_readme_results() {
                  printf "%d\t| %s | %s |\n", n+0, $2, ($1=="success" ? "PASS" : toupper($1)) }' \
       "$rfile" | sort -n | cut -f2-
     printf '<!-- DOJO-RESULTS:END -->\n'
-  } > "$tmp"
+  } >"$tmp"
   awk '
     /<!-- DOJO-RESULTS:START/ { while ((getline line < BLOCK) > 0) print line; skip=1; next }
     /<!-- DOJO-RESULTS:END/   { skip=0; next }
     !skip { print }
-  ' BLOCK="$tmp" README.md > README.md.practice.tmp && mv README.md.practice.tmp README.md
+  ' BLOCK="$tmp" README.md >README.md.practice.tmp && mv README.md.practice.tmp README.md
   rm -f "$tmp"
   echo "Updated README.md DOJO-RESULTS block (round $rnum)."
 }
@@ -140,6 +140,7 @@ _refresh_readme_results() {
 echo "Warming up the model…"
 "${MU_CMD}" model warm || echo "  (warm-up skipped — continuing)"
 
+# And now. For the real question
 echo "What is reality?"
 
 # Marker file used to find sessions finalized within the current round.
@@ -153,7 +154,7 @@ trap 'rm -f "$marker" "$results_all" ${failure_lines:+$failure_lines} ${failed_i
 
 # Seed the digest header if missing.
 if [ ! -f "$DIGEST" ]; then
-  cat > "$DIGEST" <<EOF
+  cat >"$DIGEST" <<EOF
 # Dojo Practice Digest
 
 One section per practice round. Each round lists the outcome of every
@@ -202,8 +203,8 @@ for round in $(seq 1 "$ROUNDS"); do
     # more reliable than goal-text matching for the per-problem summary.
     pdir=$(awk -F'"' '/"project_dir"/{print $4; exit}' "$meta" 2>/dev/null)
     pid=$(basename "${pdir:-unknown}")
-    printf '%s|%s\n' "${outcome:-unknown}" "${pid:-unknown}" >> "$results_all"
-    printf '%s|%s\n' "${outcome:-unknown}" "${pid:-unknown}" >> "$round_results"
+    printf '%s|%s\n' "${outcome:-unknown}" "${pid:-unknown}" >>"$results_all"
+    printf '%s|%s\n' "${outcome:-unknown}" "${pid:-unknown}" >>"$round_results"
     if [ "$outcome" = "success" ]; then
       successes=$((successes + 1))
     else
@@ -213,8 +214,8 @@ for round in $(seq 1 "$ROUNDS"); do
       cause=$(_root_cause "$(dirname "$meta")")
       printf -- '- **%s** (%s) [%s] — %s%s\n' \
         "${outcome:-unknown}" "${sid:-?}" "${pid:-?}" "${goal:-?}" \
-        "${cause:+ -- cause: $cause}" >> "$failure_lines"
-      [ -n "${sid:-}" ] && printf '%s\n' "$sid" >> "$failed_ids"
+        "${cause:+ -- cause: $cause}" >>"$failure_lines"
+      [ -n "${sid:-}" ] && printf '%s\n' "$sid" >>"$failed_ids"
     fi
   done < <(find "$ARCHIVE" -name meta.json -newer "$marker" 2>/dev/null)
 
@@ -228,7 +229,7 @@ for round in $(seq 1 "$ROUNDS"); do
       printf 'Failed sessions:\n\n'
       cat "$failure_lines"
     fi
-  } >> "$DIGEST"
+  } >>"$DIGEST"
   rm -f "$failure_lines"
 
   # Refresh README.md's measured block with THIS round's results (last round wins).
@@ -237,7 +238,7 @@ for round in $(seq 1 "$ROUNDS"); do
 
   total_ok=$((total_ok + successes))
   total_fail=$((total_fail + failures))
-  elapsed=$(( $(date +%s) - round_start ))
+  elapsed=$(($(date +%s) - round_start))
   printf 'round %d: %d ok / %d fail (%ds)  | cumulative %d ok / %d fail\n' \
     "$round" "$successes" "$failures" "$elapsed" "$total_ok" "$total_fail"
 
@@ -303,7 +304,7 @@ for round in $(seq 1 "$ROUNDS"); do
   echo "mu!..."
 done
 
-total_elapsed=$(( $(date +%s) - practice_start ))
+total_elapsed=$(($(date +%s) - practice_start))
 printf '\npractice complete: %d ok / %d fail across %d round(s) in %ds. Digest: %s\n' \
   "$total_ok" "$total_fail" "$round" "$total_elapsed" "$DIGEST"
 
@@ -324,5 +325,5 @@ if [ -s "$results_all" ]; then
   {
     printf '\n## per-problem summary — %s\n\n' "$(date -Iseconds)"
     printf '%s\n' "$summary"
-  } >> "$DIGEST"
+  } >>"$DIGEST"
 fi

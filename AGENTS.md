@@ -2,7 +2,7 @@
 
 Operating guide for AI agents (and humans) working on the **mu** codebase.
 mu is a local AI coding toolkit: `mu agent "<goal>"` drives an autonomous
-plan → write → verify loop on top of a local LLM via LM Studio or OpenVINO.
+plan → write → verify loop on top of a local LLM via LM Studio.
 
 **mu is an agent harness that employs reflexes — deterministic condition→action fixers — to repair the general classes of mistake weaker local models make.** The reflexes are *trained* in the `practice.sh` loop by stronger models: the loop runs the dojo with a weak model, distills each failure's root cause, and a stronger model (you) reads those failures and encodes a new general reflex or normalizer. Your job here is that training step.
 
@@ -110,36 +110,22 @@ Keep commits atomic. mu drives LM Studio via its OpenAI-compatible API (`client.
 
 ---
 
-## 7. Starting the inference backend
+## 7. Starting LM Studio
 
-### OpenVINO (CPU/NPU — no LM Studio required)
-
-```sh
-# Start the server (loads model, serves on http://localhost:8765)
-mu serve ~/.mu/models/Qwen2.5-Coder-14B-Instruct-int4-ov --port 8765 --device CPU &
-
-# Save the backend config so mu agent routes to it automatically
-python3 -c "
-from mu import client
-import subprocess, os
-pid = int(subprocess.check_output(['pgrep','-f','mu serve']).split()[0])
-client.save_backend('openvino','http://localhost:8765',
-    str(client.ov_models_dir()/'Qwen2.5-Coder-14B-Instruct-int4-ov'), pid, 'CPU')
-"
-```
-
-Or use the interactive picker (downloads model if needed, starts server, saves config in one step):
+mu talks to LM Studio's OpenAI-compatible server. Start it headlessly with the
+`lms` CLI (the command-line LM Studio):
 
 ```sh
-mu backend openvino
+lms server start                 # start the local server on http://localhost:1234
+lms load ibm/granite-4.1-3b      # load a model (the dojo's primary)
+lms ps                           # confirm what's loaded
 ```
 
-### LM Studio
-
-Load a model in LM Studio's UI (or via `mu model`), then run `mu agent` as normal.
-
-### Verify the backend is up
+Then run mu as normal:
 
 ```sh
-mu model warm   # prints "OpenVINO backend selected" or pings LM Studio
+mu check          # confirms LM Studio is reachable
+mu agent "..."    # uses the loaded model
 ```
+
+Override the host with `MU_LMSTUDIO_HOST` if the server runs elsewhere.

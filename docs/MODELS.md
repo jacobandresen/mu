@@ -192,28 +192,6 @@ To use a model with mu:
 
 If `--model` and `MU_AGENT_MODEL` are both unset, mu uses the first model loaded in LM Studio.
 
-### OpenVINO (CPU-only, no LM Studio required)
-
-mu also supports inference via OpenVINO GenAI — useful on CPU-only machines or when LM Studio is not available.
-
-1. Install: `pip install openvino openvino-genai`
-2. Convert a model to OpenVINO IR format (e.g. with `optimum-cli export openvino`)
-3. Start the server:
-   ```sh
-   mu serve ./path/to/model
-   ```
-   The server listens on `localhost:1234` by default and uses half the available CPU threads.
-4. Register the backend so mu routes to it automatically:
-   ```sh
-   mu model load ./path/to/model --backend openvino
-   ```
-5. Switch back to LM Studio at any time:
-   ```sh
-   mu backend lmstudio
-   ```
-
-`mu check` shows the status of both backends.
-
 ---
 
 ## Sources

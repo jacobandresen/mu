@@ -16,8 +16,11 @@ cd mu
 python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 source .venv/bin/activate
 
-# Start LM Studio, load a model, start the server
-mu check                          # verify dependencies
+# Start LM Studio's server and load a model with the lms CLI
+lms server start                  # serve on http://localhost:1234
+lms load ibm/granite-4.1-3b       # load a model
+
+mu check                          # verify dependencies + LM Studio reachable
 mu toolchain                      # show installed compiler toolchains
 mu setup                          # install missing toolchains (interactive)
 mu agent "write a Flask REST API with SQLite and pytest tests" --dir myproject

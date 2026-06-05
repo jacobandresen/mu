@@ -47,36 +47,16 @@ def main() -> int:
     model_p = sub.add_parser('model', help='Browse and select models')
     model_sub = model_p.add_subparsers(dest='model_subcmd')
     model_sub.add_parser('status', help='Show loaded models')
-    model_sub.add_parser('list', help='List curated models for the current backend')
-    load_p = model_sub.add_parser('load', help='Load a model (LM Studio or OpenVINO)')
-    load_p.add_argument('model_id', help='Model ID (LM Studio) or path to OpenVINO IR directory')
-    load_p.add_argument('--backend', choices=['lmstudio', 'openvino'], default='lmstudio',
-                        help='Backend to load into (default: lmstudio)')
-    load_p.add_argument('--port', type=int, default=8765, metavar='PORT',
-                        help='Port for the OpenVINO server (default: 8765)')
-    load_p.add_argument('--device', default=None, metavar='DEVICE',
-                        help='OpenVINO device, e.g. CPU, GPU, or NPU (default: auto-detect)')
+    model_sub.add_parser('list', help='List curated models')
+    load_p = model_sub.add_parser('load', help='Load a model in LM Studio')
+    load_p.add_argument('model_id', help='Model ID (e.g. ibm/granite-4.1-3b)')
 
-    backend_p = sub.add_parser('backend', help='Switch inference backend (lmstudio / openvino)')
-    backend_sub = backend_p.add_subparsers(dest='backend_subcmd')
-    backend_sub.add_parser('lmstudio', help='Switch to LM Studio backend')
-    ov_p = backend_sub.add_parser('openvino', help='Switch to OpenVINO backend')
-    ov_p.add_argument('--port', type=int, default=8765, metavar='PORT',
-                      help='Port for the OpenVINO server (default: 8765)')
-    ov_p.add_argument('--device', default=None, metavar='DEVICE',
-                      help='OpenVINO device, e.g. CPU, GPU, or NPU (default: CPU)')
-
-    device_p = sub.add_parser('device', help='Switch OpenVINO inference device (cpu / npu)')
-    device_sub = device_p.add_subparsers(dest='device_subcmd')
-    device_sub.add_parser('cpu', help='Run inference on CPU (default)')
-    device_sub.add_parser('npu', help='Run inference on Intel NPU (requires driver)')
     warm_p = model_sub.add_parser(
         'warm', help='Load a model persistently and run a warm-up generation')
     warm_p.add_argument('model_id', nargs='?', default='',
                         help='Model ID to warm (default: recommended)')
     unload_p = model_sub.add_parser('unload', help='Unload a model via the lmstudio SDK')
     unload_p.add_argument('model_id', help='Model ID to unload')
-    model_sub.add_parser('stop', help='Stop the running OpenVINO server and switch back to LM Studio')
     model_sub.add_parser('ensure-single',
                          help='Abort if more than one non-embedding model is loaded')
 
@@ -207,15 +187,6 @@ def main() -> int:
     extract_p.add_argument('log_file', help='Log file to extract from')
     extract_p.add_argument('--run', action='store_true', help='Execute shell blocks')
 
-    serve_p = sub.add_parser(
-        'serve', help='Start a local OpenVINO-backed OpenAI-compatible server')
-    serve_p.add_argument('model_dir', nargs='?', default='',
-                         help='Path to an OpenVINO IR model directory (default: stored backend model)')
-    serve_p.add_argument('--port', type=int, default=1234, metavar='PORT',
-                         help='Port to listen on (default: 1234)')
-    serve_p.add_argument('--device', default=None, metavar='DEVICE',
-                         help='OpenVINO device, e.g. CPU, GPU, or NPU (default: auto-detect)')
-
     theme_p = sub.add_parser('theme', help='Pick and apply a base16 colour scheme')
     theme_sub = theme_p.add_subparsers(dest='theme_subcmd')
     theme_list_p = theme_sub.add_parser('list', help=argparse.SUPPRESS)
@@ -238,8 +209,6 @@ def main() -> int:
         'check': _cmd_check,
         'setup': _cmd_setup,
         'model': _cmd_model,
-        'backend': _cmd_backend,
-        'device': _cmd_device,
         'research': _cmd_research,
         'deep': _cmd_deep,
         'plan': _cmd_plan,
@@ -257,7 +226,6 @@ def main() -> int:
         'clean': _cmd_clean,
         'extract': _cmd_extract,
         'theme': _cmd_theme,
-        'serve': _cmd_serve,
     }
     return dispatch[args.command](args) or 0
 
@@ -297,36 +265,13 @@ def _cmd_check(args) -> int:
                 fail_count += 1
         print()
 
-    print("AI backend")
+    print("LM Studio")
     if client.is_running():
-        print(f"  [OK]  LM Studio ({client.LMS_HOST})")
+        print(f"  [OK]  LM Studio server ({client.LMS_HOST})")
         ok_count += 1
     else:
-        print(f"  [!!]  {'LM Studio':<28} start LM Studio and load a model [{client.LMS_HOST}]")
+        print(f"  [!!]  {'LM Studio':<28} start it: lms server start && lms load <model> [{client.LMS_HOST}]")
         fail_count += 1
-    try:
-        import openvino as ov  # noqa: F401
-        devices = ov.Core().available_devices
-        device_str = ', '.join(devices)
-        cfg = client.load_backend()
-        if cfg.get('backend') == 'openvino':
-            model_name = Path(cfg.get('model', '')).name or '(none)'
-            ov_device  = cfg.get('ov_device', '?')
-            print(f"  [OK]  OpenVINO {ov.__version__} ({device_str})"
-                  f"  model={model_name}  device={ov_device}")
-        else:
-            npu_hint = '  →  run: make openvino' if 'NPU' in devices else '  →  mu backend openvino'
-            print(f"  [OK]  OpenVINO {ov.__version__} ({device_str}){npu_hint}")
-        ok_count += 1
-    except ImportError:
-        try:
-            is_intel = 'GenuineIntel' in Path('/proc/cpuinfo').read_text()
-        except Exception:
-            is_intel = False
-        if is_intel:
-            print(f"  [--]  {'OpenVINO':<28} Intel hardware detected — run: make openvino")
-        else:
-            print(f"  [--]  {'OpenVINO':<28} pip install openvino openvino-genai  (optional)")
     print()
 
     print("Python packages")
@@ -367,27 +312,6 @@ def _cmd_check(args) -> int:
     print(f"{fail_count} missing, {ok_count} present.")
     print("Run: mu setup")
     return 1
-
-
-def _run_openvino_setup(yes: bool = False) -> None:
-    """Delegate to scripts/setup_openvino.py via importlib (works when installed as a package)."""
-    import importlib.util
-    # Locate setup_openvino.py relative to this file's repo root.
-    candidates = [
-        Path(__file__).parent.parent.parent / 'scripts' / 'setup_openvino.py',  # editable install (src/mu → src → repo)
-        Path(__file__).parent.parent.parent.parent / 'scripts' / 'setup_openvino.py',  # fallback
-    ]
-    script = next((p for p in candidates if p.exists()), None)
-    if script is None:
-        print("  scripts/setup_openvino.py not found — run: make openvino")
-        return
-    spec = importlib.util.spec_from_file_location('_setup_openvino', script)
-    if spec and spec.loader:
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)  # type: ignore[union-attr]
-        mod.setup(yes=yes)
-    else:
-        print("  Could not load setup_openvino.py — run: make openvino")
 
 
 # ── setup ─────────────────────────────────────────────────────────────────────
@@ -477,12 +401,6 @@ def _cmd_setup(args) -> int:
     print(f"  mu connects to {client.LMS_HOST} by default (override: MU_LMSTUDIO_HOST).")
     print("  Then run: mu agent \"your goal\"")
 
-    # OpenVINO backend (Intel Linux only)
-    if system == 'Linux':
-        print()
-        print("AI backend: OpenVINO")
-        _run_openvino_setup(yes)
-
     return 0
 
 
@@ -510,21 +428,14 @@ def _cmd_model(args) -> int:
     if sub == 'status':
         return _model_status()
     if sub == 'load':
-        if getattr(args, 'backend', 'lmstudio') == 'openvino':
-            device = args.device or _best_ov_device()
-            return _model_load_openvino(args.model_id, args.port, device)
-        _stop_openvino_if_running()
         if client.load_model(args.model_id):
             _save_preferred_model(args.model_id)
-            client.save_backend('lmstudio', '', args.model_id)
             return 0
         return 1
     if sub == 'warm':
         return _model_warm(args.model_id)
     if sub == 'unload':
         return _model_unload(args.model_id)
-    if sub == 'stop':
-        return _model_stop_openvino()
     if sub == 'ensure-single':
         return _model_ensure_single()
     if sub == 'list':
@@ -540,14 +451,8 @@ def _model_warm(model_id: str = '') -> int:
     loaded.  If the model is not yet downloaded, it is fetched from the hub.
     `client.load_model` uses ttl=None so the model stays resident across later
     runs until LM Studio restarts.
-
-    For the OpenVINO backend the model is served by the background OpenVINO
-    process — LM Studio is not involved, so this command is a no-op.
     """
     import time
-    if client.load_backend().get('backend') == 'openvino':
-        print("OpenVINO backend selected — warm-up is managed by the OpenVINO server.")
-        return 0
     if not client.is_running():
         print(f"LM Studio not running at {client.LMS_HOST}", file=sys.stderr)
         return 1
@@ -609,25 +514,6 @@ def _model_status() -> int:
     recommended = client.recommended_model()
     active = _active_model_ids()
     available = client.list_models()
-    backend = client.load_backend()
-
-    # OpenVINO backend status
-    if backend.get('backend') == 'openvino':
-        host = backend.get('host', '')
-        pid = backend.get('ov_pid', 0)
-        model = backend.get('model', '')
-        device = backend.get('ov_device', 'CPU')
-        running = client.is_running_at(host) if host else False
-        alive = _pid_alive(pid) if pid else False
-        status = 'running' if (running or alive) else 'stopped'
-        print(f"Backend: OpenVINO  [{status}]  {host}")
-        print(f"  Model:  {model}")
-        print(f"  Device: {device}")
-        if pid:
-            print(f"  PID:    {pid}")
-        if not running:
-            print("  (server not responding — run: mu model load <model_dir> --backend openvino)")
-        print()
 
     print("Active (loaded in memory):")
     if active:
@@ -668,41 +554,6 @@ def _model_unload(model_id: str) -> int:
         return 1
 
 
-def _model_stop_openvino() -> int:
-    """Stop the running OpenVINO server, clearing the PID but keeping the openvino backend."""
-    backend = client.load_backend()
-    if backend.get('backend') != 'openvino':
-        print("Backend is not OpenVINO — nothing to stop.")
-        return 0
-
-    pid = backend.get('ov_pid', 0)
-    if pid:
-        if _pid_alive(pid):
-            try:
-                os.kill(pid, 15)  # SIGTERM
-                import time
-                for _ in range(10):
-                    time.sleep(0.3)
-                    if not _pid_alive(pid):
-                        break
-                else:
-                    os.kill(pid, 9)  # SIGKILL
-            except Exception as e:
-                print(f"Error stopping server (PID {pid}): {e}", file=sys.stderr)
-                return 1
-            print(f"OpenVINO server stopped (PID {pid}).")
-        else:
-            print(f"OpenVINO server (PID {pid}) was already stopped.")
-    else:
-        print("No PID recorded — server may have been started externally.")
-
-    # Keep backend=openvino but clear the stale PID
-    client.save_backend('openvino', backend.get('host', ''),
-                        backend.get('model', ''), 0, backend.get('ov_device', ''))
-    print("Backend remains OpenVINO. Run: mu model load <model_dir> --backend openvino")
-    return 0
-
-
 def _model_ensure_single() -> int:
     """Abort if more than one non-embedding model is loaded in memory. Dojo precondition."""
     try:
@@ -733,122 +584,6 @@ def _model_ensure_single() -> int:
     return 1
 
 
-def _pid_alive(pid: int) -> bool:
-    """Return True if a process with the given PID is still running."""
-    try:
-        os.kill(pid, 0)
-        return True
-    except (ProcessLookupError, PermissionError):
-        return False
-    except Exception:
-        return False
-
-
-def _best_ov_device() -> str:
-    """Return the default OpenVINO device for LLM inference (CPU).
-
-    CPU is the safe default: works on all hardware without driver setup.
-    Use ``mu device npu`` to switch to the Intel NPU after running
-    ``scripts/install-npu-driver.sh``.
-    """
-    return 'CPU'
-
-
-def _stop_openvino_if_running() -> None:
-    """Kill the stored OpenVINO server process if it is still alive."""
-    pid = client.load_backend().get('ov_pid', 0)
-    if not pid or not _pid_alive(pid):
-        return
-    try:
-        os.kill(pid, 15)  # SIGTERM
-        import time as _time
-        for _ in range(10):
-            _time.sleep(0.3)
-            if not _pid_alive(pid):
-                break
-        else:
-            os.kill(pid, 9)  # SIGKILL
-        print(f"Stopped previous OpenVINO server (PID {pid}).")
-    except Exception as e:
-        print(f"Warning: could not stop previous server (PID {pid}): {e}", file=sys.stderr)
-
-
-def _kill_port(port: int) -> None:
-    """Kill any process currently listening on *port* (handles stale-PID cases)."""
-    import subprocess
-    try:
-        r = subprocess.run(
-            ['lsof', '-ti', f'tcp:{port}'],
-            capture_output=True, text=True,
-        )
-        for pid_str in r.stdout.strip().split():
-            try:
-                pid = int(pid_str)
-                os.kill(pid, 15)
-                import time as _time
-                for _ in range(10):
-                    _time.sleep(0.3)
-                    if not _pid_alive(pid):
-                        break
-                else:
-                    os.kill(pid, 9)
-                print(f"Stopped server on port {port} (PID {pid}).")
-            except Exception:
-                pass
-    except FileNotFoundError:
-        pass  # lsof unavailable — best-effort only
-
-
-def _model_load_openvino(model_dir: str, port: int, device: str) -> int:
-    """Launch an OpenVINO server daemon and persist the backend config."""
-    import subprocess
-    from pathlib import Path
-    import importlib
-
-    if importlib.util.find_spec('openvino_genai') is None:
-        print("openvino-genai not installed — run: pip install openvino-genai", file=sys.stderr)
-        return 1
-
-    model_path = Path(model_dir).resolve()
-    if not model_path.is_dir():
-        print(f"Not a directory: {model_dir}", file=sys.stderr)
-        return 1
-
-    _stop_openvino_if_running()  # kill by stored PID
-    _kill_port(port)             # kill whatever is actually on the port (stale-PID guard)
-
-    log_file = Path.home() / '.mu' / 'ov_server.log'
-    log_file.parent.mkdir(parents=True, exist_ok=True)
-
-    host = f"http://localhost:{port}"
-    cmd = [sys.executable, '-m', 'mu', 'serve', str(model_path),
-           '--port', str(port), '--device', device]
-    proc = subprocess.Popen(
-        cmd,
-        stdout=open(log_file, 'w'),
-        stderr=subprocess.STDOUT,
-        start_new_session=True,
-    )
-
-    # Give the server a moment to start, then verify
-    import time
-    for _ in range(20):
-        time.sleep(0.5)
-        if client.is_running_at(host):
-            break
-    else:
-        print(f"Server did not start in time. Check log: {log_file}", file=sys.stderr)
-        return 1
-
-    client.save_backend('openvino', host, str(model_path), proc.pid, device)
-    print(f"OpenVINO server started  PID={proc.pid}  {host}")
-    print(f"Model: {model_path.name}  device={device}")
-    print(f"Log:   {log_file}")
-    print(f"\nmu now routes to {host} automatically.")
-    print("To switch back to LM Studio:  mu model load <model_id>")
-    return 0
-
-
 def _save_preferred_model(model_id: str) -> None:
     client.save_preferred_model(model_id)
 
@@ -858,7 +593,6 @@ def _load_preferred_model() -> str:
 
 
 def _model_list() -> int:
-    backend = client.load_backend().get('backend', 'lmstudio')
     catalog = _load_catalog()
     recommended = client.recommended_model()
     preferred = _load_preferred_model()
@@ -866,37 +600,20 @@ def _model_list() -> int:
         for m in _active_model_ids():
             print(m)
         return 0
-    if backend == 'openvino':
-        models_dir = client.ov_models_dir()
-        print(f"OpenVINO models  (stored in {models_dir})")
-        for spec in catalog:
-            mid = spec.get('id', '')
-            ctx = f"{spec.get('contextWindow', 0) // 1024}k"
-            tags = []
-            local = models_dir / mid
-            if local.is_dir():
-                tags.append('downloaded')
-            if mid == recommended:
-                tags.append('★ recommended')
-            if mid == preferred:
-                tags.append('selected')
-            tag_str = f"  [{', '.join(tags)}]" if tags else ''
-            print(f"  {mid:<48} {ctx:>5}  {spec.get('description', '')}{tag_str}")
-    else:
-        active = _active_model_ids()
-        print("Curated models (load in LM Studio before running mu agent)")
-        for spec in catalog:
-            mid = spec.get('id', '')
-            ctx = f"{spec.get('contextWindow', 0) // 1024}k"
-            tags = []
-            if _model_active(mid, active):
-                tags.append('loaded')
-            if mid == recommended:
-                tags.append('★ recommended for this hardware')
-            if mid == preferred:
-                tags.append('selected')
-            tag_str = f"  [{', '.join(tags)}]" if tags else ''
-            print(f"  {mid:<48} {ctx:>5}  {spec.get('description', '')}{tag_str}")
+    active = _active_model_ids()
+    print("Curated models (load in LM Studio before running mu agent)")
+    for spec in catalog:
+        mid = spec.get('id', '')
+        ctx = f"{spec.get('contextWindow', 0) // 1024}k"
+        tags = []
+        if _model_active(mid, active):
+            tags.append('loaded')
+        if mid == recommended:
+            tags.append('★ recommended for this hardware')
+        if mid == preferred:
+            tags.append('selected')
+        tag_str = f"  [{', '.join(tags)}]" if tags else ''
+        print(f"  {mid:<48} {ctx:>5}  {spec.get('description', '')}{tag_str}")
     return 0
 
 
@@ -924,9 +641,6 @@ def _fuzzy_pick(rows: list[tuple[str, object]], prompt: str):
 
 
 def _model_picker() -> int:
-    backend = client.load_backend().get('backend', 'lmstudio')
-    if backend == 'openvino':
-        return _backend_set_openvino(_best_ov_device())
     catalog = _load_catalog()
     active = _active_model_ids()
     recommended = client.recommended_model()
@@ -951,177 +665,15 @@ def _model_picker() -> int:
     model = _fuzzy_pick(rows, "model> ")
     if model:
         print(f"Selected: {model}")
-        _stop_openvino_if_running()
         _save_preferred_model(model)
-        if client.load_model(model):
-            client.save_backend('lmstudio', '', model)
+        client.load_model(model)
     return 0
 
 
 def _load_catalog() -> list[dict]:
-    """Return catalog entries for the current backend."""
-    return client.catalog_for_backend()
+    """Return the curated model catalog."""
+    return client.load_catalog()
 
-
-# ── backend ───────────────────────────────────────────────────────────────────
-
-def _cmd_backend(args) -> int:
-    sub = getattr(args, 'backend_subcmd', None)
-    if sub == 'lmstudio':
-        return _backend_set_lmstudio()
-    if sub == 'openvino':
-        device = getattr(args, 'device', None) or _best_ov_device()
-        return _backend_set_openvino(device, getattr(args, 'port', 8765))
-    return _backend_picker()
-
-
-def _backend_picker() -> int:
-    """Interactive: pick a backend, then start it."""
-    cfg = client.load_backend()
-    current = cfg.get('backend', 'lmstudio')
-    rows = [
-        (f"lmstudio  {'[current]' if current == 'lmstudio' else ''}  "
-         "LM Studio — GPU/GGUF models via local server", 'lmstudio'),
-        (f"openvino  {'[current]' if current == 'openvino' else ''}  "
-         "OpenVINO  — INT4/INT8 models on CPU, GPU or NPU, no LM Studio needed", 'openvino'),
-    ]
-    choice = _fuzzy_pick(rows, "backend> ")
-    if not choice:
-        return 0
-    if choice == 'lmstudio':
-        return _backend_set_lmstudio()
-    return _backend_set_openvino(_best_ov_device())
-
-
-def _backend_set_lmstudio() -> int:
-    client.save_backend('lmstudio', '', '')
-    print("Backend: lmstudio")
-    print("Use `mu model` to pick a model, then `mu agent` to run.")
-    return 0
-
-
-def _backend_set_openvino(device: str = '', port: int = 8765) -> int:
-    """Pick an OpenVINO model from the catalog, download if needed, start server."""
-    import importlib
-    if not device:
-        device = _best_ov_device()
-    if importlib.util.find_spec('openvino_genai') is None:
-        print("openvino-genai not installed — run: pip install openvino-genai", file=sys.stderr)
-        return 1
-
-    catalog = client.catalog_for_backend('openvino')
-    if not catalog:
-        print("No OpenVINO models in catalog.", file=sys.stderr)
-        return 1
-
-    # Filter: NPU requires channel-wise INT4 models; CPU/GPU are incompatible with NPU-only models.
-    def _device_compat(spec: dict) -> bool:
-        pref = spec.get('preferredDevice', 'CPU').upper()
-        if device.upper() == 'NPU':
-            return pref == 'NPU'
-        return pref != 'NPU'
-
-    catalog = [s for s in catalog if _device_compat(s)]
-    if not catalog:
-        print(f"No catalog models compatible with device={device}.", file=sys.stderr)
-        return 1
-
-    models_dir = client.ov_models_dir()
-    recommended = client.recommended_model()
-    preferred = _load_preferred_model()
-
-    rows = []
-    for spec in catalog:
-        mid = spec.get('id', '')
-        ctx = f"{spec.get('contextWindow', 0) // 1024}k"
-        tags = []
-        local = models_dir / mid
-        if local.is_dir():
-            tags.append('downloaded')
-        if mid == recommended:
-            tags.append('★ recommended')
-        if mid == preferred:
-            tags.append('selected')
-        suffix = f"  [{', '.join(tags)}]" if tags else ''
-        rows.append((f"{mid:<48} {ctx:>5}  {spec.get('description', '')}{suffix}", spec))
-    rows.sort(key=lambda r: (r[1].get('id') != recommended, r[1].get('id') != preferred))
-
-    spec = _fuzzy_pick(rows, "openvino model> ")
-    if not spec:
-        return 0
-
-    mid = spec.get('id', '')
-    local_dir = models_dir / mid
-    if not local_dir.is_dir():
-        print(f"Downloading {mid} from Hugging Face …")
-        if _ov_download(spec, local_dir) != 0:
-            return 1
-
-    return _model_load_openvino(str(local_dir), port, device)
-
-
-def _cmd_device(args) -> int:
-    """Switch the OpenVINO inference device (cpu / npu) without re-selecting a model."""
-    sub = getattr(args, 'device_subcmd', None)
-    backend = client.load_backend()
-
-    if backend.get('backend') != 'openvino':
-        print("Device switching requires the OpenVINO backend.", file=sys.stderr)
-        print("Switch first:  mu backend openvino")
-        return 1
-
-    current = backend.get('ov_device', 'CPU')
-
-    if sub is None:
-        print(f"Current OpenVINO device: {current}")
-        print("Usage:  mu device cpu   |   mu device npu")
-        return 0
-
-    device = sub.upper()
-    if device == current:
-        print(f"Already using {device}.")
-        return 0
-
-    model = backend.get('model', '')
-    if not model:
-        print("No model configured. Run:  mu backend openvino", file=sys.stderr)
-        return 1
-
-    port_str = backend.get('host', 'http://localhost:8765').rsplit(':', 1)[-1]
-    try:
-        port = int(port_str)
-    except ValueError:
-        port = 8765
-
-    print(f"Switching OpenVINO device: {current} → {device}")
-    _model_stop_openvino()
-    return _model_load_openvino(model, port, device)
-
-
-def _ov_download(spec: dict, local_dir) -> int:
-    """Download an OpenVINO model from Hugging Face Hub."""
-    try:
-        import huggingface_hub as hf_hub
-    except ImportError:
-        print("huggingface_hub not installed — run: pip install huggingface-hub", file=sys.stderr)
-        return 1
-
-    hf_repo = spec.get('hfRepo', '')
-    if not hf_repo:
-        print(f"No hfRepo in catalog entry for {spec.get('id')}", file=sys.stderr)
-        return 1
-
-    from pathlib import Path
-    local_dir = Path(local_dir)
-    local_dir.parent.mkdir(parents=True, exist_ok=True)
-    print(f"  repo: {hf_repo}  →  {local_dir}")
-    try:
-        hf_hub.snapshot_download(hf_repo, local_dir=str(local_dir))
-        print(f"  Done: {local_dir}")
-        return 0
-    except Exception as e:
-        print(f"  Download failed: {e}", file=sys.stderr)
-        return 1
 
 
 # ── research ──────────────────────────────────────────────────────────────────
@@ -1547,20 +1099,6 @@ def _theme_picker() -> int:
         except (OSError, ValueError) as e:
             print(f"Warning: {e}", file=sys.stderr)
 
-    return 0
-
-
-# ── serve-ov ───────────────────────────────────────────────────────────────────
-
-def _cmd_serve(args) -> int:
-    model_dir = args.model_dir or client.load_backend().get('model', '')
-    if not model_dir:
-        print("mu serve: no model specified and no OpenVINO model stored — "
-              "run: mu serve <model_dir>", file=sys.stderr)
-        return 1
-    device = args.device or _best_ov_device()
-    from mu import ov_server
-    ov_server.serve(model_dir, port=args.port, device=device)
     return 0
 
 

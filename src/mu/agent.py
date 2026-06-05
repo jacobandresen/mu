@@ -28,7 +28,7 @@ from typing import Optional
 
 from mu import tools
 from mu.archive import AgentSession
-from mu.client import (LMS_HOST, chat, list_downloaded_llm_paths, list_models, load_backend,
+from mu.client import (LMS_HOST, chat, list_downloaded_llm_paths, list_models,
                         load_catalog, load_model, max_prompt_tokens, normalize_model_bare,
                         preferred_model, recommended_model, set_chat_context)
 from mu.plan import (Plan, _EXT_LANGUAGE, check_goal_alignment, clear_challenges,
@@ -192,11 +192,8 @@ def log(msg: str, *args) -> None:
 
 
 def _log_backend(model: str) -> None:
-    """Print the active backend and model to stdout."""
-    cfg = load_backend()
-    backend = cfg.get('backend', 'lmstudio')
-    host = cfg.get('host') or LMS_HOST
-    log("Backend: %s (%s) | Model: %s", backend, host, model)
+    """Print the active LM Studio host and model to stdout."""
+    log("LM Studio: %s | Model: %s", LMS_HOST, model)
 
 
 def _match_loaded(loaded: list[str], target: str) -> str:
@@ -221,27 +218,7 @@ def _select_model() -> str:
     Resolution order: user-persisted preference → hardware-recommended →
     already-loaded catalog model. Loads the target model if needed.
     Returns '' on failure (caller should abort).
-
-    For the openvino backend the model is already served by the background
-    OpenVINO process, so LM Studio SDK calls are skipped entirely.
     """
-    cfg = load_backend()
-    if cfg.get('backend') == 'openvino':
-        device = cfg.get('ov_device', 'CPU')
-        loaded = list_models()
-        if loaded:
-            log("Using OpenVINO model: %s  [device=%s]", loaded[0], device)
-            return loaded[0]
-        model = cfg.get('model', '')
-        if model:
-            log("Using persisted OpenVINO model: %s  [device=%s]", model, device)
-            return model
-        print(
-            "mu-agent: OpenVINO server not running — start with: "
-            "mu model load <model_dir> --backend openvino",
-            file=sys.stderr,
-        )
-        return ''
 
     loaded = list_models()
     # Prefer explicitly saved selection over hardware recommendation.
@@ -1348,9 +1325,8 @@ def _run_planner(goal: str, model: str, planner_timeout: int,
         if vs:
             extra_skills.append(vs)
 
-    # Estimate token budget (4 chars ≈ 1 token).  On constrained backends (e.g.
-    # OpenVINO NPU, hard limit 1024 tokens), the full skill + challenges would
-    # exceed the limit and crash the inference server with a C++ assertion.
+    # Estimate token budget (4 chars ≈ 1 token).  On a small context window the
+    # full skill + challenges would exceed the limit and overflow the prompt.
     # Use a compact prompt that fits within the budget, leaving ~40 % for output.
     token_budget = max_prompt_tokens()
     _COMPACT_THRESHOLD = 2000  # tokens; below this, skip heavy skill/challenges
@@ -1459,10 +1435,9 @@ def _run_writer(model: str, target_file: str, prompt: str,
                  "Complete, runnable content. Stop immediately after. Nothing else.")
     sess = Session(autonomous_system + '\n\n' + rules)
     sess.tool_set = tools.WRITER
-    # On constrained backends (e.g. OpenVINO NPU, 1024-token limit) the stateful
-    # pipeline accumulates history across turns.  Any nudge/follow-up turn will
-    # push the total past the hard limit and crash with HTTP 500.  Use a single
-    # turn so the session never sends a second request.
+    # On a very small context window, history accumulates across turns and any
+    # nudge/follow-up turn would push the total past the limit and overflow. Use
+    # a single turn so the session never sends a second request.
     max_turns = 1 if max_prompt_tokens() < 2000 else 15
     set_chat_context('writer', target_file)
     ok, err = sess.run(model, prompt, 'Writing', max_turns, target_file, float(writer_timeout))
@@ -2343,8 +2318,8 @@ def _python_relevant(goal: str, p: Plan) -> bool:
 
 def _build_write_prompt(goal: str, task, p: Plan, companion: str = '',
                         plan_file: str = 'PLAN.md') -> str:
-    # On constrained backends (e.g. OpenVINO NPU, 1024-token hard limit) keep
-    # the prompt minimal so the model has enough budget to write the file.
+    # On a very small context window keep the prompt minimal so the model has
+    # enough budget left to write the file.
     compact = max_prompt_tokens() < 2000
     parts = [f"GOAL: {goal}\n\n## Plan\n{p.plan_context}"]
     existing = relevant_files_context(p, task.file_path)

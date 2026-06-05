@@ -1,8 +1,17 @@
 {
   "tiers": {
-    "8gb":  { "minRamGb": 0,  "label": "8 GB"  },
-    "16gb": { "minRamGb": 14, "label": "16 GB" },
-    "32gb": { "minRamGb": 30, "label": "32 GB" }
+    "8gb": {
+      "minRamGb": 0,
+      "label": "8 GB"
+    },
+    "16gb": {
+      "minRamGb": 14,
+      "label": "16 GB"
+    },
+    "32gb": {
+      "minRamGb": 30,
+      "label": "32 GB"
+    }
   },
   "models": [
     {
@@ -11,7 +20,9 @@
       "tier": "8gb",
       "region": "us",
       "contextWindow": 128000,
-      "input": ["text"],
+      "input": [
+        "text"
+      ],
       "description": "Primary recommendation. IBM Granite 4.1 3B, Apache 2.0. ~2 GB at Q4_K_M; fits any machine including Raspberry Pi. 128K context, native tool calling."
     },
     {
@@ -20,7 +31,9 @@
       "tier": "8gb",
       "region": "cn",
       "contextWindow": 32768,
-      "input": ["text"],
+      "input": [
+        "text"
+      ],
       "description": "Best 8 GB option. Code specialist, 88.4% HumanEval, native tool calling, 92+ languages."
     },
     {
@@ -29,7 +42,9 @@
       "tier": "16gb",
       "region": "eu",
       "contextWindow": 131072,
-      "input": ["text"],
+      "input": [
+        "text"
+      ],
       "description": "Best 16 GB option. Mistral Small 3.2 24B (Jun 2025), Mistral AI (France). 128K context, excellent tool calling, ~14 GB at Q4_K_M. Run patch-mistral-template.py after download."
     },
     {
@@ -38,7 +53,9 @@
       "tier": "16gb",
       "region": "eu",
       "contextWindow": 131072,
-      "input": ["text"],
+      "input": [
+        "text"
+      ],
       "description": "16 GB EU alt. Mistral NeMo 12B, Mistral AI (France). 128K context, native tool calling, ~7 GB at Q4_K_M. Run patch-mistral-template.py after download."
     },
     {
@@ -47,7 +64,9 @@
       "tier": "16gb",
       "region": "eu",
       "contextWindow": 32768,
-      "input": ["text"],
+      "input": [
+        "text"
+      ],
       "description": "16 GB EU code specialist. Codestral 22B, Mistral AI (France). Trained on 80+ programming languages, ~13 GB at Q4_K_M. Requires accepting Mistral's Codestral license."
     },
     {
@@ -56,7 +75,10 @@
       "tier": "32gb",
       "region": "eu",
       "contextWindow": 262144,
-      "input": ["text", "image"],
+      "input": [
+        "text",
+        "image"
+      ],
       "description": "Best 32 GB option. 68.0% SWE-bench Verified. Dense 24B, agentic coding, 256K context. Mistral AI (France)."
     },
     {
@@ -65,7 +87,9 @@
       "tier": "16gb",
       "region": "cn",
       "contextWindow": 131072,
-      "input": ["text"],
+      "input": [
+        "text"
+      ],
       "description": "16 GB alt. MoE 16B/2.4B active. Fast inference, 338 languages."
     },
     {
@@ -74,7 +98,9 @@
       "tier": "32gb",
       "region": "eu",
       "contextWindow": 32768,
-      "input": ["text"],
+      "input": [
+        "text"
+      ],
       "description": "32 GB EU alt. Mixtral 8x7B MoE, Mistral AI (France). 8 experts / 2 active, fast inference, ~26 GB at Q4_K_M. Run patch-mistral-template.py after download."
     },
     {
@@ -83,7 +109,9 @@
       "tier": "32gb",
       "region": "cn",
       "contextWindow": 262144,
-      "input": ["text"],
+      "input": [
+        "text"
+      ],
       "description": "32 GB tier. MoE 30B/3B active. Agentic tool use, 256K context."
     },
     {
@@ -92,7 +120,9 @@
       "tier": "8gb",
       "region": "eu",
       "contextWindow": 32768,
-      "input": ["text"],
+      "input": [
+        "text"
+      ],
       "description": "European 8 GB option. Mistral 7B v0.3, Mistral AI (France). Fixed system-role template, native function calling, ~4.5 GB at Q4_K_M."
     },
     {
@@ -101,7 +131,10 @@
       "tier": "16gb",
       "region": "us",
       "contextWindow": 131072,
-      "input": ["text", "image"],
+      "input": [
+        "text",
+        "image"
+      ],
       "description": "Efficient 4B model. Fits in GPU on 8 GB. Good for quick tasks; prefer a code-specialist for dojo."
     },
     {
@@ -110,85 +143,11 @@
       "tier": "16gb",
       "region": "us",
       "contextWindow": 131072,
-      "input": ["text", "image"],
+      "input": [
+        "text",
+        "image"
+      ],
       "description": "Fast 2B model. Fits in GPU on 8 GB M2. Tool calling unreliable on complex tasks."
-    },
-    {
-      "id": "Qwen2.5-Coder-7B-Instruct-int4-ov",
-      "backend": "openvino",
-      "tier": "8gb",
-      "region": "cn",
-      "hfRepo": "OpenVINO/Qwen2.5-Coder-7B-Instruct-int4-ov",
-      "preferredDevice": "CPU",
-      "contextWindow": 32768,
-      "input": ["text"],
-      "description": "Best CPU option. Qwen2.5-Coder-7B INT4 for OpenVINO. ~4 GB RAM. 88.4% HumanEval."
-    },
-    {
-      "id": "Qwen2.5-Coder-3B-Instruct-int4-ov",
-      "backend": "openvino",
-      "tier": "8gb",
-      "region": "cn",
-      "hfRepo": "OpenVINO/Qwen2.5-Coder-3B-Instruct-int4-ov",
-      "preferredDevice": "CPU",
-      "contextWindow": 32768,
-      "input": ["text"],
-      "description": "Lightweight CPU option. Qwen2.5-Coder-3B INT4 for OpenVINO. ~2 GB RAM."
-    },
-    {
-      "id": "Qwen2.5-Coder-14B-Instruct-int4-ov",
-      "backend": "openvino",
-      "tier": "16gb",
-      "region": "cn",
-      "hfRepo": "OpenVINO/Qwen2.5-Coder-14B-Instruct-int4-ov",
-      "preferredDevice": "CPU",
-      "contextWindow": 131072,
-      "input": ["text"],
-      "description": "High-capability CPU option. Qwen2.5-Coder-14B INT4 for OpenVINO. ~8 GB RAM. 128K context."
-    },
-    {
-      "id": "Mistral-7B-Instruct-v0.3-int4-cw-ov",
-      "backend": "openvino",
-      "tier": "8gb",
-      "region": "eu",
-      "hfRepo": "OpenVINO/Mistral-7B-Instruct-v0.3-int4-cw-ov",
-      "preferredDevice": "NPU",
-      "contextWindow": 32768,
-      "input": ["text"],
-      "description": "NPU-optimised Mistral-7B INT4 channel-wise. ~3.5 GB RAM. Requires Meteor Lake NPU driver."
-    },
-    {
-      "id": "Mistral-7B-Instruct-v0.3-int4-ov",
-      "backend": "openvino",
-      "tier": "8gb",
-      "region": "eu",
-      "hfRepo": "OpenVINO/Mistral-7B-Instruct-v0.3-int4-ov",
-      "preferredDevice": "CPU",
-      "contextWindow": 32768,
-      "input": ["text"],
-      "description": "Mistral-7B INT4 asymmetric. ~3.6 GB RAM. CPU/iGPU, general-purpose."
-    },
-    {
-      "id": "Mistral-7B-Instruct-v0.3-int8-ov",
-      "backend": "openvino",
-      "tier": "8gb",
-      "region": "eu",
-      "hfRepo": "OpenVINO/Mistral-7B-Instruct-v0.3-int8-ov",
-      "preferredDevice": "CPU",
-      "contextWindow": 32768,
-      "input": ["text"],
-      "description": "Mistral-7B INT8. ~7 GB RAM. Near-FP16 quality on CPU."
-    },
-    {
-      "id": "granite-4.1-3b-openvino-4bit",
-      "backend": "openvino",
-      "tier": "8gb",
-      "region": "us",
-      "hfRepo": "alex-krtt/granite-4.1-3b-openvino-4bit",
-      "preferredDevice": "CPU",
-      "contextWindow": 128000,
-      "input": ["text"],
-      "description": "IBM Granite 4.1 3B INT4. ~3.6 GB RAM. Fits 8 GB machines."
     }
   ]
 }

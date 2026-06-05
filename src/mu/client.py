@@ -1,4 +1,4 @@
-"""HTTP client for the LM Studio / OpenVINO OpenAI-compatible API."""
+"""HTTP client for the LM Studio OpenAI-compatible API."""
 
 import itertools
 import json
@@ -39,8 +39,7 @@ _NUM_CTX = int(os.environ.get("MU_NUM_CTX", "6000"))
 # tight loops without punishing the legitimate distant repetition that real code
 # is full of (indentation, `self.`, dict keys), the way a global frequency
 # penalty would. 1.1 is llama.cpp's well-tested default; set MU_REPEAT_PENALTY=1.0
-# to disable. Sent only on the lmstudio (llama.cpp) backend; other backends
-# ignore or misread it.
+# to disable.
 _REPEAT_PENALTY = float(os.environ.get("MU_REPEAT_PENALTY", "1.1"))
 
 
@@ -108,15 +107,6 @@ def is_running() -> bool:
         return False
 
 
-def is_running_at(host: str) -> bool:
-    """Check if an OpenAI-compatible server is reachable at an explicit host URL."""
-    try:
-        import httpx
-        return httpx.get(f"{host}/v1/models", timeout=5.0).status_code == 200
-    except Exception:
-        return False
-
-
 def list_models() -> list[str]:
     try:
         import httpx
@@ -177,23 +167,6 @@ def load_catalog_tiers() -> dict:
         return json.loads(_catalog_path().read_text(encoding='utf-8')).get('tiers', {})
     except Exception:
         return {"8gb": {"minRamGb": 0}, "16gb": {"minRamGb": 14}, "32gb": {"minRamGb": 30}}
-
-
-def catalog_for_backend(backend: str = '') -> list[dict]:
-    """Catalog entries for a specific backend (defaults to the persisted backend).
-
-    Models without a 'backend' field are treated as 'lmstudio' for backward
-    compatibility.
-    """
-    if not backend:
-        backend = load_backend().get('backend', 'lmstudio')
-    return [m for m in load_catalog() if m.get('backend', 'lmstudio') == backend]
-
-
-def ov_models_dir():
-    """Default local directory where OpenVINO models are stored."""
-    from pathlib import Path
-    return Path.home() / '.mu' / 'models'
 
 
 def _vram_gb() -> float:
@@ -265,15 +238,14 @@ def _resolve_tier(budget_gb: float) -> str:
 
 
 def recommended_model() -> str:
-    """Most capable catalog model for the current backend that fits this machine.
+    """Most capable catalog model that fits this machine.
 
     Tier thresholds and per-model tier assignments are read from models-catalog.json.
     Budget detection: VRAM on discrete GPU; unified RAM on Apple Silicon; available
-    RAM on CPU-only Linux.  Tier selection is backend-aware — lmstudio and openvino
-    maintain separate ranked model lists within each tier.
+    RAM on CPU-only Linux.
     """
     import platform
-    catalog = catalog_for_backend()
+    catalog = load_catalog()
     if not catalog:
         return ''
     vram = _vram_gb()
@@ -324,55 +296,6 @@ def save_preferred_model(model_id: str) -> None:
     p.write_text(json.dumps(cfg, indent=2))
 
 
-def save_backend(backend: str, host: str, model: str = '', pid: int = 0,
-                 device: str = '') -> None:
-    """Persist backend selection to ~/.mu/config.json.
-
-    backend: 'lmstudio' | 'openvino'
-    host:    API base URL (e.g. 'http://localhost:8765')
-    model:   model path / ID
-    pid:     PID of background server process (0 for external servers like LM Studio)
-    device:  OpenVINO device string, e.g. 'CPU' or 'NPU'
-    """
-    p = _mu_config_path()
-    p.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        cfg = json.loads(p.read_text()) if p.exists() else {}
-    except Exception:
-        cfg = {}
-    cfg['backend'] = backend
-    cfg['host'] = host if backend != 'lmstudio' else ''  # only persist for non-default backends
-    if model:
-        cfg['model'] = model
-    elif backend == 'lmstudio':
-        cfg.pop('model', None)  # clear stale openvino model path on backend reset
-    if pid:
-        cfg['ov_pid'] = pid
-    elif 'ov_pid' in cfg:
-        del cfg['ov_pid']
-    if device:
-        cfg['ov_device'] = device
-    elif 'ov_device' in cfg and backend == 'lmstudio':
-        del cfg['ov_device']
-    p.write_text(json.dumps(cfg, indent=2))
-
-
-def load_backend() -> dict:
-    """Return persisted backend config keys: backend, host, model, ov_pid."""
-    try:
-        p = _mu_config_path()
-        cfg = json.loads(p.read_text(encoding='utf-8')) if p.exists() else {}
-        return {
-            'backend':   cfg.get('backend', 'lmstudio'),
-            'host':      cfg.get('host', ''),
-            'model':     cfg.get('model', ''),
-            'ov_pid':    cfg.get('ov_pid', 0),
-            'ov_device': cfg.get('ov_device', 'CPU'),
-        }
-    except Exception:
-        return {'backend': 'lmstudio', 'host': '', 'model': '', 'ov_pid': 0, 'ov_device': 'CPU'}
-
-
 def load_context_size() -> int:
     """Context window to load the model with: the per-request budget plus
     headroom, so a prompt that grows past num_ctx (e.g. a long repair history)
@@ -387,15 +310,7 @@ def load_context_size() -> int:
 
 
 def max_prompt_tokens() -> int:
-    """Return the effective max prompt token budget for the current backend.
-
-    The OpenVINO stateful NPU pipeline asserts that the full conversation
-    (system + user messages combined) must not exceed 1024 tokens.  All other
-    backends use _NUM_CTX (default 6000).
-    """
-    cfg = load_backend()
-    if cfg.get('backend') == 'openvino' and cfg.get('ov_device') == 'NPU':
-        return 1024
+    """Return the effective max prompt token budget (the per-request context)."""
     return _NUM_CTX
 
 
@@ -667,14 +582,11 @@ def chat(model: str, messages: list[dict], tools: Optional[list[dict]],
     }
     # Override the LM Studio UI context setting so the right value is used
     # regardless of what was set when the model was loaded.
-    # Skipped for non-lmstudio backends (e.g. OpenVINO) where the parameter is
-    # either ignored or misinterpreted, causing truncated generation.
-    if load_backend().get('backend', 'lmstudio') == 'lmstudio':
-        body['num_ctx'] = _NUM_CTX
-        # Suppress degenerate repetition loops (see _REPEAT_PENALTY). Omit when
-        # set to the neutral 1.0 so a disabled penalty isn't sent at all.
-        if _REPEAT_PENALTY and _REPEAT_PENALTY != 1.0:
-            body['repeat_penalty'] = _REPEAT_PENALTY
+    body['num_ctx'] = _NUM_CTX
+    # Suppress degenerate repetition loops (see _REPEAT_PENALTY). Omit when set to
+    # the neutral 1.0 so a disabled penalty isn't sent at all.
+    if _REPEAT_PENALTY and _REPEAT_PENALTY != 1.0:
+        body['repeat_penalty'] = _REPEAT_PENALTY
     if tools:
         body['tools'] = tools
         # 'required' forces the model to emit a real tool call instead of prose.
