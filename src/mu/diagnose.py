@@ -92,12 +92,23 @@ _RULES: list[_Rule] = [
     _rule(r"error (?P<code>CS\d+):\s*(?P<msg>.+?)(?:\s*\[|$)",
           lambda m: f"{m['code']}: {_clip(m['msg'])}"),
 
+    # ── Go modules ──
+    _rule(r"go: errors parsing go\.mod",
+          lambda m: "go.mod is malformed — fix or regenerate it (go mod init/tidy)"),
+
     # ── make ──
     _rule(r"^(?:.*\bmake.*?:\s*)?\*\*\* (?P<msg>missing separator.*)$",
           lambda m: f"Makefile: {_clip(m['msg'], 80)} — recipe lines must start with a TAB",
           re.I),
     _rule(r"\*\*\* No rule to make target ['`](?P<target>[^'`]+)['`]",
           lambda m: f"Makefile: no rule to make target '{m['target']}'"),
+    _rule(r"(?:make:\s*)?(?P<cmd>[\w.\-/]+): [Cc]ommand not found",
+          lambda m: f"command not found: '{m['cmd']}' — a typo, an uninstalled tool, "
+                    f"or a devDependency binary that needs npx"),
+
+    # ── generic test assertion (jest/dotnet/CTest 'Expected vs Actual') ──
+    _rule(r"^\s*Expected:\s*(?P<exp>.+)$",
+          lambda m: f"output assertion failed — expected: {_clip(m['exp'], 60)}"),
 ]
 
 
