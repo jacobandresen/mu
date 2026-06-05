@@ -2,8 +2,24 @@
 
 A report on where the dojo's stochasticity comes from and how to cut it — by
 shrinking the space of decisions the weak model must make, and by reformulating
-each task so fewer of those decisions are coin flips. Grounded in the model-
-tagged data gathered so far (granite-4.1-3b n=34; qwen2.5-coder-7b in progress).
+each task so fewer of those decisions are coin flips. Grounded in the full model-
+tagged data (granite-4.1-3b **n=34, pass 0.33**; qwen2.5-coder-7b **n=32, pass
+0.65**).
+
+**What the two-model data adds (and why this matters now):** with a mature
+reflex layer, the probabilistic iteration found *no deterministic cause that
+recurs across multiple problems* — both models' failures are dominated by
+writer-stalls/degeneration ("no distilled cause": 13 granite, 10 qwen) and the
+fixable causes are scattered n=1. The next gains are **not** more reflexes; they
+are shrinking what we ask the model to decide. Three data facts drive the plan:
+1. **Both models write bad Makefiles** — `build-rule-structure` is the top
+   firing class for both (granite 1.44, qwen 1.19 firings/session). Providing the
+   Makefile as a fixture deletes that entire class.
+2. **Competence is sharply per-toolchain.** granite is **0.0 on python/rust/go**;
+   qwen is **0.167 on node** (its weakest). Minimization must be *model-aware*:
+   scaffold heavily where a model is weak, skip where it is ~0.
+3. **The residue is the model ceiling** (degeneration), which no formulation
+   change reaches — so over-pinning past that point measures nothing.
 
 ---
 
@@ -166,3 +182,93 @@ a handful of coin flips to one, turning a 30%-pass lottery into a near-
 deterministic fill-in. What remains after that is the model's *true* ceiling
 (granite's degeneration), which no reflex can fix and which you should measure,
 not fight.
+
+---
+
+## 8. Implementation: the minimization ladder
+
+Make minimization a **declared, measurable level** per problem, not an ad-hoc
+choice. Each rung removes one class of decision (and thus one variance source);
+each problem states its rung, so it is clear what capability it measures.
+
+| Level | What is given | DOF removed | Measures |
+|---|---|---|---|
+| **L0 open** | goal only (current) | — | scaffolding + structure + logic (max variance) |
+| **L1 contract** | + exact filenames, exported symbols, test command (in PLAN.md) | structure guessing, naming | structure + logic |
+| **L2 scaffold** | + manifest/Makefile/config as **fixtures** | build boilerplate | logic + test authoring |
+| **L3 test-pinned** | + the **test file** as a fixture | test authoring; defines "correct" concretely | implementation only |
+| **L4 fill-in** | + impl **stub** with fixed signatures | file/module structure | function bodies only (min variance) |
+
+A problem's level is its contract with the measurement: L0–L1 are **capability
+probes** (accept variance, read over many rounds); L2–L4 are **logic probes**
+(low variance, few rounds). The ladder is monotone — each rung is the rung below
+plus one fixture.
+
+### 8.1 Fixture mode (the L2–L4 mechanism)
+
+The single highest-payoff change, because it deletes the failure classes the data
+ranks highest (Makefiles, manifests, test authoring).
+
+- **Storage:** `dojo/fixtures/<problem-id>/` holds the files provided as-is
+  (Makefile, `package.json`, `Cargo.toml`, the test file, stubs). Committed, like
+  `dojo/golden/` already is.
+- **Catalog:** `problems-catalog.json` gains per-problem
+  `minimize: "L0|L1|L2|L3|L4"` and an implicit fixture set from the dir.
+- **Flow:** before planning, the harness copies `dojo/fixtures/<id>/*` into the
+  work dir; the planner is told these are **reference, do-not-rewrite** files
+  (the existing `relevant_files_context` already supports this); the writer's
+  task list is only the not-provided files. At L3 the test is fixed, so the test
+  gate runs an unalterable target. At L4 the writer fills a stub against fixed
+  signatures.
+- **Reuse:** this is the same machinery as `measure.sh`'s frozen golden plan, one
+  level down — there we froze the *plan*, here we freeze *files*.
+
+### 8.2 Model-adaptive minimization (data-driven)
+
+The level is not fixed per problem — it is **the max of the problem's floor and
+what the model needs**, read from `model_profile.competence_by_toolchain`:
+
+- competence ≳ 0.7 → run at the problem's declared level (qwen on cargo/go/clang).
+- 0.2 ≤ competence < 0.7 → bump one rung (qwen on **node 0.167**, python 0.5 →
+  give it the test/scaffold).
+- competence ≈ 0 → either **skip** (don't burn rounds on noise) or max-scaffold
+  to L4 to probe whether logic alone is reachable (granite on python/rust/go).
+
+This couples the two levers the data demands: **routing** (skip the hopeless) and
+**minimization** (scaffold the weak), both keyed off the same profile.
+
+### 8.3 Validation — prove minimization actually cuts variance
+
+The claim is "higher level ⇒ lower variance." Test it, don't assume it.
+
+- **Stochasticity metric:** for a (problem, level), run N **unseeded** rounds via
+  `measure.sh` and compute the outcome entropy / pass-rate variance. A new
+  `measure.sh --level Lk` reports it. **Success criterion:** variance is monotone
+  non-increasing in level, and L4 variance ≈ 0 for an in-competence model.
+- **Seeded control:** with `MU_SEED` set, every level is already reproducible
+  (5/5 identical) — that isolates the *unseeded spread* as the thing the ladder
+  shrinks.
+- **Capability is not lost silently:** record each problem's level in the README
+  status table, so a 95%-pass number at L4 is never mistaken for a 95%-pass at
+  L0. The level is part of the result.
+- **Regression:** raising a problem's level must not *lower* the in-competence
+  model's pass rate (a fixture must be correct); guard with one seeded run per
+  fixture.
+
+### 8.4 Sequencing (by data-backed payoff)
+
+1. **L2 fixtures for the Makefile** on every problem that has one — deletes the
+   top firing class for *both* models (`build-rule-structure`), zero capability
+   loss (writing a Makefile isn't the skill under test).
+2. **Competence routing** — skip granite on python/rust/go (0.0); stop measuring
+   guaranteed noise.
+3. **L3 test-pinned** for the python/node problems — kills the test-authoring and
+   import-resolution failures that the `from main import app` and jest reflexes
+   only recover from.
+4. **L4 fill-in** for the simplest logic probes (p4, p6), and the
+   stochasticity-metric validation that the ladder works.
+5. Leave 1–2 problems at **L0** as deliberate capability probes.
+
+The endpoint: a dojo where each problem's variance is *chosen*, the README states
+each problem's level, and the residual failures are the model's true ceiling —
+which is exactly what you want to measure.
