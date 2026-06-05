@@ -151,5 +151,69 @@ def argue_validity(sessions: list[dict], key: str = '_problem') -> str:
     return '\n'.join(lines)
 
 
+import re as _re
+
+
+def _cause_signature(focus: str) -> str:
+    """Normalize a distilled FOCUS cause to a *class* signature so near-identical
+    failures group together: drop the quoted identifier, the file, and the line
+    numbers, keeping the shape (e.g. "undefined name 'json'" and "undefined name
+    'app'" both become "undefined name 'X'")."""
+    s = _re.sub(r'^FOCUS[^:]*:\s*', '', focus.splitlines()[0])
+    s = _re.sub(r"'[^']*'", "'X'", s)
+    s = _re.sub(r'`[^`]*`', '`X`', s)
+    s = _re.sub(r'\S+\.\w+:\d+', 'FILE:N', s)
+    s = _re.sub(r'\b\d+\b', 'N', s)
+    return s.strip()[:90]
+
+
+def _distill_session(session_dir: str) -> str:
+    """Distilled cause signature for a failed session, from its newest log."""
+    from mu.diagnose import distill_test_errors
+    logs = sorted(glob.glob(os.path.join(session_dir, 'logs', 'tests*.log')) +
+                  glob.glob(os.path.join(session_dir, 'logs', 'lint*.log')),
+                  key=lambda p: os.path.getmtime(p), reverse=True)
+    for log in logs:
+        try:
+            focus = distill_test_errors(Path(log).read_text(errors='replace'))
+        except OSError:
+            continue
+        if focus:
+            return _cause_signature(focus)
+    return '(no distilled cause)'
+
+
+def failure_causes_by_model(sessions_dir: str | None = None
+                            ) -> dict[str, dict[str, int]]:
+    """For each model, count how often each distilled cause *signature* appears
+    among its FAILED sessions. The candidate-finder: a signature that recurs for
+    a model and is deterministically fixable is the next reflex to write."""
+    sessions_dir = sessions_dir or os.path.expanduser('~/.mu/sessions')
+    by_model: dict[str, dict[str, int]] = {}
+    for s in load_sessions(sessions_dir):
+        if s.get('outcome') == 'success':
+            continue
+        sig = _distill_session(os.path.join(sessions_dir, s['session_id']))
+        by_model.setdefault(s['_model'], {}).setdefault(sig, 0)
+        by_model[s['_model']][sig] += 1
+    return by_model
+
+
+def causes_report(sessions_dir: str | None = None) -> str:
+    """Ranked per-model failure-cause signatures — what to turn into reflexes."""
+    by_model = failure_causes_by_model(sessions_dir)
+    if not by_model:
+        return "No model-tagged failures yet."
+    out = ["# Failure causes by model (candidate reflexes)", ""]
+    for model in sorted(by_model):
+        out.append(f"## {model}")
+        for sig, n in sorted(by_model[model].items(), key=lambda kv: -kv[1]):
+            out.append(f"  {n:3}  {sig}")
+        out.append("")
+    return '\n'.join(out)
+
+
 if __name__ == '__main__':
     print(argue_validity(load_sessions()))
+    print()
+    print(causes_report())
