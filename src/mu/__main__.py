@@ -131,6 +131,11 @@ def main() -> int:
     token_report_p.add_argument('--sessions', default='',
                                 help='Session archive dir (default: ~/.mu/sessions)')
 
+    kb_p = sub.add_parser('kb',
+                          help='Build/show the reflex knowledge base (catalog + model profiles)')
+    kb_p.add_argument('--sessions', default='',
+                      help='Session archive dir (default: ~/.mu/sessions)')
+
     sub.add_parser('version', help='Print version')
 
     theme_p = sub.add_parser('theme', help='Pick and apply a base16 colour scheme')
@@ -162,6 +167,7 @@ def main() -> int:
         'iterate': _cmd_iterate,
         'reflect': _cmd_reflect,
         'token-report': _cmd_token_report,
+        'kb': _cmd_kb,
         'version': _cmd_version,
         'theme': _cmd_theme,
     }
@@ -673,6 +679,17 @@ def _cmd_reflect(args) -> int:
 
 
 # ── token-report ──────────────────────────────────────────────────────────────
+
+def _cmd_kb(args) -> int:
+    """Rebuild the reflex knowledge base from the session archive and print it."""
+    from mu import reflexdb
+    sessions = args.sessions or os.environ.get('MU_AGENT_ARCHIVE_DIR', '') or None
+    counts = reflexdb.build(sessions_dir=sessions)
+    print(f"Reflex KB rebuilt: {counts['reflex']} reflexes, {counts['session']} "
+          f"sessions, {counts['firing']} firings, {counts['model_profile']} model profiles.\n")
+    print(reflexdb.report())
+    return 0
+
 
 def _cmd_token_report(args) -> int:
     archive_dir = Path(args.sessions or os.environ.get(

@@ -25,6 +25,26 @@ def _file_sha(path: str) -> str:
     except OSError:
         return ''
 
+
+# ── firing recorder (for the reflex KB) ───────────────────────────────────────
+# run_reflexes notes which reflex actually changed a file, so the session can be
+# attributed: which mistakes the model made, by model. The agent resets this at
+# session start and flushes it to firings.jsonl at archive time.
+_FIRINGS: list[dict] = []
+
+
+def reset_firings() -> None:
+    _FIRINGS.clear()
+
+
+def get_firings() -> list[dict]:
+    return list(_FIRINGS)
+
+
+def note_fired(reflex_id: str, file: str = '', pass_index: int = 0) -> None:
+    """Record that a reflex changed a file. Cheap no-op when unused."""
+    _FIRINGS.append({'reflex_id': reflex_id, 'file': file, 'pass_index': pass_index})
+
 def run_reflexes(fns, target: str, max_passes: int = 4) -> None:
     """Apply a chain of single-arg reflexes to a fixpoint — safely.
 
@@ -45,12 +65,17 @@ def run_reflexes(fns, target: str, max_passes: int = 4) -> None:
     """
     last = _file_sha(target)
     seen = {last}
-    for _ in range(max_passes):
+    for pass_index in range(max_passes):
+        before = last
         for fn in fns:
             try:
                 fn(target)
             except Exception:
                 pass
+            after = _file_sha(target)
+            if after != before:  # this reflex changed the file — record the firing
+                note_fired(getattr(fn, '__name__', str(fn)), target, pass_index)
+                before = after
         h = _file_sha(target)
         if h == last:
             return  # converged — a full pass changed nothing

@@ -67,6 +67,11 @@ class AgentSession:
         # may not hold for the other (see docs/REFLEX_KB.md model stratification).
         self.model = model
         self.project_dir = os.getcwd()
+        try:  # start a clean firing log for this episode (reflex KB)
+            from mu.reflexes.core import reset_firings
+            reset_firings()
+        except Exception:
+            pass
         self.start_time = datetime.now(timezone.utc)
         self.archive_path = os.path.join(archive_dir, self.id)
         self.max_iter = max_iter
@@ -122,6 +127,14 @@ class AgentSession:
             print(f"==> [mu-agent] Session archived -> {self.archive_path}",
                   flush=True)
         except OSError:
+            pass
+        try:  # flush this episode's reflex firings for the reflex KB
+            from mu.reflexes.core import get_firings
+            firings = get_firings()
+            if firings:
+                (Path(self.archive_path) / 'firings.jsonl').write_text(
+                    '\n'.join(json.dumps(e) for e in firings) + '\n', encoding='utf-8')
+        except Exception:
             pass
         try:
             from mu.enrich import index_session
