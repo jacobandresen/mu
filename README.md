@@ -132,4 +132,4 @@ attribute (the 3B model resists it). The lever now is **problem-space minimizati
 2. **Full-stack orchestration (p10).** Coordinating a backend, a frontend, and a cross-language test harness (dotnet + vitest) exceeds a small model's planning coherence within the context budget. Architect mode and staged plans help but it remains the hardest problem.
 3. **Separating model-ceiling failures from deterministic ones.** A failure that recurs with the *same* root cause every round is a general class to turn into a reflex; one that varies run to run is model quality and must not be overfit. This is why `mu dojo practice` measures across rounds — the discipline that keeps reflexes general rather than problem-specific.
 
-See [DOJO.md](DOJO.md) and [PRACTICE.md](PRACTICE.md) for detail.
+See [DOJO.md](DOJO.md) for the problem set, the training loop, and where to fix things.

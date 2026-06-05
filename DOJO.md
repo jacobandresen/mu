@@ -34,6 +34,28 @@ mu dojo fixture apply p6-rust .    # copy a problem's committed fixtures into a 
 
 Results are written to `~/.mu/sessions/` and cleaned from `dojo/` after each run (committed `dojo/golden/` and `dojo/fixtures/` are spared). The long-standing env knobs still work as flag defaults — `ROUNDS`, `N`, `MU_SEED`, `MU_ROUTE`, `SKIP_CLEAN`, etc.
 
+Inspect failures in `~/.mu/sessions/<id>/logs/`; the `diagnose` sensor (`src/mu/diagnose.py`) distills a test/lint log into a one-line root cause.
+
+## Training loop
+
+`mu dojo practice` is how mu is trained: run the set with a weak model, find the general classes of mistake it makes, encode a reflex (or normalizer) that fixes the class. Each round:
+
+1. Runs the full set via `mu dojo run`.
+2. Appends every failed session to `dojo-failures.md`, tagged with its problem id and **distilled root cause** (the diagnose sensor).
+3. Reflects the round's failures into `CHALLENGES.md` (`mu reflect`).
+4. Rewrites the `DOJO-RESULTS` block in `README.md` with that round's PASS/FAIL (last round only — it overwrites).
+5. Prints a per-problem pass-rate table, worst-first.
+
+Read the table and the causes: a problem failing every round with the **same** cause is a general class to turn into a reflex; one that varies run to run is model quality — don't overfit it.
+
+## Where to fix things
+
+- **Reflexes** (`src/mu/reflexes/`, per language: `core`, `python`, `rust`, `csharp`, `go`, `javascript`, `makefile`, `plan_reflexes`) — deterministic post-write fixers, chained to a fixpoint by `run_reflexes`. Only add one for a *general* class. Honesty test: would you write this fix for any program in this language? If "only because problem X needs it," don't.
+- **Planner normalizers** (`src/mu/plan.py`) — fix a recoverable plan instead of rejecting it (e.g. `normalize_test_command` rewrites a blocking Go `./binary` test to `go test ./...`). Pair every guard with a deterministic fixer — a guard that only rejects fails on a model that repeats its mistake.
+- **Repair hints** (`src/mu/diagnose.py`) — the FOCUS line that leads the repair prompt with the first actionable error, so a weak model edits the right file.
+- **Skills** (`skills/<name>/SKILL.md`) — prompt fragments injected at plan time. Prefer a skill when a better instruction would prevent the mistake.
+- **Agent logic** (`src/mu/agent.py`) — orchestration, timeouts, where reflexes chain into the gates. Touch this last.
+
 ## Current baseline
 
 **9/10** — qwen2.5-coder-7b-instruct, num_ctx=8192 (2026-05-31), SKIP_CLEAN runs

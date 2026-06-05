@@ -194,6 +194,47 @@ If `--model` and `MU_AGENT_MODEL` are both unset, mu uses the first model loaded
 
 ---
 
+## Model characterization (profiles)
+
+The section above is about *picking* a model; this is about *describing* one from
+data, so observations, reflexes, skills, and tuning can be attributed to and chosen
+for a model. Granite (3B) and qwen2.5-coder (7B) fail in different ways; a profile
+makes those differences explicit and queryable. Two layers: **declared** attributes
+(from the catalog) and **empirical** attributes (learned from that model's tagged
+sessions — `meta.json.model`, via `observe.py`). Every empirical attribute carries
+provenance — `n` sessions and a 95% credible interval (Beta-Binomial) — so we never
+characterize a model from three lucky runs.
+
+Built by `mu kb` (`reflexdb._build_model_profiles`), which writes a `model_profile`
+row per model alongside the reflex KB; rebuildable from the session archive, never
+hand-edited.
+
+**Capability (empirical, per toolchain)** — `pass_rate`, `first_try_rate`,
+`avg_repair_iters`, and `competence_by_toolchain` (`{python:0.9, rust:0.7, …}`, the
+practical routing selector — see `mu dojo run --route`).
+
+**Failure fingerprint (the distinctive part)** — a vector over the reflex
+`error_class` taxonomy (REFLEX_KB §4): *how often does this model make each class of
+mistake?* This is what most distinguishes granite from qwen — e.g. degeneration
+(repetition/truncation) is granite-high and near-zero for qwen, so `repeat_penalty`
+matters for granite, not qwen. `observe.argue_validity` computes exactly this kind of
+per-model claim with intervals: two similar fingerprints **share** lessons; a class
+high for one and near-zero for the other is **model-specific**.
+
+**Operational tuning (measured optima)** — `ctx_sweet_spot` (granite 8192; 16384
+regresses), `repeat_penalty` (granite 1.1), `stochasticity` (run-to-run variance —
+the spread of `mu dojo measure` outcomes with `MU_SEED` set vs unset), and whether
+forced `tool_choice` helps (granite yes — kills the prose spiral).
+
+**Honest caveats.** The fingerprint says *where* a model errs, not *why* (it's
+observational). A profile is tied to a `model_version` — re-quantizing invalidates the
+empirical fields. `competence_by_toolchain` is only fair when the same problems were
+run. Most cells are sparse — hence the `n≥5` gate (`observe.Posterior.enough`) and
+intervals everywhere; below it the attribute reads "insufficient data" rather than a
+number.
+
+---
+
 ## Sources
 
 - [Best LLM for Coding 2026: Real Benchmarks](https://whatllm.org/best-llm-for-coding)

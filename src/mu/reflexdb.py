@@ -1,6 +1,6 @@
 """The reflex knowledge base: a rebuildable SQLite store over the session archive.
 
-Four tables (docs/REFLEX_KB.md §6, docs/MODEL_PROFILE.md §6):
+Four tables (docs/REFLEX_KB.md §6; model profiles: docs/MODELS.md):
   reflex         — the static catalog (from reflexes.registry)
   session        — one row per finalized episode, tagged with its model
   firing         — one row per reflex application (mined from firings.jsonl)

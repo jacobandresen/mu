@@ -10,7 +10,7 @@ hidden ``mu`` subcommand — ``mu dojo …`` (equivalently ``python -m mu.dojo �
     mu dojo fixture  apply p6-rust .         # copy committed fixtures into a dir
 
 It replaced the former ``measure.sh`` / ``sit.sh`` / ``practice.sh`` shell
-scripts (see docs/DOJO_PYTHON_PORT.md). Shared plumbing lives in:
+scripts. Shared plumbing lives in:
 
 - ``env``      — PATH augmentation, archive dir, LM Studio host, the mu command
 - ``sessions`` — read finalized sessions out of the archive as dataclasses
