@@ -45,7 +45,7 @@ Set in LM Studio when loading the model (Model Settings → Context Length), or 
 > reappearing — a known small-model degradation as the window grows. 8192 also
 > overflows the hardest multi-file problems (p8–p10) with HTTP 400s, but that
 > localized loss is smaller than the across-the-board quality drop at 16384.
-> **`sit.sh` therefore defaults to `MU_NUM_CTX=8192`** as the measured sweet
+> **`mu dojo run` therefore defaults to `MU_NUM_CTX=8192`** as the measured sweet
 > spot. `client.load_model` loads with `MU_NUM_CTX + 2048` headroom — without it,
 > LM Studio's 4096 JIT default silently caps the model and prompts above 4096 are
 > rejected with HTTP 400 mid-run. Override with `MU_NUM_CTX` / `MU_LOAD_CTX`.

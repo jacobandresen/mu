@@ -13,7 +13,7 @@ model, and estimates, with a credible interval, how often each observation occur
 The estimate is a Beta-Binomial posterior with a weak prior toward the model's
 own base rate (so a lucky 3/3 doesn't masquerade as certainty). This is
 *observational* evidence — it says where a pattern *occurs*, not that a reflex
-*causes* a fix; the causal test stays measure.sh ablation (docs/REFLEX_KB.md §9).
+*causes* a fix; the causal test stays `mu dojo measure` ablation (docs/REFLEX_KB.md §9).
 """
 
 import glob
@@ -128,8 +128,8 @@ def argue_validity(sessions: list[dict], key: str = '_problem') -> str:
     if not models:
         return ("No model-tagged sessions yet. Run the dojo with the new code "
                 "(meta.json now records 'model'); e.g.\n"
-                "  MU_AGENT_MODEL=ibm/granite-4.1-3b bash practice.sh\n"
-                "  MU_AGENT_MODEL=qwen/qwen2.5-coder-7b-instruct bash practice.sh")
+                "  mu dojo practice --model ibm/granite-4.1-3b\n"
+                "  mu dojo practice --model qwen/qwen2.5-coder-7b-instruct")
     # union of observation keys
     keys = sorted({k for m in models for k in rates[m]})
     lines = [f"Failure-rate by model (observation = {key.lstrip('_')}), "

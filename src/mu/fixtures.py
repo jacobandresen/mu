@@ -116,15 +116,5 @@ def should_skip_problem(model: str, problem_id: str,
     return any(evidence) and all(v for v, e in zip(verdicts, evidence) if e)
 
 
-if __name__ == '__main__':
-    import sys
-    # CLI for sit.sh: `python -m mu.fixtures apply <id> [work_dir]`
-    #                 `python -m mu.fixtures skip <model> <toolchain>` -> exit 0=skip
-    cmd = sys.argv[1] if len(sys.argv) > 1 else ''
-    if cmd == 'apply':
-        for p in apply(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else '.'):
-            print(p)
-    elif cmd == 'skip':  # skip <model> <problem-id>  -> exit 0 = skip this problem
-        sys.exit(0 if should_skip_problem(sys.argv[2], sys.argv[3]) else 1)
-    else:
-        sys.exit("usage: mu.fixtures apply <id> [dir] | skip <model> <problem-id>")
+# A CLI for these lives at `mu dojo fixture {apply,skip}` (src/mu/dojo/cli.py);
+# runner.py and cli.py call apply()/should_skip_problem() in-process.

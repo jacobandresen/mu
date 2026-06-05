@@ -21,7 +21,7 @@ so we cannot answer:
   order should the chain run?
 
 The KB answers these. It is **observational and exploratory by construction**;
-the causal arbiter remains `measure.sh` ablation (§9). The KB *ranks hypotheses*;
+the causal arbiter remains `mu dojo measure` ablation (§9). The KB *ranks hypotheses*;
 ablation *confirms* them.
 
 Non-goals: feeding reflex-firing data into the plan-time `predict.py` (would
@@ -43,7 +43,7 @@ session archive (~/.mu/sessions/*)         # source of truth (existing)
         │
         ├── mu reflex-stats        # SQL co-occurrence / conditional report (Phase 2)
         ├── reflex_prob.py         # Beta-Binomial posteriors, CPTs (Phase 3)
-        └── ablation (MU_DISABLE_REFLEX + measure.sh) → writes causal efficacy (Phase 4)
+        └── ablation (MU_DISABLE_REFLEX + mu dojo measure) → writes causal efficacy (Phase 4)
 ```
 
 Dependency posture: `sqlite3` is stdlib (the same store the dojo tests use). The
@@ -241,7 +241,7 @@ model erred, so `P(✓|A)` is entangled with problem difficulty, and any success
 model leaks. Therefore the probabilistic layer **proposes**; it never concludes.
 
 Causal test: `MU_DISABLE_REFLEX=<id>` (read by `run_reflexes`) on a **frozen,
-seeded** baseline (`measure.sh`, §`MU_SEED`), re-measure, read Δ pass-rate and
+seeded** baseline (`mu dojo measure`, §`MU_SEED`), re-measure, read Δ pass-rate and
 Δ repair-iters. That Δ — not the posterior — is written into `reflex.efficacy`.
 The posteriors merely **order which ablations to run first**.
 
@@ -280,7 +280,7 @@ Each phase is independently shippable and independently tested (§12).
   fire-count, posterior ≈ base rate). CPT/Bayesian-net optional.
 
 **Phase 4 — ablation loop.**
-- `MU_DISABLE_REFLEX` honoured in `run_reflexes`; `measure.sh --disable <id>`
+- `MU_DISABLE_REFLEX` honoured in `run_reflexes`; `mu dojo measure --disable <id>`
   writes `reflex.efficacy`. Posteriors choose the ablation order.
 
 **Phase 5 — shared-core refactor (§5),** guided by the empirical clusters,
@@ -374,7 +374,7 @@ This is where "effectiveness" is actually proven, deterministically:
 - **Actionability:** ≥1 confirmed drop (dead reflex removed) and ≥1 confirmed
   bundle/order improvement, each validated by ablation with interval-excludes-0.
 - **No regression:** after any KB-driven change, the full frozen-baseline suite
-  (`measure.sh` over all problems × ≥3 seeds) shows pass-rate non-decreasing.
+  (`mu dojo measure` over all problems × ≥3 seeds) shows pass-rate non-decreasing.
 - **Maintenance cost:** adding a reflex requires only the `@reflex` decorator;
   the completeness test enforces it.
 

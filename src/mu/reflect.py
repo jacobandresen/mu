@@ -238,7 +238,7 @@ def reflect(model: str = '', limit: int = 10,
     """Distill generic lessons from failed sessions.
 
     If `session_ids` is given, process exactly those sessions (caller-scoped,
-    e.g. by practice.sh to focus on this round's failures). Otherwise process
+    e.g. by `mu dojo practice` to focus on this round's failures). Otherwise process
     the `limit` most recent non-success sessions that haven't already been
     reflected on.
     """

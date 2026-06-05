@@ -1,5 +1,12 @@
 # Plan: port the dojo shell scripts to Python
 
+> **STATUS: implemented (2026-06-05).** The three `.sh` scripts are deleted; the
+> rig lives in `src/mu/dojo/`. One deviation from the plan below: instead of
+> staying at `python -m mu.dojo`, the rig was promoted to a hidden `mu dojo`
+> subcommand with a real argparse CLI (flags + `--help`), per a follow-up
+> request — `python -m mu.dojo …` still works identically. This file is kept as
+> the historical design record.
+
 Rewrite `measure.sh`, `sit.sh`, and `practice.sh` (619 lines of bash) as a small,
 readable Python package. The scripts already shell out to Python/awk for every
 non-trivial step — parsing `meta.json`, distilling causes, rewriting README — so

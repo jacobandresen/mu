@@ -2,14 +2,14 @@
 
 The dojo is how mu is trained: run the fixed problem set with a weak model, find
 the general classes of mistake it makes, and encode a reflex (or normalizer) that
-fixes the class. `practice.sh` is the loop; stronger models read the failures and
-write the fixes.
+fixes the class. `mu dojo practice` is the loop; stronger models read the failures
+and write the fixes.
 
 ## One-shot run
 
 ```sh
-bash sit.sh            # run all available problems once
-bash sit.sh p6-rust    # run a single problem
+mu dojo run             # run all available problems once
+mu dojo run p6-rust     # run a single problem
 ```
 
 Inspect failures in `~/.mu/sessions/<id>/logs/`. The `diagnose` sensor
@@ -18,13 +18,13 @@ Inspect failures in `~/.mu/sessions/<id>/logs/`. The `diagnose` sensor
 ## Training loop
 
 ```sh
-bash practice.sh                 # repeated rounds (default 100; ROUNDS=3 to cap)
-ROUNDS=1 SKIP_AUTOCOMMIT=1 bash practice.sh   # one round, review before commit
+mu dojo practice --rounds 3                   # repeated rounds (default 100)
+mu dojo practice --rounds 1 --no-autocommit   # one round, review before commit
 ```
 
 Each round:
 
-1. Runs the full set via `sit.sh`.
+1. Runs the full set via `mu dojo run`.
 2. Appends every failed session to `dojo-failures.md`, tagged with its problem id
    and **distilled root cause** (via the diagnose sensor).
 3. Reflects the round's failures into `CHALLENGES.md` (`mu reflect`).
@@ -62,15 +62,5 @@ construction, where reflexes are chained into the gates. Touch this last.
 
 ## Problems
 
-| ID | Difficulty | Goal |
-|----|------------|------|
-| p1-helloworld | trivial | Hello world in C, compile with clang |
-| p2-sqlite | simple | Python todo list with SQLite, add/list/delete, pytest |
-| p3-sdl2 | moderate | Render a line via SDL2, sdl2-config in Makefile |
-| p4-fibonacci | moderate | Fibonacci in C#, compile with dotnet |
-| p5-gin | moderate | Go HTTP server with Gin, GET /ping → `{"status":"ok"}` |
-| p6-rust | moderate | Rust CLI printing the first 10 Fibonacci numbers via cargo |
-| p7-flask | hard | Flask REST API, SQLite, POST/GET /todos, pytest, Makefile |
-| p8-node-todo | hard | Node.js todo manager with SQLite, jest tests |
-| p9-vue-todo | hard | Vue 3 + TypeScript todo app, Vite, Vitest |
-| p10-dotnet-vue-blog | hardest | ASP.NET Core API + Vue 3 frontend, EF Core, xUnit + Vitest |
+The fixed problem set (p1–p10) and the current per-problem baseline live in
+[DOJO.md](DOJO.md) — the single source. They're defined in `problems-catalog.json`.

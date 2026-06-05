@@ -4,7 +4,7 @@ Operating guide for AI agents (and humans) working on the **mu** codebase.
 mu is a local AI coding toolkit: `mu agent "<goal>"` drives an autonomous
 plan → write → verify loop on top of a local LLM via LM Studio.
 
-**mu is an agent harness that employs reflexes — deterministic condition→action fixers — to repair the general classes of mistake weaker local models make.** The reflexes are *trained* in the `practice.sh` loop by stronger models: the loop runs the dojo with a weak model, distills each failure's root cause, and a stronger model (you) reads those failures and encodes a new general reflex or normalizer. Your job here is that training step.
+**mu is an agent harness that employs reflexes — deterministic condition→action fixers — to repair the general classes of mistake weaker local models make.** The reflexes are *trained* in the `mu dojo practice` loop by stronger models: the loop runs the dojo with a weak model, distills each failure's root cause, and a stronger model (you) reads those failures and encodes a new general reflex or normalizer. Your job here is that training step.
 
 This file is the source of truth for how to work on mu. If it conflicts with other docs, this file wins.
 
@@ -30,7 +30,7 @@ mu is a learning agent with four components:
 | **Performance element** | planner (`_run_planner`) + writer loop (`Session.run`) |
 | **Critic** | test gate + `Session.repair_loop`; standard = "test command exits 0" |
 | **Learning element** | `reflect.py` → `CHALLENGES.md`; `enrich.py` retrieves at plan time |
-| **Problem generator** | the dojo (`sit.sh` / `practice.sh`) |
+| **Problem generator** | the dojo (`mu dojo run` / `mu dojo practice`) |
 
 **Feedback path:** `AgentSession.finalize` writes the outcome → `reflect` distills failures into `CHALLENGES.md` → `enrich` retrieves lessons → `_run_planner` injects them into the next goal's system prompt.
 
@@ -121,8 +121,8 @@ skills/               skill prompts loaded by the planner at runtime
 A weak model samples tokens, so dojo results swing run to run (p7 passes, then stalls). You can't eliminate that, but don't let it fool you into "fixing" noise. Discipline:
 
 - **Measure continuous metrics, not pass/fail.** Pass/fail is one binary sample per round. Repair-iters, first-try rate, and **tokens/call** shift smoothly and detect a real change with far fewer runs. (We caught the writer-prompt savings via prompt/call where pass/fail was pure noise.)
-- **Pin the plan to test the writer/reflexes.** The planner is the dominant variance source. `./measure.sh <id>` runs a problem N times from a committed golden plan (`dojo/golden/<id>/PLAN.md`) via `mu iterate`, so only the writer/repair layer varies. It reports pass rate **and** avg repair iters. `REGEN=1` regenerates the plan.
-- **N runs, compare rates — never trust one round.** `practice.sh ROUNDS=5`; read the distribution.
+- **Pin the plan to test the writer/reflexes.** The planner is the dominant variance source. `mu dojo measure <id>` runs a problem N times from a committed golden plan (`dojo/golden/<id>/PLAN.md`) via `mu iterate`, so only the writer/repair layer varies. It reports pass rate **and** avg repair iters. `--regen` regenerates the plan.
+- **N runs, compare rates — never trust one round.** `mu dojo practice --rounds 5`; read the distribution.
 - **Pin the RNG for clean A/B.** `MU_SEED=<int>` (client.py) sets the seed and forces temperature 0, so identical input reproduces identical output. A *prompt* change still alters the stream, so this helps reflex/writer A/B more than prompt A/B. Unset by default (sampling surfaces diverse failures).
 - **Push fixes into reflexes, not prompts.** A reflex works 100% of the time; a prompt rule only nudges a stochastic model. Converting a failure class to a deterministic reflex/normalizer removes it from the noise band entirely — the single most reliable way to cut variance.
 
@@ -132,7 +132,7 @@ A weak model samples tokens, so dojo results swing run to run (p7 passes, then s
 
 README.md is the front door and must hold **distilled, immediately readable knowledge** — never raw logs. After every dojo round, the problem state is reflected there:
 
-- **Measured block (automated).** `practice.sh` rewrites the region between `<!-- DOJO-RESULTS:START -->` and `<!-- DOJO-RESULTS:END -->` at the end of *each* round with that round's per-problem PASS/FAIL. It shows **only the last round** (it overwrites, never accumulates). Do not hand-edit inside the markers.
+- **Measured block (automated).** `mu dojo practice` rewrites the region between `<!-- DOJO-RESULTS:START -->` and `<!-- DOJO-RESULTS:END -->` at the end of *each* round with that round's per-problem PASS/FAIL. It shows **only the last round** (it overwrites, never accumulates). Do not hand-edit inside the markers.
 - **Curated knowledge (yours to maintain).** Outside the markers, keep current: the problem-status table's *“reflex that carries it”* column, and the **Top 3 challenges to solve**. When you add or change a reflex, update these so they stay true.
 - **Always keep the run instructions** (Quick start, Commands) in README — distilling the dojo state must never remove how to run mu.
 - Reflexes stay general, never problem-specific (§0).

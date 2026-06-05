@@ -30,7 +30,7 @@ variable. Ranked by how much they move outcomes in the data:
 
 1. **The planner — the dominant source.** A fresh plan each run (decomposition,
    file names, test command) changes everything downstream. Demonstrated
-   directly: `measure.sh` runs a problem from a *frozen* plan and gets
+   directly: `mu dojo measure` runs a problem from a *frozen* plan and gets
    byte-identical results (5/5 with `MU_SEED`), whereas the same problem live
    swings pass↔stall round to round. The plan is the biggest lever.
 2. **Inferred structure (the model guessing the contract).** When the goal
@@ -67,7 +67,7 @@ model samples over.
 
 | Lever | DOF removed | Evidence it helps |
 |---|---|---|
-| **Pin the plan** (golden/canonical plan; model writes code, not structure) | planner | frozen-plan runs are reproducible (`measure.sh`) |
+| **Pin the plan** (golden/canonical plan; model writes code, not structure) | planner | frozen-plan runs are reproducible (`mu dojo measure`) |
 | **Provide the manifest/config/Makefile as a fixture** | build boilerplate | granite's `build-rule-structure` 1.44×/session vanishes if the Makefile is given; go.mod/Cargo.toml/package.json error classes disappear |
 | **Pin exact filenames + the test command** | naming | kills the import-mismatch class the `from main import app` resolver patches |
 | **Collapse to one file / a fixed layout** | cross-file coupling | removes test↔impl symbol-resolution failures (p7/p8) |
@@ -155,7 +155,7 @@ behave like the continuous one).
 
 **Already in place** (each a variance-killer):
 - `improve-plan` spec reflexes — state some interface contracts.
-- `measure.sh` — frozen golden plan removes planner variance for measurement.
+- `mu dojo measure` — frozen golden plan removes planner variance for measurement.
 - `MU_SEED` — pins the sampler.
 - `model_profile.competence_by_toolchain` — the data to route by competence.
 
@@ -220,7 +220,7 @@ ranks highest (Makefiles, manifests, test authoring).
   task list is only the not-provided files. At L3 the test is fixed, so the test
   gate runs an unalterable target. At L4 the writer fills a stub against fixed
   signatures.
-- **Reuse:** this is the same machinery as `measure.sh`'s frozen golden plan, one
+- **Reuse:** this is the same machinery as `mu dojo measure`'s frozen golden plan, one
   level down — there we froze the *plan*, here we freeze *files*.
 
 ### 8.2 Model-adaptive minimization (data-driven)
@@ -242,8 +242,8 @@ This couples the two levers the data demands: **routing** (skip the hopeless) an
 The claim is "higher level ⇒ lower variance." Test it, don't assume it.
 
 - **Stochasticity metric:** for a (problem, level), run N **unseeded** rounds via
-  `measure.sh` and compute the outcome entropy / pass-rate variance. A new
-  `measure.sh --level Lk` reports it. **Success criterion:** variance is monotone
+  `mu dojo measure` and compute the outcome entropy / pass-rate variance. A new
+  `mu dojo measure --level Lk` reports it. **Success criterion:** variance is monotone
   non-increasing in level, and L4 variance ≈ 0 for an in-competence model.
 - **Seeded control:** with `MU_SEED` set, every level is already reproducible
   (5/5 identical) — that isolates the *unseeded spread* as the thing the ladder

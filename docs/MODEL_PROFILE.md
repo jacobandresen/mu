@@ -68,10 +68,10 @@ The knobs, with the value that works for *this* model:
 | `ctx_sweet_spot` | best `num_ctx` (bigger ≠ better) | granite 8192 (16384 regresses) |
 | `repeat_penalty` | anti-degeneration setting | granite 1.1 |
 | `temperature` | sampling | 0.1 default |
-| `stochasticity` | run-to-run variance | from `measure.sh` seeded vs unseeded |
+| `stochasticity` | run-to-run variance | from `mu dojo measure` seeded vs unseeded |
 | `tool_choice_required` | forcing helps? | granite yes (kills prose spiral) |
 
-`stochasticity` is itself measurable: the spread of `measure.sh` outcomes with
+`stochasticity` is itself measurable: the spread of `mu dojo measure` outcomes with
 `MU_SEED` unset vs set tells you how reproducible the model is, which sets how
 many rounds a fair comparison needs.
 
@@ -127,14 +127,14 @@ model_profile(
 - **Build:** `mu model-profile [--model X]` aggregates tagged sessions via
   `observe.py` → writes the `model_profile` row + the rendered card. Pure
   read-over-archive; rebuildable.
-- **Data:** run the dojo per model — `MU_AGENT_MODEL=ibm/granite-4.1-3b
-  bash practice.sh` and `MU_AGENT_MODEL=qwen/qwen2.5-coder-7b-instruct
-  bash practice.sh` — each ≥5 rounds so the cells clear the `n≥5` bar.
+- **Data:** run the dojo per model — `mu dojo practice --model ibm/granite-4.1-3b`
+  and `mu dojo practice --model qwen/qwen2.5-coder-7b-instruct` — each ≥5 rounds
+  so the cells clear the `n≥5` bar.
 - **Validate (descriptive):** credible-interval calibration test (as in
   REFLEX_KB §12.3) — simulate known per-model rates, assert 95% coverage.
 - **Validate (causal):** any *configuration* a profile recommends
   (e.g. "granite needs `repeat_penalty`") is confirmed by **ablation**:
-  `measure.sh` with the knob on vs off, on that model's frozen seeded baseline,
+  `mu dojo measure` with the knob on vs off, on that model's frozen seeded baseline,
   Δ with a credible interval excluding 0. The profile proposes; ablation proves.
 
 ---

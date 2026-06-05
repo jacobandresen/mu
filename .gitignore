@@ -9,7 +9,7 @@ __pycache__/
 build/
 dist/
 
-# Ignore dojo working dirs, except the committed golden plans (measure.sh) and
+# Ignore dojo working dirs, except the committed golden plans (mu dojo measure) and
 # fixtures (fixture mode — files given to the model to remove failure classes).
 dojo/*
 !dojo/golden/

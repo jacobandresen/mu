@@ -21,12 +21,18 @@ Stress-tests mu by driving a guest model through 10 fixed problems and recording
 
 ## Running
 
+The dojo rig is a hidden `mu` subcommand (`mu dojo …`, equivalently `python -m mu.dojo …`). Every command has `--help`.
+
 ```sh
-bash sit.sh           # all problems, shuffled
-bash sit.sh p3-sdl2   # single problem
+mu dojo run                        # all available problems, shuffled
+mu dojo run p3-sdl2                 # a single problem
+mu dojo run --route --model M      # skip problems M is measured hopeless on
+mu dojo practice --rounds 5        # repeated rounds: run, distill, reflect, repeat
+mu dojo measure p7-flask --runs 5  # N runs from a frozen plan (isolates writer variance)
+mu dojo fixture apply p6-rust .    # copy a problem's committed fixtures into a dir
 ```
 
-Results are written to `~/.mu/sessions/` and cleaned from `dojo/` after each run.
+Results are written to `~/.mu/sessions/` and cleaned from `dojo/` after each run (committed `dojo/golden/` and `dojo/fixtures/` are spared). The long-standing env knobs still work as flag defaults — `ROUNDS`, `N`, `MU_SEED`, `MU_ROUTE`, `SKIP_CLEAN`, etc.
 
 ## Current baseline
 
