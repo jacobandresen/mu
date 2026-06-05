@@ -766,12 +766,12 @@ def _sketch_comment(ext: str, lines: list[str]) -> str:
     if ext in ('.c', '.h', '.cpp', '.cc', '.cxx', '.hpp',
                '.go', '.rs', '.ts', '.tsx', '.js', '.jsx',
                '.cs', '.java', '.swift', '.kt'):
-        body = '\n'.join(f' * {l}' for l in lines)
+        body = '\n'.join(f' * {line}' for line in lines)
         return f'/*\n{body}\n */\n'
     if ext in ('.html', '.xml', '.svg'):
-        body = '\n'.join(f'  {l}' for l in lines)
+        body = '\n'.join(f'  {line}' for line in lines)
         return f'<!--\n{body}\n-->\n'
-    return '\n'.join(f'# {l}' for l in lines) + '\n'
+    return '\n'.join(f'# {line}' for line in lines) + '\n'
 
 
 def write_sketches(p: 'Plan', goal: str) -> list[str]:

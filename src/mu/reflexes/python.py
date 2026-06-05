@@ -583,7 +583,7 @@ def fix_missing_pip_packages(test_output: str, project_dir: str) -> bool:
     ]
     if not to_add:
         return False
-    existing_lines = [l for l in existing.splitlines() if l.strip()]
+    existing_lines = [line for line in existing.splitlines() if line.strip()]
     new_content = '\n'.join(existing_lines + to_add) + '\n'
     req_path.write_text(new_content)
     print(f"==> [mu-agent] Reflex: added missing packages to requirements.txt: {to_add}")

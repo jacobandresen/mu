@@ -634,13 +634,13 @@ def fix_jest_config_js(project_dir: str) -> bool:
             data = _json.loads(pkg_path.read_text())
             if data.get('jest'):
                 cfg_path.unlink()
-                print(f"==> [mu-agent] Reflex: removed conflicting jest.config.js (config in package.json)")
+                print("==> [mu-agent] Reflex: removed conflicting jest.config.js (config in package.json)")
                 return True
         except Exception:
             pass
     # Otherwise convert JSON-style to CommonJS
     cfg_path.write_text(f'module.exports = {stripped};\n')
-    print(f"==> [mu-agent] Reflex: converted jest.config.js from JSON to CommonJS format")
+    print("==> [mu-agent] Reflex: converted jest.config.js from JSON to CommonJS format")
     return True
 
 def fix_package_json_bare_jest(project_dir: str) -> bool:

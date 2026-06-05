@@ -238,7 +238,7 @@ class Session:
                 edited = True
                 break
             if connection_dead:
-                print(f"==> [mu-agent] Repair: connection lost — aborting repair loop.")
+                print("==> [mu-agent] Repair: connection lost — aborting repair loop.")
                 break
             if stuck:
                 break

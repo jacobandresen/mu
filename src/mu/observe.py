@@ -20,6 +20,7 @@ import glob
 import json
 import math
 import os
+import re as _re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -149,9 +150,6 @@ def argue_validity(sessions: list[dict], key: str = '_problem') -> str:
             lines.append(f"  → a {', '.join(verdict)} failure mode")
         lines.append("")
     return '\n'.join(lines)
-
-
-import re as _re
 
 
 def _cause_signature(focus: str) -> str:
