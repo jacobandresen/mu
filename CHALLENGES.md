@@ -171,3 +171,9 @@ One common pitfall is leaving triple‑quoted strings open (missing the closing 
 54. **Missing semicolon in JavaScript**
   - Ensure every statement ends with a semicolon to avoid syntax errors during parsing.
 
+55. **Stalled compilation**
+  - Compilation may hang if there are issues with the source code that are not immediately obvious, such as syntax errors or missing files. Always check for these before assuming the build system is stuck.
+
+56. **Missing function definition in module export**
+  - Ensure all functions intended for export are defined before the module.exports statement.
+
