@@ -179,3 +179,9 @@ One common pitfall is leaving triple‑quoted strings open (missing the closing 
 
 57. **SKIP**
 
+58. **Incorrect assertion in test**
+  - Ensure that assertions correctly match the expected and received values to avoid false negatives.
+
+59. **KeyError when accessing JSON response**
+  - Ensure that the expected key exists in the JSON response before attempting to access it.
+
