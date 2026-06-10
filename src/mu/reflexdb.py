@@ -326,6 +326,43 @@ def combination_report(con: sqlite3.Connection) -> list[str]:
     return out
 
 
+def honesty_audit(con: sqlite3.Connection) -> list[str]:
+    """Flag reflexes whose firings concentrate on a single problem (AGENTS §0/§2).
+
+    A reflex with ≥90% of its sessions from one problem_id and ≥5 total sessions
+    is potentially problem-specific rather than general. Observational warning only
+    — never changes reflex behavior.
+    """
+    rows = con.execute(
+        "SELECT f.reflex_id, s.problem_id, COUNT(DISTINCT f.session_id) n "
+        "FROM firing f JOIN session s USING(session_id) "
+        "WHERE s.problem_id IS NOT NULL "
+        "GROUP BY f.reflex_id, s.problem_id").fetchall()
+
+    totals: dict[str, int] = {}
+    by_problem: dict[str, list] = {}
+    for r in rows:
+        rid, pid = r['reflex_id'], r['problem_id']
+        totals[rid] = totals.get(rid, 0) + r['n']
+        by_problem.setdefault(rid, []).append((pid, r['n']))
+
+    warnings = []
+    for rid, total in sorted(totals.items()):
+        if total < observe._MIN_N:
+            continue
+        max_pid, max_n = max(by_problem[rid], key=lambda x: x[1])
+        if max_n / total >= 0.9:
+            warnings.append(
+                f"- `{rid}` — {max_n}/{total} sessions in `{max_pid}` "
+                f"({max_n / total:.0%}) — may be problem-specific, not general")
+
+    if not warnings:
+        return []
+    return ["", "## Honesty audit — single-problem concentration",
+            "_Reflexes below fired ≥90% in one problem (§0/§2 generality gate):_"
+            ] + warnings
+
+
 def report(db_path: str = DEFAULT_DB) -> str:
     con = connect(db_path)
     out = ["# Reflex KB", ""]
@@ -363,6 +400,7 @@ def report(db_path: str = DEFAULT_DB) -> str:
                        f"({row['seeds']} seeds, {direction})")
 
     out += combination_report(con)
+    out += honesty_audit(con)
     con.close()
     return '\n'.join(out)
 

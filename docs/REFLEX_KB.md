@@ -1,8 +1,7 @@
 # Reflex Knowledge Base — Design & Reference
 
-Status: **mostly built** (iter-2 complete). Remaining planned items: shared-core
-refactor (§5), offline-baked chain order (§8), calibration + honesty tests (§11),
-optional Bayesian interaction model.
+Status: **built** (iter-5 complete). Remaining: iter-4 Part 2 (offline order bake,
+blocked pending TRP A/B data) + final TRP + RIP.
 
 - **Built:** catalog + schema + model profiles (`reflexes/registry.py`,
   `reflexdb.py`, `mu kb`); Beta-Binomial posterior (`observe.py`);
@@ -10,9 +9,14 @@ optional Bayesian interaction model.
   (`MU_DISABLE_REFLEX`, `mu dojo measure --disable`); combination report +
   ablation shortlist; full schema fields (`artifact`/`phase`/`idempotent`/
   `risk`/`evidence`); idempotency tests + committed measurement artifact;
-  `record_efficacy()` + `sz5_gate()`; registry-contract tests.
-- **Planned:** shared-core refactor (§5), offline chain-order baking (§8),
-  calibration + honesty audit + interaction model (§11).
+  `record_efficacy()` + `sz5_gate()`; registry-contract tests; shared-core
+  refactor (`_fix_duplicate_decls`, §5); composite-chain functions for
+  C#/JS/Rust (§8 centralize); calibration test (`test_calibration.py`);
+  ablation rule test (`test_ablation_rule.py`); honesty audit
+  (`honesty_audit()` in `reflexdb.py`); interaction model (`interaction.py`,
+  pgmpy, §10 leak guard).
+- **Pending:** iter-4 Part 2 — offline order bake + §5z A/B across ≥3 seeds
+  (blocked on TRP completing); final TRP + RIP.
 
 ---
 
@@ -42,7 +46,7 @@ session archive (~/.mu/sessions/*)
    └── [planned] shared-core refactor, baked chain order, interaction model
 ```
 
-`sqlite3` + `math` are stdlib; `scipy`/`pgmpy` optional. Layers depend one way
+`sqlite3` + `math` are stdlib; `scipy` optional (exact Beta quantiles); `pgmpy` required for interaction model. Layers depend one way
 — mining → aggregation → probability → ablation; none reaches back up.
 
 ---
@@ -177,4 +181,4 @@ Planned (iter-5): calibration test (Beta-Binomial 95% coverage), ablation rule
 - **Confounding:** observational firings can't prove causation — §9 ablation is the sole source of `efficacy`.
 - **Small N:** Beta-Binomial shrinkage + interval-aware ranking; never act on a point rate.
 - **Determinism:** any learned policy baked offline; runtime runner stays deterministic.
-- **Dependency creep:** core is stdlib; `scipy`/`pgmpy` optional.
+- **Dependency creep:** core is stdlib; `scipy` optional (exact Beta quantiles); `pgmpy` required for the interaction model.
