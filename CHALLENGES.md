@@ -95,3 +95,9 @@ quality and must not be overfit.*
 20. **Duplicate attribute in HTML**
   - Ensure that each HTML element has unique attributes to avoid syntax errors during rendering.
 
+21. **External environment management**
+  - Be aware that some environments may not allow installing packages system-wide and require using virtual environments instead. Always use a virtual environment to manage Python dependencies.
+
+22. **HTML attribute syntax error**
+  - Attribute names in HTML cannot contain double quotes (`"`) and single quotes (`'`). Use single quotes for attributes if the value contains double quotes.
+
