@@ -107,3 +107,9 @@ quality and must not be overfit.*
 24. **Syntax errors in test code**
   - Syntax errors in the xUnit test file can cause build failures and prevent further progress. Ensure all braces, semicolons, and other syntax elements are correctly placed.
 
+25. **Function prototype missing**
+  - Ensure function prototypes are declared before their first use to avoid implicit function declarations and deprecation warnings.
+
+26. **Mocking conflicts**
+  - Mocks for the same module can conflict if not properly isolated; ensure each mock is unique and does not interfere with others.
+
