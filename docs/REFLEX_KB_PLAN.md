@@ -35,7 +35,7 @@ ROUNDS=5 MU_NUM_CTX=6000 MU_AGENT_MODEL=qwen2.5-coder-7b-instruct \
 | 2 | Schema fields + efficacy storage | ✓ | 53d6e06 |
 | 3 | Shared-core refactor | ✓ | 48f995a |
 | 4 | Offline-baked chain order | Part 1 ✓ / Part 2 pending TRP | — |
-| 5 | Validation discipline + interaction model | pending | — |
+| 5 | Validation discipline + interaction model | ✓ | 25f3d3e |
 
 ---
 

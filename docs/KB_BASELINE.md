@@ -10,6 +10,21 @@ This document records dated baseline snapshots for the Reflex KB plan.
 | 2026‑06‑10 | Iter 2 (schema + efficacy) | 69.3% (813 sessions, qwen2.5) | 1.9 | 62% | 17,832 | `MSBuild MSB1003` (p10-dotnet, chronic single-problem), `Makefile: no rule to make target 'X'` (multi-problem, 15×), `assertion failed` (p8-node, 11×) |
 | 2026‑06‑10 | Iter 3 (shared-core refactor) | — (behavior-preserving; byte gate) | — | — | — | no change — pure refactor |
 | 2026‑06‑10 | Iter 4a (centralize chains, Part 1) | — (behavior-preserving; sequence-preserved) | — | — | — | no change — pure refactor |
+| 2026‑06‑10 | Iter 5 (validation + interaction model) | — (no-regression; new tests only) | — | — | — | no change — tests + honesty audit + interaction model |
+
+## Iter 5 RIP findings — 2026‑06‑10
+
+**Change:** Validation discipline + interaction model (§11).
+- `tests/test_calibration.py`: Beta-Binomial coverage ≥88% verified at p=0.3/0.5/0.7, N=500 sims, seeded RNG.
+- `tests/test_ablation_rule.py`: sz5_gate() keep/revert/boundary/purity contract — 8 cases.
+- `reflexdb.honesty_audit()`: flags reflexes with ≥90% of firings in one problem_id (≥5 sessions); appended to `mu kb report()`.
+- `tests/test_honesty_audit.py`: 6 cases (concentration/distribution/min-n/null-problem/empty).
+- `src/mu/interaction.py`: DiscreteBayesianNetwork over co-occurrence edges (≥3 co-fires); §10 leak guard tested by inspection.
+- pgmpy==1.1.2 installed; required (not optional) per user instruction.
+
+**Regression check:** No regression. 70/70 tests pass. No runtime change. TRP pending (blocked on PID 25903 TRP; same constraint as Iter 4 Part 2).
+
+**Go/no-go:** Clean. Ready for Iter 4 Part 2 (offline order bake) and final TRP once model is free.
 
 ## Iter 4a RIP findings — 2026‑06‑10
 
