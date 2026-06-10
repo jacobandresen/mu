@@ -101,3 +101,9 @@ quality and must not be overfit.*
 22. **HTML attribute syntax error**
   - Attribute names in HTML cannot contain double quotes (`"`) and single quotes (`'`). Use single quotes for attributes if the value contains double quotes.
 
+23. **Mock expectations not met**
+  - Mock functions in Jest are not being called as expected during test execution; ensure mock implementations are correctly set up and invoked within the test cases.
+
+24. **Syntax errors in test code**
+  - Syntax errors in the xUnit test file can cause build failures and prevent further progress. Ensure all braces, semicolons, and other syntax elements are correctly placed.
+
