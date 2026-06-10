@@ -83,3 +83,15 @@ quality and must not be overfit.*
 ---
 *Updated continuously as challenges arise and reflexes/skills resolve them. Items tagged
 "(merged #N)" trace back to the pre-2026-06-07 flat numbering.*
+
+17. **SKIP**
+
+18. **Incorrect import statements**
+  - Ensure that all imported names exist and are spelled correctly in the module being imported from.
+
+19. **Incorrect mock expectations**
+  - Mock functions may not match the actual arguments passed during calls; ensure mocks accurately reflect the expected inputs and outputs.
+
+20. **Duplicate attribute in HTML**
+  - Ensure that each HTML element has unique attributes to avoid syntax errors during rendering.
+
