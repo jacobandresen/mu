@@ -97,6 +97,21 @@ _RULES: list[_Rule] = [
           lambda m: f"MSBuild {m['code']}: {_clip(m['msg'])}",
           re.I),
 
+    # ── Go (extended) ──
+    _rule(r"cannot use (?P<expr>.+?) \((?:type|variable of type) .+?\) as (?:type )?(?P<typ>\S+)",
+          lambda m: f"Go: type error — cannot use {_clip(m['expr'], 40)} as {m['typ']}",
+          re.I),
+    _rule(r"not enough arguments in call to (?P<func>\S+)",
+          lambda m: f"Go: not enough arguments in call to '{m['func']}'",
+          re.I),
+    _rule(r"too many arguments in call to (?P<func>\S+)",
+          lambda m: f"Go: too many arguments in call to '{m['func']}'",
+          re.I),
+    _rule(r"(?P<file>\S+?\.go):(?P<line>\d+):\d+:\s*(?P<name>\w+) declared (?:and|but) not used",
+          lambda m: f"{m['file']}:{m['line']}: '{m['name']}' declared but not used — remove it"),
+    _rule(r"^--- FAIL:\s*(?P<test>\w+)",
+          lambda m: f"Go test failed: {m['test']}"),
+
     # ── Go modules ──
     _rule(r"go: errors parsing go\.mod",
           lambda m: "go.mod is malformed — fix or regenerate it (go mod init/tidy)"),

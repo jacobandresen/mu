@@ -77,7 +77,8 @@ _CATALOG: dict[str, list] = {
         makefile.fix_makefile_pytest_in_non_python, javascript.fix_package_json_bare_jest,
         makefile.fix_makefile_npm_test_jest, makefile.fix_makefile_binary_name,
         javascript.fix_jest_no_tests_found, javascript.fix_jest_config_js,
-        javascript.fix_vitest_watch_mode, javascript.fix_vitest_globals],
+        javascript.fix_vitest_watch_mode, javascript.fix_vitest_globals,
+        makefile.fix_makefile_missing_test_target, makefile.fix_dotnet_test_cwd],
     'brace-paren-balance': [
         core.fix_json_unclosed_brackets, csharp.fix_csharp_missing_braces,
         javascript.fix_js_extra_closing_brace, rust.fix_rust_unbalanced_braces,
@@ -99,6 +100,9 @@ _CATALOG: dict[str, list] = {
     'dependency-install': [
         python.fix_missing_pip_packages, javascript.fix_vue_missing_package,
         javascript.fix_vue_test_utils_import],
+    'syntax-repair': [
+        javascript.fix_js_const_reassignment,
+        javascript.fix_vue_attr_quotes],
     'code-structure': [
         python.fix_python_method_indent, python.fix_python_missing_def,
         python.fix_flask_post_missing_201, python.fix_flask_test_route_decorators,
@@ -156,6 +160,14 @@ _ANNOTATIONS: dict = {
     javascript.fix_jest_config_js:             {'artifact': 'js', 'evidence': 'p8-node'},
     javascript.fix_js_duplicate_require:       {'artifact': 'js'},
     javascript.fix_js_missing_requires:        {'artifact': 'js'},
+    # ── javascript (new) ─────────────────────────────────────────────────────
+    javascript.fix_js_const_reassignment:      {'artifact': 'js', 'evidence': 'p8-node'},
+    javascript.fix_vue_attr_quotes:            {'artifact': 'vue', 'evidence': 'p9-vue'},
+    # ── makefile (new) ───────────────────────────────────────────────────────
+    makefile.fix_makefile_missing_test_target: {'artifact': 'Makefile',
+                                                'evidence': 'p7-flask'},
+    makefile.fix_dotnet_test_cwd:              {'artifact': 'Makefile', 'risk': 'medium',
+                                                'evidence': 'p10'},
     # ── csharp ────────────────────────────────────────────────────────────────
     csharp.fix_csharp_missing_braces:          {'artifact': 'cs', 'risk': 'medium'},
     csharp.fix_csharp_duplicate_classes:       {'artifact': 'cs'},

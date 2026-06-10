@@ -68,6 +68,8 @@ from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
                          fix_vue_missing_package,
                          fix_jest_fs_mock,
                          fix_vue_test_utils_import,
+                         fix_js_const_reassignment,
+                         fix_vue_attr_quotes,
                          fix_literal_newlines,
                          fix_makefile_binary_name,
                          fix_missing_close_paren, fix_missing_pip_packages,
@@ -796,6 +798,10 @@ def run(goal: str, model: str = '', target_dir: str = '',
                 if fix_vue_test_utils_import(task.file_path):
                     log("Fixed %s: corrected Vue test-utils import.", task.file_path)
 
+            if task.file_path.lower().endswith('.vue'):
+                if fix_vue_attr_quotes(task.file_path):
+                    log("Fixed %s: stripped invalid chars from Vue attribute names.", task.file_path)
+
             if Path(task.file_path).suffix.lower() in ('.js', '.jsx', '.mjs', '.ts', '.tsx'):
                 if fix_js_duplicate_require(task.file_path):
                     log("Fixed %s: removed duplicate require declaration(s).", task.file_path)
@@ -1402,6 +1408,13 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
             if fix_vitest_globals(os.getcwd(), latest_out):
                 log("Re-applied Vitest globals:true (repair: ReferenceError).")
             for t in p.tasks:
+                if Path(t.file_path).exists() and Path(t.file_path).suffix.lower() in (
+                    '.js', '.jsx', '.mjs', '.ts', '.tsx'
+                ):
+                    if fix_js_const_reassignment(t.file_path, latest_out):
+                        log("Fixed %s: changed const to let (Assignment to constant variable).",
+                            t.file_path)
+            for t in p.tasks:
                 if Path(t.file_path).exists() and t.file_path.endswith('.py'):
                     if fix_missing_flask_client_fixture(t.file_path, latest_out):
                         log("Re-applied: added Flask client fixture to %s.", t.file_path)
@@ -1451,6 +1464,10 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
         if Path(t.file_path).exists():
             if fix_js_extra_closing_brace(t.file_path, initial_out):
                 log("Fixed %s: fixed unbalanced brace/paren.", t.file_path)
+            if Path(t.file_path).suffix.lower() in ('.js', '.jsx', '.mjs', '.ts', '.tsx'):
+                if fix_js_const_reassignment(t.file_path, initial_out):
+                    log("Fixed %s: changed const to let (Assignment to constant variable).",
+                        t.file_path)
             if t.file_path.endswith('.cs') and 'CS0246' in initial_out:
                 if fix_csharp_missing_using(t.file_path, initial_out):
                     log("Fixed %s: added missing using directive(s).", t.file_path)
