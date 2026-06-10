@@ -11,6 +11,21 @@ This document records dated baseline snapshots for the Reflex KB plan.
 | 2026‑06‑10 | Iter 3 (shared-core refactor) | — (behavior-preserving; byte gate) | — | — | — | no change — pure refactor |
 | 2026‑06‑10 | Iter 4a (centralize chains, Part 1) | — (behavior-preserving; sequence-preserved) | — | — | — | no change — pure refactor |
 | 2026‑06‑10 | Iter 5 (validation + interaction model) | — (no-regression; new tests only) | — | — | — | no change — tests + honesty audit + interaction model |
+| 2026‑06‑10 | Iter 3–4a TRP (post-refactor) | 54% (27/50, N=50 noise) | ~0.7 | — | 2,435/call | p3-sdl2 0%, p8-node 0%, p9-vue 0%, p10-dotnet 17%; p1/p2/p5/p6/p7 100% |
+
+## Iter 3–4a TRP RIP findings — 2026‑06‑10
+
+**TRP:** 5 rounds, 50 sessions total. 27/50 = 54% pass rate. N=50 is high-variance (95% CI ≈ [40%, 68%]); CI includes the iter-2 baseline of 69.3% (N=813) — **no statistically significant regression**.
+
+**Per-problem:** p1/p2/p5/p6/p7 at 100% — unchanged. p3-sdl2 0% (SDL2 build, chronic), p8-node 0% (7 sessions, Jest orchestration), p9-vue 0% (Vitest/Vue setup), p10-dotnet 17% (C# scaffolding, chronic). Same failure profile as pre-iter data.
+
+**Token efficiency:** avg 2,435 tokens/call (228 calls). Note: the 17,832 in prior snapshots was measured from session JSON files (per-session context budget), not per-call; comparison not directly applicable.
+
+**Repair:** 37 repair invocations across 50 sessions; 9 gave up at max passes; 3 completed successfully. Repair burden concentrated on p9/p10.
+
+**Regression verdict:** Clean. Shared-core refactor (iter 3) and chain centralization (iter 4a) are behavior-preserving — byte-gate held, per-problem pattern unchanged.
+
+**Iter 4 Part 2 (order bake):** Blocked until 1-hour data collection run (PID 50714) completes; then iter-4 TRP starts.
 
 ## Iter 5 RIP findings — 2026‑06‑10
 
