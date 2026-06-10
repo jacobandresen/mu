@@ -1,30 +1,38 @@
 # TODO — ranked by impact
 
-Evidence base: `dojo-failures.md` + `mu kb` combination report (n=855+ sessions),
-CHALLENGES.md, KB_BASELINE.md.
+Evidence base: `mu observe` + `mu kb` combination report (n≈900 sessions, qwen2.5),
+CHALLENGES.md, KB_BASELINE.md. Refreshed 2026-06-10.
 
 ---
 
 ## 1. Fix `fix_inline_recipe` / `fix_makefile_recipe_is_prerequisite_list` oscillation
 
-**Why it's #1:** firing data shows these two reflexes ping-ponging on every repair pass
-(pattern: `fix_inline_recipe:1 | fix_makefile_recipe_is_prerequisite_list:1 | fix_inline_recipe:2 | …`)
-in 92 sessions, burning all 4 repair passes on Makefile churn instead of the actual failure.
-Most of those sessions end in failure. This is the single most wasteful behavior in the system.
+**Why it's #1:** sequence data shows symmetric ping-pong: each fires after the other ×93,
+burning all repair passes on Makefile churn. Root cause identified: `fix_inline_recipe`
+uses `declared` for its guard, `fix_makefile_recipe_is_prerequisite_list` uses
+`declared | _KNOWN_TARGETS`. When `install`/`test` are in `_KNOWN_TARGETS` but not
+declared as targets, the two reflexes undo each other every pass.
 
-**What to do:** read both functions side-by-side and find what each produces that triggers the
-other. Add an idempotency guard (e.g. skip `fix_inline_recipe` if the file already has a
-properly-separated recipe), or merge the two into one pass that handles both patterns.
+**Fix:** In `fix_inline_recipe` line 182, change:
+```python
+if all(w in declared for w in after.split()):
+```
+to:
+```python
+if all(w in (declared | _KNOWN_TARGETS) for w in after.split()):
+```
+This makes the prerequisite-list guard use the same set as `fix_makefile_recipe_is_prerequisite_list`.
+Add idempotency test: two back-to-back applies produce the same output.
 
-Files: `src/mu/reflexes/makefile.py` — `fix_inline_recipe`, `fix_makefile_recipe_is_prerequisite_list`.
+Files: `src/mu/reflexes/makefile.py:182`.
 
 ---
 
 ## 2. Ablate `fix_inline_recipe` — measure Δ and record into `reflex.efficacy`
 
 **Why:** combination report shows P=0.54 [0.45, 0.63] vs base 0.67 (n=113) — CI entirely
-below base rate, already statistically distinguishable. Together with #1, this is the
-strongest signal of a harmful reflex.
+below base rate, already statistically distinguishable. After #1 lands (oscillation stopped),
+re-measure to see if the reflex is now harmless or still net-negative.
 
 **What to do:**
 ```sh
@@ -36,28 +44,32 @@ MU_SEED=7  python3 -m mu.dojo measure p7-flask --runs 5 --emit-json /tmp/base_7.
 MU_SEED=42 python3 -m mu.dojo measure p7-flask --runs 5 --disable fix_inline_recipe --emit-json /tmp/dis_42.json
 # … repeat for seeds 0, 7
 ```
-Then `reflexdb.record_efficacy('fix_inline_recipe', ...)` for each seed. If `sz5_gate(deltas)`
-returns True with positive Δ → remove the reflex.
+Then `reflexdb.record_efficacy('fix_inline_recipe', ...)`. If `sz5_gate(deltas)` returns
+True with positive Δ → remove the reflex.
 
 ---
 
-## 3. Fix p5-gin (Go) sessions archiving as `unknown` with `project_dir: None`
+## 3. Reduce "no distilled cause" (85 qwen2.5 failures, largest bucket)
 
-**Why:** every round has 1–2 p5-gin sessions labelled `unknown` in the per-problem summary.
-`meta.json` shows `project_dir: None, outcome: unknown` — the session never properly starts
-or archives. This masks Go failures and inflates the "no distilled cause" count.
+**Why:** `mu observe` shows 85/~290 qwen2.5 failures have `(no distilled cause)` + 42 blank
+causes — together that's ~44% of failures invisible to the candidate-reflex pipeline. The
+immediately actionable bucket is Go syntax errors (10×: `unexpected ., expected }`).
 
-**What to do:** run `mu dojo run p5-gin` manually with logging, find where the session starts
-without a project dir. Check `dojo/runner.py` and `archive.py` for the code path that leaves
-`project_dir` unset on early exit.
+**What to do:**
+- Add `Go syntax error: unexpected X, expected Y` patterns to `distill_test_errors()` in
+  `src/mu/diagnose.py`. Also handle blank test log (empty `logs/tests*.log`) — return a
+  generic "test log empty" cause rather than blank/None.
+- Check 5–10 `(no distilled cause)` sessions manually: `ls ~/.mu/sessions | tail -20` then
+  read `logs/tests*.log` from sessions with blank cause.
+- Target: drop "no distilled cause" below 50 sessions.
 
 ---
 
 ## 4. Reflex: fix module-level SQLite connection (`fix_sqlite_conn_scope`)
 
-**Why:** `cannot import name 'conn' from 'main'` / `cannot import name 'cursor' from 'main'`
-recurs in p2-sqlite across 9 sessions. The model puts `conn = sqlite3.connect(...)` at
-module level; the test tries to `from main import conn`. CHALLENGES #13/#18.
+**Why:** `cannot import name 'conn' from 'main'` recurs in p2-sqlite (9 sessions, 3rd in
+observe output). Multi-session, deterministic, within one problem — meets ≥2-session threshold
+for a scan reflex even if single-problem, because the pattern is general Python.
 
 **What to do:** add a scan reflex in `src/mu/reflexes/python.py` that detects a module-level
 `conn = sqlite3.connect(...)` or `cursor = conn.cursor()` and wraps it in a `get_connection()`
@@ -65,16 +77,14 @@ factory function. Test: fixture with the pattern, assert reflex fires and result
 
 ---
 
-## 5. Improve `diagnose.py` coverage for "no distilled cause"
+## 5. Fix p5-gin (Go) sessions archiving as `unknown` with `project_dir: None`
 
-**Why:** 67 of 210 qwen2.5 failures have `(no distilled cause)` — the largest single bucket.
-These sessions can't contribute to `mu observe` candidates. The gaps are primarily Go errors,
-general assertion failures, and early-exit crashes with no test log.
+**Why:** every round has 1–2 p5-gin sessions labelled `unknown`. `mu observe` shows p5-gin
+failure rate 0.19 (n=84) — that 19% may be partially masked by archiving failures.
 
-**What to do:** audit the 67 sessions — read 5–10 `logs/tests*.log` files from sessions with
-no cause. Add regex patterns to `distill_test_errors()` in `src/mu/diagnose.py` for Go compile
-errors (`undefined:`, `cannot use`), generic assertion failures, and empty-log handling.
-Validate: re-run `mu observe` and check if count drops below 40.
+**What to do:** run `mu dojo run p5-gin` manually with logging, find where the session starts
+without a project dir. Check `dojo/runner.py` and `archive.py` for the code path that leaves
+`project_dir` unset on early exit.
 
 ---
 

@@ -11,14 +11,16 @@ Five iterations on `kb-implementation`. Local model: `qwen2.5-coder-7b-instruct`
 | 1 | Idempotency test harness | ✓ | a6798d3 |
 | 2 | Schema fields + efficacy storage | ✓ | 53d6e06 |
 | 3 | Shared-core refactor | ✓ | 48f995a |
-| 4 | Offline-baked chain order | Part 1 ✓ (4746d22) / Part 2 pending TRP A/B | — |
+| 4 | Offline-baked chain order | Part 1 ✓ (4746d22) / Part 2 skipped — no signal | — |
 | 5 | Validation discipline + interaction model | ✓ | 25f3d3e |
 
-## Iter 4 Part 2 — remaining gate
+## Iter 4 Part 2 — closed: no signal (2026-06-10)
 
-Run `mu dojo measure --seed` A/B across ≥3 seeds. Keep new order only if Δ CI
-excludes 0 (§5z); otherwise keep centralization-only. Record driving sequence edges
-in `reflex.evidence`. (Blocked until iter-3 TRP completes and iter-4 TRP starts.)
+Combination report after 1-hour collection run (n≈900+ sessions): top sequence edges
+`fix_inline_recipe` → `fix_makefile_recipe_is_prerequisite_list` ×93 and the reverse ×93.
+Symmetric oscillation — no asymmetric ordering advantage. §5z gate never opens.
+Decision: skip order bake, keep centralization-only (Part 1). See TODO #1 for the
+oscillation fix.
 
 ## Rules (preserved for reference)
 
