@@ -29,7 +29,12 @@ _SCHEMA = """
 CREATE TABLE IF NOT EXISTS reflex (
   id TEXT PRIMARY KEY, toolchain TEXT, error_class TEXT,
   trigger TEXT, scope TEXT, summary TEXT,
-  efficacy REAL                                    -- efficacy: null until ablated
+  artifact TEXT,                                   -- curated: target file type
+  phase TEXT,                                      -- derived: write/repair/plan
+  idempotent INT,                                  -- measured: 1/0/NULL
+  risk TEXT,                                       -- curated: low/medium/high
+  evidence TEXT,                                   -- curated: motivating problem ids
+  efficacy REAL                                    -- mean Δ across ≥3 ablation seeds
 );
 CREATE TABLE IF NOT EXISTS session (
   session_id TEXT PRIMARY KEY, problem_id TEXT, model TEXT, model_family TEXT,
@@ -38,6 +43,8 @@ CREATE TABLE IF NOT EXISTS session (
 );
 CREATE TABLE IF NOT EXISTS firing (
   session_id TEXT, reflex_id TEXT, file TEXT, pass_index INT,
+  phase TEXT,                                      -- derived: write (pass 0) or repair
+  ts TEXT,                                         -- session start_time
   FOREIGN KEY(session_id) REFERENCES session(session_id)
 );
 CREATE TABLE IF NOT EXISTS model_profile (
@@ -47,6 +54,12 @@ CREATE TABLE IF NOT EXISTS model_profile (
   competence_by_toolchain TEXT,   -- json {toolchain: pass_rate}
   error_class_propensity TEXT,    -- json {error_class: firing_rate}  (fingerprint)
   updated TEXT
+);
+CREATE TABLE IF NOT EXISTS efficacy_run (
+  reflex_id TEXT, seed TEXT,
+  baseline_hits INT, baseline_n INT,
+  disabled_hits INT, disabled_n INT,
+  delta REAL, ts TEXT
 );
 CREATE INDEX IF NOT EXISTS firing_session ON firing(session_id);
 CREATE INDEX IF NOT EXISTS firing_reflex  ON firing(reflex_id);
@@ -65,9 +78,13 @@ def connect(db_path: str = DEFAULT_DB) -> sqlite3.Connection:
 
 def _load_reflex_catalog(con: sqlite3.Connection) -> None:
     con.executemany(
-        "INSERT OR REPLACE INTO reflex(id,toolchain,error_class,trigger,scope,summary) "
-        "VALUES (?,?,?,?,?,?)",
-        [(r.id, r.toolchain, r.error_class, r.trigger, r.scope, r.summary)
+        "INSERT OR REPLACE INTO reflex"
+        "(id,toolchain,error_class,trigger,scope,summary,artifact,phase,idempotent,risk,evidence)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        [(r.id, r.toolchain, r.error_class, r.trigger, r.scope, r.summary,
+          r.artifact, r.phase,
+          (1 if r.idempotent else 0) if r.idempotent is not None else None,
+          r.risk, r.evidence)
          for r in discover()])
 
 
@@ -84,23 +101,28 @@ def _load_sessions(con: sqlite3.Connection, sessions: list[dict]) -> None:
         "INSERT OR REPLACE INTO session VALUES (?,?,?,?,?,?,?,?,?,?,?)", rows)
 
 
-def _load_firings(con: sqlite3.Connection, sessions_dir: str) -> None:
+def _load_firings(con: sqlite3.Connection, sessions_dir: str,
+                  session_ts: dict[str, str] | None = None) -> None:
     """Mine firings.jsonl (written by run_reflexes) from each session dir."""
     rows = []
+    session_ts = session_ts or {}
     for s_dir in Path(sessions_dir).glob('*'):
         fj = s_dir / 'firings.jsonl'
         if not fj.exists():
             continue
         sid = s_dir.name
+        ts = session_ts.get(sid, '')
         for line in fj.read_text().splitlines():
             try:
                 e = json.loads(line)
             except json.JSONDecodeError:
                 continue
+            pass_index = e.get('pass_index', 0)
+            phase = 'write' if pass_index == 0 else 'repair'
             rows.append((sid, e.get('reflex_id', ''), e.get('file', ''),
-                         e.get('pass_index', 0)))
+                         pass_index, phase, ts))
     if rows:
-        con.executemany("INSERT INTO firing VALUES (?,?,?,?)", rows)
+        con.executemany("INSERT INTO firing VALUES (?,?,?,?,?,?)", rows)
 
 
 def _problem_toolchain(con: sqlite3.Connection) -> dict[str, str]:
@@ -151,25 +173,86 @@ def _build_model_profiles(con: sqlite3.Connection) -> None:
              datetime.datetime.now().isoformat(timespec='seconds')))
 
 
+def _restore_efficacy_summaries(con: sqlite3.Connection) -> None:
+    """Recompute reflex.efficacy from efficacy_run after a rebuild.
+    efficacy_run is not dropped on rebuild (it's manually recorded data, not
+    derived from the session archive), so this re-applies its summaries."""
+    rows = con.execute(
+        "SELECT reflex_id, AVG(delta) eff FROM efficacy_run "
+        "GROUP BY reflex_id HAVING COUNT(*) >= 3").fetchall()
+    for r in rows:
+        con.execute("UPDATE reflex SET efficacy=? WHERE id=?", (r['eff'], r['reflex_id']))
+
+
 def build(db_path: str = DEFAULT_DB, sessions_dir: str | None = None) -> dict:
     """(Re)build the whole KB from the session archive. Idempotent."""
     sessions_dir = sessions_dir or os.path.expanduser('~/.mu/sessions')
     sessions = observe.load_sessions(sessions_dir)
     con = connect(db_path)
-    # Drop + recreate (the KB is rebuildable, never the source of truth), so a
-    # schema change — like adding reflex.summary — always applies to an old DB.
+    # Drop + recreate the derived tables (not efficacy_run — that holds manually
+    # recorded ablation data that must survive a rebuild).
     con.executescript("DROP TABLE IF EXISTS reflex; DROP TABLE IF EXISTS session; "
                       "DROP TABLE IF EXISTS firing; DROP TABLE IF EXISTS model_profile;")
     con.executescript(_SCHEMA)
     _load_reflex_catalog(con)
     _load_sessions(con, sessions)
-    _load_firings(con, sessions_dir)
+    session_ts = {s['session_id']: s.get('start_time', '') for s in sessions}
+    _load_firings(con, sessions_dir, session_ts)
     _build_model_profiles(con)
+    _restore_efficacy_summaries(con)
     con.commit()
     counts = {t: con.execute(f"SELECT COUNT(*) c FROM {t}").fetchone()['c']
-              for t in ('reflex', 'session', 'firing', 'model_profile')}
+              for t in ('reflex', 'session', 'firing', 'model_profile', 'efficacy_run')}
     con.close()
     return counts
+
+
+# ── efficacy ──────────────────────────────────────────────────────────────────
+
+def sz5_gate(deltas: list[float]) -> bool:
+    """§5z: return True if the 95% CI of per-seed Δ values excludes 0.
+
+    Requires ≥3 seeds. Uses a normal approximation to the sampling distribution
+    of the mean — adequate for ablation decisions at this N. A pure function:
+    no DB, no LLM, testable on synthetic data."""
+    if len(deltas) < 3:
+        return False
+    import math
+    n = len(deltas)
+    mean = sum(deltas) / n
+    variance = sum((d - mean) ** 2 for d in deltas) / (n - 1) if n > 1 else 0.0
+    if variance == 0.0:
+        return mean != 0.0
+    se = math.sqrt(variance / n)
+    lo = mean - 1.96 * se
+    hi = mean + 1.96 * se
+    return lo > 0.0 or hi < 0.0
+
+
+def record_efficacy(reflex_id: str, seed: str,
+                    baseline_hits: int, baseline_n: int,
+                    disabled_hits: int, disabled_n: int,
+                    db_path: str = DEFAULT_DB) -> None:
+    """Persist one ablation seed's result (baseline vs disabled) into efficacy_run.
+
+    After ≥3 seeds are recorded for a reflex, recomputes and stores the mean Δ
+    in reflex.efficacy. Use sz5_gate() to decide whether the Δ is significant."""
+    import datetime
+    b_rate = baseline_hits / baseline_n if baseline_n else 0.0
+    d_rate = disabled_hits / disabled_n if disabled_n else 0.0
+    delta = d_rate - b_rate  # negative → reflex helped; positive → reflex hurt
+    ts = datetime.datetime.now().isoformat(timespec='seconds')
+    con = connect(db_path)
+    con.execute("INSERT INTO efficacy_run VALUES (?,?,?,?,?,?,?,?)",
+                (reflex_id, seed, baseline_hits, baseline_n,
+                 disabled_hits, disabled_n, delta, ts))
+    runs = con.execute(
+        "SELECT delta FROM efficacy_run WHERE reflex_id=?", (reflex_id,)).fetchall()
+    if len(runs) >= 3:
+        eff = sum(r['delta'] for r in runs) / len(runs)
+        con.execute("UPDATE reflex SET efficacy=? WHERE id=?", (eff, reflex_id))
+    con.commit()
+    con.close()
 
 
 # ── reporting ─────────────────────────────────────────────────────────────────
@@ -210,13 +293,17 @@ def combination_report(con: sqlite3.Connection) -> list[str]:
         # interval still contains the base rate has no *distinguishable* effect in the
         # (confounded) firing data — ablation is the only way to decide. Most-fired
         # first, since ablating those resolves the most.
+        risks = {row['id']: row['risk'] for row in
+                 con.execute("SELECT id, risk FROM reflex")}
         out += ["", "### Ablation shortlist — effect not yet distinguishable from base",
                 "_Run a seeded frozen baseline with/without each, compare Δ (§9):_",
                 "```sh",
                 "mu dojo measure <problem> --runs 5 --seed 42 --disable " + shortlist[0][1],
                 "```"]
         for n, rid in sorted(shortlist, reverse=True):
-            out.append(f"- `{rid}` (fired in {n} sessions)")
+            risk = risks.get(rid, 'low')
+            risk_tag = f" ⚠ risk={risk}" if risk != 'low' else ''
+            out.append(f"- `{rid}` (fired in {n} sessions){risk_tag}")
 
     pairs = con.execute(
         "SELECT a.reflex_id x, b.reflex_id y, COUNT(DISTINCT a.session_id) n "
@@ -261,6 +348,19 @@ def report(db_path: str = DEFAULT_DB) -> str:
     else:
         out += ["", "_No model-tagged sessions yet — run the dojo with the new "
                 "code (each session now records its model)._"]
+
+    # Efficacy summary — only show rows with recorded ablation data
+    eff_rows = con.execute(
+        "SELECT r.id, r.efficacy, COUNT(e.reflex_id) seeds "
+        "FROM reflex r LEFT JOIN efficacy_run e ON e.reflex_id=r.id "
+        "WHERE r.efficacy IS NOT NULL GROUP BY r.id "
+        "ORDER BY r.efficacy").fetchall()
+    if eff_rows:
+        out += ["", "## Ablation efficacy (mean Δ = disabled − baseline, ≥3 seeds)"]
+        for row in eff_rows:
+            direction = "helped" if row['efficacy'] < 0 else "hurt"
+            out.append(f"- `{row['id']}`  Δ={row['efficacy']:+.3f}  "
+                       f"({row['seeds']} seeds, {direction})")
 
     out += combination_report(con)
     con.close()

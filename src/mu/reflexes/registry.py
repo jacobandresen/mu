@@ -20,9 +20,35 @@ from the signature.
 
 import inspect
 from dataclasses import dataclass
+from pathlib import Path
 
 from mu.reflexes import (core, csharp, go, javascript, makefile, plan_reflexes,
                          python, rust)
+
+# ── controlled vocabularies (exported for tests) ──────────────────────────────
+PHASE_VOCAB: frozenset[str] = frozenset({'plan', 'write', 'repair'})
+RISK_VOCAB:  frozenset[str] = frozenset({'low', 'medium', 'high'})
+
+# trigger → execution phase (static, derivable from the function's signature class)
+_PHASE_MAP: dict[str, str] = {
+    'scan':     'write',
+    'lint-out': 'write',
+    'project':  'write',
+    'test-out': 'repair',
+    'plan':     'plan',
+}
+
+
+def _load_idempotent_ids() -> frozenset[str]:
+    """IDs confirmed idempotent by tests/test_reflex_idempotency.py double-apply."""
+    p = Path(__file__).with_name('idempotent_ids.txt')
+    try:
+        return frozenset(ln.strip() for ln in p.read_text().splitlines() if ln.strip())
+    except OSError:
+        return frozenset()
+
+
+_IDEMPOTENT_IDS: frozenset[str] = _load_idempotent_ids()
 
 # ── the catalog: error_class → the reflex functions in it ─────────────────────
 # Direct function references (not strings) make the link to each implementation
@@ -86,16 +112,75 @@ _CATALOG: dict[str, list] = {
 # All language modules — scanned by the completeness check (§ below).
 _MODULES = (core, python, rust, csharp, go, javascript, makefile, plan_reflexes)
 
+# Per-reflex curated metadata: artifact, risk, evidence.
+# Keyed by function reference (same traceability discipline as _CATALOG — no name strings).
+# Omit a reflex to accept defaults: artifact=None, risk='low', evidence=''.
+_ANNOTATIONS: dict = {
+    # ── core ──────────────────────────────────────────────────────────────────
+    core.fix_json_unclosed_brackets:           {'artifact': 'json'},
+    # ── makefile ──────────────────────────────────────────────────────────────
+    makefile.fix_makefile_space_indent:        {'artifact': 'Makefile'},
+    makefile.fix_orphan_top_level_commands:    {'artifact': 'Makefile', 'risk': 'medium'},
+    makefile.fix_no_targets:                   {'artifact': 'Makefile', 'risk': 'medium',
+                                                'evidence': 'p5-c'},
+    makefile.fix_inline_recipe:                {'artifact': 'Makefile', 'risk': 'medium'},
+    makefile.fix_nested_targets:               {'artifact': 'Makefile', 'risk': 'medium'},
+    makefile.fix_binary_target_runs_itself:    {'artifact': 'Makefile', 'risk': 'medium'},
+    makefile.fix_makefile_pip_install_empty:   {'artifact': 'Makefile'},
+    makefile.fix_duplicate_var:                {'artifact': 'Makefile'},
+    makefile.apply_makefile_reflexes:          {'artifact': 'Makefile'},
+    # ── rust ──────────────────────────────────────────────────────────────────
+    rust.fix_rust_cargo_bad_dependency:        {'artifact': 'Cargo.toml',
+                                                'evidence': 'p6-rust'},
+    rust.fix_rust_duplicate_use:               {'artifact': 'rs'},
+    rust.fix_rust_missing_trait_import:        {'artifact': 'rs'},
+    rust.fix_rust_cargo_toml:                  {'artifact': 'Cargo.toml',
+                                                'evidence': 'p6-rust'},
+    # ── python ────────────────────────────────────────────────────────────────
+    python.fix_missing_pip_packages:           {'artifact': 'requirements.txt',
+                                                'evidence': 'p2-sqlite'},
+    python.fix_sqlite_test_isolation:          {'artifact': 'py', 'evidence': 'p2-sqlite'},
+    python.fix_sqlite_memory_multi_connect:    {'artifact': 'py', 'evidence': 'p2-sqlite'},
+    python.fix_flask_init_db_import:           {'artifact': 'py', 'risk': 'medium',
+                                                'evidence': 'p7-flask'},
+    python.fix_flask_post_missing_201:         {'artifact': 'py', 'evidence': 'p7-flask'},
+    python.fix_python_missing_def:             {'artifact': 'py', 'risk': 'medium'},
+    python.fix_missing_flask_client_fixture:   {'artifact': 'py', 'evidence': 'p7-flask'},
+    python.fix_test_import_module:             {'artifact': 'py', 'evidence': 'p2-sqlite'},
+    # ── javascript ────────────────────────────────────────────────────────────
+    javascript.fix_package_json_builtin_deps:  {'artifact': 'package.json'},
+    javascript.fix_jest_fs_mock:               {'artifact': 'js', 'risk': 'medium',
+                                                'evidence': 'p8-node'},
+    javascript.fix_vue_missing_package:        {'artifact': 'package.json',
+                                                'evidence': 'p9-vue'},
+    javascript.fix_jest_config_js:             {'artifact': 'js', 'evidence': 'p8-node'},
+    javascript.fix_js_duplicate_require:       {'artifact': 'js'},
+    javascript.fix_js_missing_requires:        {'artifact': 'js'},
+    # ── csharp ────────────────────────────────────────────────────────────────
+    csharp.fix_csharp_missing_braces:          {'artifact': 'cs', 'risk': 'medium'},
+    csharp.fix_csharp_duplicate_classes:       {'artifact': 'cs'},
+    csharp.fix_csharp_missing_using:           {'artifact': 'cs'},
+    # ── go ────────────────────────────────────────────────────────────────────
+    go.fix_go_missing_pkg_imports:             {'artifact': 'go'},
+    go.fix_go_unused_imports:                  {'artifact': 'go'},
+    go.apply_go_reflexes:                      {'artifact': 'go'},
+}
+
 
 @dataclass
 class ReflexRecord:
     """One reflex's machine-readable metadata (docs/REFLEX_KB.md §3)."""
     id: str
-    toolchain: str       # module it lives in (python, rust, makefile, …)
-    error_class: str     # from the catalog above
-    trigger: str         # scan · lint-out · test-out · project · plan (derived)
-    scope: str           # file · project (derived)
-    summary: str         # one-line docstring (the schema is the documentation, §2)
+    toolchain: str         # module it lives in (python, rust, makefile, …)
+    error_class: str       # from the catalog above
+    trigger: str           # scan · lint-out · test-out · project · plan (derived)
+    scope: str             # file · project (derived)
+    summary: str           # one-line docstring (the schema is the documentation, §2)
+    artifact: str | None   # curated: file type this reflex targets (None = unspecified)
+    phase: str             # derived from trigger: write · repair · plan
+    idempotent: bool | None  # measured by test_reflex_idempotency; None = untested
+    risk: str              # curated: low · medium · high
+    evidence: str          # curated: dojo problem id(s) that motivated this reflex
 
 
 def _summary(fn) -> str:
@@ -123,13 +208,21 @@ def _record(fn, error_class: str) -> ReflexRecord:
     """Build a record straight from the function object — no name strings."""
     params = list(inspect.signature(fn).parameters)
     scope = 'project' if any('project_dir' in p for p in params) else 'file'
+    trigger = _trigger_from_signature(params)
+    ann = _ANNOTATIONS.get(fn, {})
+    is_scan_file = (trigger == 'scan' and scope == 'file')
     return ReflexRecord(
         id=fn.__name__,
         toolchain=fn.__module__.rsplit('.', 1)[-1],
         error_class=error_class,
-        trigger=_trigger_from_signature(params),
+        trigger=trigger,
         scope=scope,
         summary=_summary(fn),
+        artifact=ann.get('artifact', None),
+        phase=_PHASE_MAP[trigger],
+        idempotent=(fn.__name__ in _IDEMPOTENT_IDS) if is_scan_file else None,
+        risk=ann.get('risk', 'low'),
+        evidence=ann.get('evidence', ''),
     )
 
 
