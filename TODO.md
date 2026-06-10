@@ -1,7 +1,7 @@
 # TODO — ranked by impact
 
-Evidence base: `dojo-failures.md` rounds 1–4 (2026-06-07) + round 1 (2026-06-10),
-`mu kb` combination report (n=855 sessions), CHALLENGES.md.
+Evidence base: `dojo-failures.md` + `mu kb` combination report (n=855+ sessions),
+CHALLENGES.md, KB_BASELINE.md.
 
 ---
 
@@ -29,11 +29,11 @@ strongest signal of a harmful reflex.
 **What to do:**
 ```sh
 # baseline (3 seeds, 5 runs each)
-MU_SEED=42 N=5 python3 -m mu.dojo measure p7-flask --emit-json /tmp/base_42.json
-MU_SEED=0  N=5 python3 -m mu.dojo measure p7-flask --emit-json /tmp/base_0.json
-MU_SEED=7  N=5 python3 -m mu.dojo measure p7-flask --emit-json /tmp/base_7.json
+MU_SEED=42 python3 -m mu.dojo measure p7-flask --runs 5 --emit-json /tmp/base_42.json
+MU_SEED=0  python3 -m mu.dojo measure p7-flask --runs 5 --emit-json /tmp/base_0.json
+MU_SEED=7  python3 -m mu.dojo measure p7-flask --runs 5 --emit-json /tmp/base_7.json
 # disabled
-MU_SEED=42 N=5 python3 -m mu.dojo measure p7-flask --disable fix_inline_recipe --emit-json /tmp/dis_42.json
+MU_SEED=42 python3 -m mu.dojo measure p7-flask --runs 5 --disable fix_inline_recipe --emit-json /tmp/dis_42.json
 # … repeat for seeds 0, 7
 ```
 Then `reflexdb.record_efficacy('fix_inline_recipe', ...)` for each seed. If `sz5_gate(deltas)`
@@ -65,53 +65,7 @@ factory function. Test: fixture with the pattern, assert reflex fires and result
 
 ---
 
-## 5. Reflex: fix `const` → `let` on assignment error (`fix_js_const_reassignment`)
-
-**Why:** `TypeError: Assignment to constant variable` recurs in p8-node (rounds 2+).
-Clear deterministic fix: find the `const X` declaration that is later reassigned.
-
-**What to do:** add a `test-out` reflex in `src/mu/reflexes/javascript.py`. When test output
-contains `TypeError: Assignment to constant variable`, scan `.js` files for `const \w+` that
-appear in an assignment on a later line and change `const` to `let`. Add an idempotency test.
-
----
-
-## 6. Reflex: strip invalid characters from Vue HTML attribute names (`fix_vue_attr_quotes`)
-
-**Why:** `SyntaxError: Attribute name cannot contain U+0022 ("), U+0027 ('), and U+003C (<)`
-appeared in p9-vue in the current (2026-06-10) round. CHALLENGES #22.
-
-**What to do:** add a scan reflex in `src/mu/reflexes/javascript.py` that processes `.vue`
-files, finds attribute names containing `"`, `'`, or `<` in the `<template>` section, and
-strips or replaces them. Existing `fix_vue_*` family for reference.
-
----
-
-## 7. Reflex: add missing `test:` Makefile target (`fix_makefile_missing_test_target`)
-
-**Why:** `Makefile: no rule to make target 'test'` appears in p7-flask rounds 1 and 3 of the
-2026-06-07 run. The model generates a Makefile without a `test:` phony. An existing reflex
-family handles related patterns (`fix_makefile_bare_pytest`, `fix_missing_venv_rule`).
-
-**What to do:** add a scan reflex in `src/mu/reflexes/makefile.py`. If the Makefile has no
-`test:` target but has a `.venv/bin/pytest` invocation (or `npm test`, `cargo test`, etc.),
-insert a `test:` target delegating to the appropriate command. Generalises across toolchains.
-
----
-
-## 8. Reflex: fix `dotnet test` without project path (`fix_dotnet_test_cwd`)
-
-**Why:** `MSBuild MSB1003: Specify a project or solution file. The current working directory
-does not contain a project` appears in p10 in every round (58× in candidate signatures).
-The model writes `dotnet test` in the Makefile from the repo root instead of `cd Tests && dotnet test`.
-
-**What to do:** add a scan reflex in `src/mu/reflexes/csharp.py` (or `makefile.py`). If a
-Makefile line contains `dotnet test` without a path argument and a `.csproj` file exists in a
-subdirectory, rewrite to `dotnet test <subdir>/<project>.csproj`.
-
----
-
-## 9. Improve `diagnose.py` coverage for "no distilled cause"
+## 5. Improve `diagnose.py` coverage for "no distilled cause"
 
 **Why:** 67 of 210 qwen2.5 failures have `(no distilled cause)` — the largest single bucket.
 These sessions can't contribute to `mu observe` candidates. The gaps are primarily Go errors,
@@ -124,12 +78,11 @@ Validate: re-run `mu observe` and check if count drops below 40.
 
 ---
 
-## 10. KB Iteration 3: shared-core refactor for duplicate-declaration family
+## Done (archived)
 
-**Why:** `fix_rust_duplicate_use`, `fix_js_duplicate_require`, `fix_csharp_duplicate_classes`
-are three copies of the same algorithm (find duplicate declarations, keep first, drop rest)
-with per-language regex. Per REFLEX_KB_PLAN.md iter-3.
-
-**What to do:** extract a `_fix_duplicate_declarations(path, pattern, keep_fn)` core in
-`src/mu/reflexes/core.py`. Thin wrappers in rust/javascript/csharp call it with their regex.
-Gate: iter-1 idempotency tests + frozen output tests must stay byte-identical. Run TRP after.
+- **`fix_js_const_reassignment`** — implemented in `javascript.py` (test-out, p8-node)
+- **`fix_vue_attr_quotes`** — implemented in `javascript.py` (scan, p9-vue)
+- **`fix_makefile_missing_test_target`** — implemented in `makefile.py`
+- **`fix_dotnet_test_cwd`** — implemented in `makefile.py` (p10-dotnet)
+- **KB Iter 3: shared-core refactor** — `_fix_duplicate_decls` in `core.py`, iter 3 commit 48f995a
+- **KB Iters 4–5** — composite chains + validation tests, commits 4746d22, 25f3d3e
