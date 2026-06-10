@@ -33,7 +33,7 @@ ROUNDS=5 MU_NUM_CTX=6000 MU_AGENT_MODEL=qwen2.5-coder-7b-instruct \
 | 0 | Baseline snapshot | ✓ | 8ff56e9 |
 | 1 | Idempotency test harness | ✓ | a6798d3 |
 | 2 | Schema fields + efficacy storage | ✓ | 53d6e06 |
-| 3 | Shared-core refactor | pending | — |
+| 3 | Shared-core refactor | ✓ | — |
 | 4 | Offline-baked chain order | pending | — |
 | 5 | Validation discipline + interaction model | pending | — |
 

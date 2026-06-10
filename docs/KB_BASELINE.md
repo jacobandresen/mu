@@ -8,6 +8,15 @@ This document records dated baseline snapshots for the Reflex KB plan.
 | 2026‑06‑07 | Iter 1 (test harness) | 67.5% (560/830 cumul.) | 1.9 | 60% | 17,832 | `SyntaxError: Duplicate attribute` (p9-vue, 2×), `MSBuild MSB1003` (p10-dotnet, chronic), `cannot import name 'conn' from 'main'` (p2-sqlite) |
 
 | 2026‑06‑10 | Iter 2 (schema + efficacy) | 69.3% (813 sessions, qwen2.5) | 1.9 | 62% | 17,832 | `MSBuild MSB1003` (p10-dotnet, chronic single-problem), `Makefile: no rule to make target 'X'` (multi-problem, 15×), `assertion failed` (p8-node, 11×) |
+| 2026‑06‑10 | Iter 3 (shared-core refactor) | — (behavior-preserving; byte gate) | — | — | — | no change — pure refactor |
+
+## Iter 3 RIP findings — 2026‑06‑10
+
+**Change:** Extracted `_fix_duplicate_decls` into `core.py` as a shared keep-first dedup kernel. `fix_rust_duplicate_use` and `fix_js_duplicate_require` refactored to thin wrappers. `fix_csharp_duplicate_classes` excluded — cross-file brace-depth algorithm, not line-dedup, different class.
+
+**Regression check:** Behavior-preserving by construction. 10-case byte-diff battery (back-to-back, non-adjacent, no-trailing-newline, CRLF, no-fire for both Rust+JS) — all byte-identical before/after. 47/47 tests pass. TRP in progress (PID 25903); by design cannot show regression.
+
+**Go/no-go:** Clean. Ready for **Iteration 4** (offline-baked chain order).
 
 ## Iter 2 RIP findings — 2026‑06‑10
 

@@ -8,6 +8,8 @@ import json
 import re
 from pathlib import Path
 
+from mu.reflexes.core import _fix_duplicate_decls
+
 
 __all__ = [
     'fix_vue_missing_package',
@@ -330,26 +332,13 @@ def fix_js_duplicate_require(file_path: str) -> bool:
     ext = Path(file_path).suffix.lower()
     if ext not in ('.js', '.jsx', '.mjs', '.ts', '.tsx'):
         return False
-    try:
-        lines = Path(file_path).read_text().splitlines()
-    except OSError:
-        return False
-    seen: set[str] = set()
-    out, removed = [], 0
-    for line in lines:
+    def _match(line: str):
         m = _JS_REQUIRE_DECL_RE.match(line)
-        if m:
-            name = m.group('name')
-            if name in seen:
-                removed += 1
-                continue  # drop the redeclaration
-            seen.add(name)
-        out.append(line)
-    if not removed:
-        return False
-    Path(file_path).write_text('\n'.join(out) + '\n')
-    print(f"==> [mu-agent] Reflex: removed {removed} duplicate require declaration(s) from {file_path}")
-    return True
+        return m.group('name') if m else None
+    removed = _fix_duplicate_decls(file_path, _match, keepends=False)
+    if removed:
+        print(f"==> [mu-agent] Reflex: removed {removed} duplicate require declaration(s) from {file_path}")
+    return removed > 0
 
 def fix_js_extra_closing_brace(file_path: str, test_output: str = '') -> bool:
     """Fix unbalanced braces in JS/TS files when the parser reports a mismatch.

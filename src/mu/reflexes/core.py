@@ -179,6 +179,42 @@ def fix_json_unclosed_brackets(file_path: str) -> bool:
     print(f"==> [mu-agent] Reflex: closed {len(stack)} unclosed bracket(s) in {file_path}")
     return True
 
+def _fix_duplicate_decls(
+    file_path: str,
+    match_fn,
+    keepends: bool = True,
+) -> int:
+    """Keep-first dedup of declaration lines; return count removed (0 = no change).
+
+    match_fn(raw_line) -> key string (dedup by) or None (leave line as-is).
+    keepends=True preserves original line endings (Rust path); False normalises
+    to LF via splitlines()+join (JS path).
+    """
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return 0
+    lines = text.splitlines(keepends=keepends)
+    seen: set[str] = set()
+    result = []
+    removed = 0
+    for line in lines:
+        key = match_fn(line)
+        if key is not None:
+            if key in seen:
+                removed += 1
+                continue
+            seen.add(key)
+        result.append(line)
+    if not removed:
+        return 0
+    if keepends:
+        Path(file_path).write_text(''.join(result))
+    else:
+        Path(file_path).write_text('\n'.join(result) + '\n')
+    return removed
+
+
 def fix_literal_newlines(file_path: str, lint_error: str = '') -> bool:
     """Replace literal \\n escape sequences with real newlines in source files.
 

@@ -6,6 +6,8 @@ language's fixers live together. No logic changes from the original.
 import re
 from pathlib import Path
 
+from mu.reflexes.core import _fix_duplicate_decls
+
 
 __all__ = [
     'fix_rust_println_missing_arg',
@@ -157,27 +159,13 @@ def fix_rust_duplicate_use(file_path: str) -> bool:
     """
     if not file_path.endswith('.rs'):
         return False
-    try:
-        text = Path(file_path).read_text()
-    except OSError:
-        return False
-    lines = text.splitlines(keepends=True)
-    seen: set[str] = set()
-    result = []
-    changed = False
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith('use ') and stripped in seen:
-            changed = True
-            continue
-        if stripped.startswith('use '):
-            seen.add(stripped)
-        result.append(line)
-    if not changed:
-        return False
-    Path(file_path).write_text(''.join(result))
-    print(f"==> [mu-agent] Reflex: removed duplicate use statement(s) in {file_path}")
-    return True
+    def _match(line: str):
+        s = line.strip()
+        return s if s.startswith('use ') else None
+    removed = _fix_duplicate_decls(file_path, _match, keepends=True)
+    if removed:
+        print(f"==> [mu-agent] Reflex: removed duplicate use statement(s) in {file_path}")
+    return removed > 0
 
 
 def fix_rust_unbalanced_braces(file_path: str, build_output: str = '') -> bool:
