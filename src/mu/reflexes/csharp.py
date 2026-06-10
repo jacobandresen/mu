@@ -14,6 +14,8 @@ __all__ = [
     'fix_csharp_duplicate_classes',
     'fix_csharp_missing_using',
     'fix_csharp_missing_braces',
+    'apply_csharp_write_reflexes',
+    'apply_csharp_repair_reflexes',
 ]
 
 
@@ -284,3 +286,26 @@ def fix_csharp_missing_braces(file_path: str) -> bool:
     Path(file_path).write_text('\n'.join(new_lines) + '\n')
     print(f"==> [mu-agent] Reflex: removed {removed} extra closing brace(s) from {file_path}")
     return True
+
+
+def apply_csharp_write_reflexes(file_path: str) -> None:
+    """Write-phase C# chain — preserves the order used in agent.py ~748."""
+    if not file_path.endswith('.cs'):
+        return
+    fix_csharp_keyword_prefix_artifacts(file_path)
+    fix_csharp_verbatim_string_escape(file_path)
+    fix_csharp_using_order(file_path)
+    fix_csharp_missing_braces(file_path)
+    fix_csharp_duplicate_classes(file_path)
+
+
+def apply_csharp_repair_reflexes(file_path: str, test_output: str = '') -> None:
+    """Repair-phase C# chain — preserves the order used in agent.py ~1333."""
+    if not file_path.endswith('.cs'):
+        return
+    fix_csharp_keyword_prefix_artifacts(file_path)
+    fix_csharp_verbatim_string_escape(file_path)
+    fix_csharp_using_order(file_path)
+    fix_csharp_missing_braces(file_path)
+    if test_output:
+        fix_csharp_missing_using(file_path, test_output)

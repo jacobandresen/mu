@@ -16,6 +16,7 @@ __all__ = [
     'fix_rust_duplicate_use',
     'fix_rust_unbalanced_braces',
     'fix_rust_missing_trait_import',
+    'apply_rust_source_reflexes',
 ]
 
 
@@ -279,3 +280,11 @@ def fix_rust_missing_trait_import(file_path: str, build_output: str) -> bool:
     Path(file_path).write_text('\n'.join(lines) + '\n')
     print(f"==> [mu-agent] Reflex: added missing trait import(s) to {file_path}: {to_add}")
     return True
+
+
+def apply_rust_source_reflexes(file_path: str) -> None:
+    """Write-phase .rs chain — preserves the order used in agent.py ~823."""
+    if not file_path.endswith('.rs'):
+        return
+    fix_rust_duplicate_use(file_path)
+    fix_rust_println_missing_arg(file_path)

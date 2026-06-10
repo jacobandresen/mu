@@ -110,7 +110,12 @@ _CATALOG: dict[str, list] = {
         rust.fix_rust_cargo_toml, csharp.fix_csharp_using_order,
         javascript.fix_js_env_data_file, python.py_autofix],
     'plan-spec': [plan_reflexes.apply_plan_spec_reflexes],
-    'composite-chain': [makefile.apply_makefile_reflexes, go.apply_go_reflexes],
+    'composite-chain': [
+        makefile.apply_makefile_reflexes, go.apply_go_reflexes,
+        csharp.apply_csharp_write_reflexes, csharp.apply_csharp_repair_reflexes,
+        javascript.apply_js_write_reflexes, javascript.apply_js_repair_reflexes,
+        rust.apply_rust_source_reflexes,
+    ],
 }
 
 # All language modules — scanned by the completeness check (§ below).
@@ -176,6 +181,12 @@ _ANNOTATIONS: dict = {
     go.fix_go_missing_pkg_imports:             {'artifact': 'go'},
     go.fix_go_unused_imports:                  {'artifact': 'go'},
     go.apply_go_reflexes:                      {'artifact': 'go'},
+    # ── composite chains (iter 4) ─────────────────────────────────────────────
+    csharp.apply_csharp_write_reflexes:        {'artifact': 'cs'},
+    csharp.apply_csharp_repair_reflexes:       {'artifact': 'cs'},
+    javascript.apply_js_write_reflexes:        {'artifact': 'js'},
+    javascript.apply_js_repair_reflexes:       {'artifact': 'js'},
+    rust.apply_rust_source_reflexes:           {'artifact': 'rs'},
 }
 
 

@@ -9,6 +9,21 @@ This document records dated baseline snapshots for the Reflex KB plan.
 
 | 2026‑06‑10 | Iter 2 (schema + efficacy) | 69.3% (813 sessions, qwen2.5) | 1.9 | 62% | 17,832 | `MSBuild MSB1003` (p10-dotnet, chronic single-problem), `Makefile: no rule to make target 'X'` (multi-problem, 15×), `assertion failed` (p8-node, 11×) |
 | 2026‑06‑10 | Iter 3 (shared-core refactor) | — (behavior-preserving; byte gate) | — | — | — | no change — pure refactor |
+| 2026‑06‑10 | Iter 4a (centralize chains, Part 1) | — (behavior-preserving; sequence-preserved) | — | — | — | no change — pure refactor |
+
+## Iter 4a RIP findings — 2026‑06‑10
+
+**Change (Part 1 — centralize):** Extracted per-language chain functions from scattered agent.py call sites:
+- `apply_csharp_write_reflexes` / `apply_csharp_repair_reflexes` in `csharp.py`
+- `apply_js_write_reflexes` / `apply_js_repair_reflexes` in `javascript.py`
+- `apply_rust_source_reflexes` in `rust.py`
+All registered in `_CATALOG` under `'composite-chain'`. Python excluded (sibling-loop logic, too complex). `or`-chain at agent.py ~858 preserved exactly (short-circuit composition mode, mixed languages).
+
+**Part 2 (bake order) deferred:** Blocked — iter-3 TRP (PID 25903) still running; two concurrent qwen runs thrash M2 8GB. A/B data across ≥3 seeds needed; will run after TRP completes.
+
+**Regression check:** Behavior-preserving by construction. Same reflexes, same sequence, same composition modes (sequential single-shot for write/repair; the fixpoint `run_reflexes` and `or`-chain left untouched). 47/47 tests pass. TRP pending.
+
+**Go/no-go for Part 1:** Clean. Part 2 blocked until TRP completes and iter-3/4 TRP results reviewed.
 
 ## Iter 3 RIP findings — 2026‑06‑10
 

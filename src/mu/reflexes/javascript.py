@@ -8,7 +8,7 @@ import json
 import re
 from pathlib import Path
 
-from mu.reflexes.core import _fix_duplicate_decls
+from mu.reflexes.core import _fix_duplicate_decls, fix_literal_newlines
 
 
 __all__ = [
@@ -27,6 +27,8 @@ __all__ = [
     'fix_js_duplicate_require',
     'fix_js_const_reassignment',
     'fix_vue_attr_quotes',
+    'apply_js_write_reflexes',
+    'apply_js_repair_reflexes',
 ]
 
 
@@ -802,3 +804,29 @@ def fix_vue_attr_quotes(file_path: str) -> bool:
     Path(file_path).write_text(new_text)
     print(f"==> [mu-agent] Reflex: stripped invalid chars from Vue attribute names in {file_path}")
     return True
+
+
+_JS_EXTS = frozenset(('.js', '.jsx', '.mjs', '.ts', '.tsx'))
+
+
+def apply_js_write_reflexes(file_path: str) -> None:
+    """Write-phase JS/TS/Vue chain — preserves the order used in agent.py ~795-811."""
+    ext = Path(file_path).suffix.lower()
+    if ext not in _JS_EXTS and not file_path.lower().endswith('.vue'):
+        return
+    fix_jest_fs_mock(file_path)
+    fix_vue_test_utils_import(file_path)
+    fix_vue_attr_quotes(file_path)
+    fix_js_duplicate_require(file_path)
+    fix_js_env_data_file(file_path)
+    fix_js_missing_requires(file_path)
+
+
+def apply_js_repair_reflexes(file_path: str) -> None:
+    """Repair-phase JS/TS chain — preserves the order used in agent.py ~1341."""
+    if Path(file_path).suffix.lower() not in _JS_EXTS:
+        return
+    fix_js_duplicate_require(file_path)
+    fix_js_env_data_file(file_path)
+    fix_js_missing_requires(file_path)
+    fix_literal_newlines(file_path)
