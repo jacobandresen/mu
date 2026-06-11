@@ -13,6 +13,26 @@ This document records dated baseline snapshots for the Reflex KB plan.
 | 2026‑06‑10 | Iter 5 (validation + interaction model) | — (no-regression; new tests only) | — | — | — | no change — tests + honesty audit + interaction model |
 | 2026‑06‑10 | Iter 3–4a TRP (post-refactor) | 54% (27/50, N=50 noise) | ~0.7 | — | 2,435/call | p3-sdl2 0%, p8-node 0%, p9-vue 0%, p10-dotnet 17%; p1/p2/p5/p6/p7 100% |
 | 2026‑06‑11 | Iter 4 final TRP (iters 0–5 complete) | 32% (18/57, N=57 noise) | — | — | 2,345/call | p9-vue 0%, p3-sdl2 0%, p8-node 14%, p10-dotnet 17%; p2/p5/p6 stochastic dip at N=5 |
+| 2026‑06‑11 | KB-1 (reflex harvest) | 65.3% (668/1023 hist.) | 1.9 | ~60% | — | `MSBuild MSB1003` (68, p10 → fixed), `Jest ESM/dup-const` (19, p8), `Makefile no rule` (18 → ~7 residual after new reflex) |
+
+## KB-1 RIP findings — 2026‑06‑11
+
+**Changes (7 commits):**
+- Fixed `_cause_signature` blank-cause bug (58 sessions had no cause → revealed real distribution)
+- Added `fix_csharp_xunit_packages` (15 CS0246 p10 sessions — adds xunit NuGet packages to root .csproj)
+- Fixed `make && ./binary` → `make test` in `normalize_test_command` (7 p3-sdl2 sessions)
+- Added `fix_sqlite_class_missing_init_table` (5 p2-sqlite sessions — adds init call in __init__)
+- Added 9 diagnose.py patterns (sqlite3, C errors, make-error, Vite import resolution)
+- Added `fix_makefile_executable_prerequisites` (11 sessions: `pip`, `python3`, `pytestmain` as prereqs)
+- Fixed `dotnet test tests/` → `dotnet test <root>.csproj` in `normalize_test_command` (68 MSB1003 p10 sessions)
+- Wired `fix_go_trailing_dot` into agent write+repair phases (13 p5-gin sessions — reflex existed but wasn't called)
+- Added `fix_js_parent_to_sibling_import` (5 p9-vue sessions — `../App.vue` → `./App.vue`)
+
+**Observed distribution (1023 sessions, pre-KB-1 fixes):** p10-dotnet 18% (worst), p8-node 19%, p7-flask 51%, p9-vue 60%. Top failures: MSB1003 (68, p10), no-test-log (39), Jest ESM (19, p8), Makefile no-rule (18, multi), Vitest 0-tests (16, p9), CS0246 (15, p10), Go trailing dot (13, p5-gin).
+
+**Expected impact on future sessions:** ~110 sessions addressed out of 354 failure pool. MSB1003 + CS0246 together should lift p10 from 18% toward 40-50%. Go trailing dot should lift p5-gin from 76% toward 85%. Makefile exec-prereqs handles the generic Flask/p7 pattern.
+
+**Pending:** Run 2-hour collection run after 12h window (next eligible: ~06:10AM CEST → ~18:10 CEST). Compare new distribution vs baseline.
 
 ## Iter 4 final TRP RIP findings — 2026‑06‑11
 
