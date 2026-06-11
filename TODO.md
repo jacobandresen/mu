@@ -5,29 +5,17 @@ CHALLENGES.md. Refreshed 2026-06-11.
 
 ---
 
-## 1. Ablate `fix_inline_recipe` — measure Δ and record into `reflex.efficacy`
-
-**Why:** combination report shows P=0.54 [0.45, 0.63] vs base 0.67 (n=113) — CI entirely
-below base rate, already statistically distinguishable. After #1 lands (oscillation stopped),
-re-measure to see if the reflex is now harmless or still net-negative.
-
-**What to do:** after ≥50 new sessions accumulate post-oscillation-fix (2026-06-11+), run:
-```sh
-# 3 seeds × 5 runs baseline (fresh plan each run — no --regen)
-MU_NUM_CTX=6000 MU_SEED=42 python3 -m mu.dojo measure p7-flask -n 5 --emit-json /tmp/base_42.json
-MU_NUM_CTX=6000 MU_SEED=0  python3 -m mu.dojo measure p7-flask -n 5 --emit-json /tmp/base_0.json
-MU_NUM_CTX=6000 MU_SEED=7  python3 -m mu.dojo measure p7-flask -n 5 --emit-json /tmp/base_7.json
-# then with fix_inline_recipe disabled:
-MU_NUM_CTX=6000 MU_SEED=42 python3 -m mu.dojo measure p7-flask -n 5 --disable fix_inline_recipe --emit-json /tmp/dis_42.json
-MU_NUM_CTX=6000 MU_SEED=0  python3 -m mu.dojo measure p7-flask -n 5 --disable fix_inline_recipe --emit-json /tmp/dis_0.json
-MU_NUM_CTX=6000 MU_SEED=7  python3 -m mu.dojo measure p7-flask -n 5 --disable fix_inline_recipe --emit-json /tmp/dis_7.json
-```
-Call `reflexdb.record_efficacy('fix_inline_recipe', ...)`. If `sz5_gate(deltas)` is True with
-positive Δ → remove the reflex.
-
----
-
 ## Done (recent)
+
+- **`fix_inline_recipe` ablation (2026-06-11, TODO #1) — KEEP.** 3 seeds × 5 runs on
+  p7-flask, baseline vs `--disable fix_inline_recipe`, 245 post-oscillation-fix sessions in
+  the archive. Per-seed Δ (disabled − baseline): −0.20, 0.00, 0.00; mean Δ −0.067;
+  `sz5_gate` False (95% CI includes 0). Disabling did not help — the only pass in 30 runs
+  was a baseline run — so the old net-negative signal (P=0.54 [0.45,0.63] vs base 0.67,
+  n=113) was the oscillation itself, fixed by the `declared | _KNOWN_TARGETS` guard.
+  Recorded in `efficacy_run` (3 rows) and `reflex.efficacy` = −0.067.
+  Note: p7-flask fresh-plan pass rate measured far below the old 0.67 base rate (1/15
+  baseline) — that base rate mixed plan-regen runs; don't compare across measurement modes.
 
 - **"Jest ESM" bucket resolved (2026-06-11)** — the 18-session "Jest: ESM/CJS parse error"
   bucket was *mislabeled*: diagnose's banner rule ("Jest encountered an unexpected token")
