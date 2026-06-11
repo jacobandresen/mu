@@ -112,9 +112,26 @@ _RULES: list[_Rule] = [
     _rule(r"^--- FAIL:\s*(?P<test>\w+)",
           lambda m: f"Go test failed: {m['test']}"),
 
+    # ── Go: no test files ──
+    _rule(r"\[no test files\]",
+          lambda m: "Go: no test files found — add *_test.go files or fix package path"),
+
     # ── Go modules ──
     _rule(r"go: errors parsing go\.mod",
           lambda m: "go.mod is malformed — fix or regenerate it (go mod init/tidy)"),
+
+    # ── JavaScript / npm ──
+    _rule(r"npm error Missing script:\s*[\"']?(?P<script>[^\"'\s]+)[\"']?",
+          lambda m: f"npm: missing script '{m['script']}' — add it to package.json or fix Makefile test target",
+          re.I),
+    _rule(r"Jest encountered an unexpected token",
+          lambda m: "Jest: ESM/CJS parse error — add Babel transform or jest.config transform for ES modules"),
+    _rule(r"Cannot find module ['\"](?P<mod>[^'\"]+)['\"] from",
+          lambda m: f"Jest: cannot find module '{m['mod']}' — run npm install or add it to package.json"),
+    _rule(r"●\s+process\.exit called with ['\"](?P<code>\d+)['\"]",
+          lambda m: f"Jest: test code called process.exit({m['code']}) — remove exit call or catch it"),
+    _rule(r"npm error code (?P<code>EJSONPARSE|E\w+)",
+          lambda m: f"npm error {m['code']}: package.json is malformed — fix JSON syntax"),
 
     # ── make ──
     _rule(r"^(?:.*\bmake.*?:\s*)?\*\*\* (?P<msg>missing separator.*)$",
@@ -122,6 +139,9 @@ _RULES: list[_Rule] = [
           re.I),
     _rule(r"\*\*\* No rule to make target ['`](?P<target>[^'`]+)['`]",
           lambda m: f"Makefile: no rule to make target '{m['target']}'"),
+    _rule(r"(?:clang|gcc|cc).*?no such file or directory:\s*['\"]?(?P<file>[^'\"]+)['\"]?",
+          lambda m: f"C compiler: source file '{m['file']}' not found — add it or fix the Makefile",
+          re.I),
     _rule(r"(?:make:\s*)?(?P<cmd>[\w.\-/]+): [Cc]ommand not found",
           lambda m: f"command not found: '{m['cmd']}' — a typo, an uninstalled tool, "
                     f"or a devDependency binary that needs npx"),

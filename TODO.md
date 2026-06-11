@@ -49,23 +49,7 @@ True with positive Δ → remove the reflex.
 
 ---
 
-## 3. Reduce "no distilled cause" (85 qwen2.5 failures, largest bucket)
-
-**Why:** `mu observe` shows 85/~290 qwen2.5 failures have `(no distilled cause)` + 42 blank
-causes — together that's ~44% of failures invisible to the candidate-reflex pipeline. The
-immediately actionable bucket is Go syntax errors (10×: `unexpected ., expected }`).
-
-**What to do:**
-- Add `Go syntax error: unexpected X, expected Y` patterns to `distill_test_errors()` in
-  `src/mu/diagnose.py`. Also handle blank test log (empty `logs/tests*.log`) — return a
-  generic "test log empty" cause rather than blank/None.
-- Check 5–10 `(no distilled cause)` sessions manually: `ls ~/.mu/sessions | tail -20` then
-  read `logs/tests*.log` from sessions with blank cause.
-- Target: drop "no distilled cause" below 50 sessions.
-
----
-
-## 4. Reflex: fix module-level SQLite connection (`fix_sqlite_conn_scope`)
+## 3. Reflex: fix module-level SQLite connection (`fix_sqlite_conn_scope`)
 
 **Why:** `cannot import name 'conn' from 'main'` recurs in p2-sqlite (9 sessions, 3rd in
 observe output). Multi-session, deterministic, within one problem — meets ≥2-session threshold
@@ -77,7 +61,7 @@ factory function. Test: fixture with the pattern, assert reflex fires and result
 
 ---
 
-## 5. Fix p5-gin (Go) sessions archiving as `unknown` with `project_dir: None`
+## 4. Fix p5-gin (Go) sessions archiving as `unknown` with `project_dir: None`
 
 **Why:** every round has 1–2 p5-gin sessions labelled `unknown`. `mu observe` shows p5-gin
 failure rate 0.19 (n=84) — that 19% may be partially masked by archiving failures.
@@ -96,3 +80,4 @@ without a project dir. Check `dojo/runner.py` and `archive.py` for the code path
 - **`fix_dotnet_test_cwd`** — implemented in `makefile.py` (p10-dotnet)
 - **KB Iter 3: shared-core refactor** — `_fix_duplicate_decls` in `core.py`, iter 3 commit 48f995a
 - **KB Iters 4–5** — composite chains + validation tests, commits 4746d22, 25f3d3e
+- **Reduce no-distilled-cause** — added 7 new patterns to `diagnose.py` + `observe.py` blank-log/no-log handlers; qwen2.5 bucket dropped 120→24
