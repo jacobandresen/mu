@@ -116,3 +116,6 @@ quality and must not be overfit.*
 27. **Test state leaks across runs**
   - Tests sharing mutable storage accumulate state between invocations; require setup/teardown that isolates state per test.
 
+28. **Function definition misplaced**
+  - Function definitions must be outside of any other function or block in C. Ensure all function bodies are placed correctly within the global scope.
+
