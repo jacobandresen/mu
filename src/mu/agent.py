@@ -50,6 +50,7 @@ from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
                          apply_js_write_reflexes, apply_js_repair_reflexes,
                          apply_rust_source_reflexes,
                          fix_csharp_missing_using,
+                         fix_csharp_xunit_packages,
                          fix_jest_config_js,
                          fix_jest_no_tests_found,
                          fix_json_unclosed_brackets,
@@ -1319,6 +1320,8 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
                     if fix_python_undefined_imports(t.file_path, _tail_file(test_log, 60)):
                         log("Repair reapply: added missing import(s) to %s.", t.file_path)
         apply_go_reflexes()  # resolve Go module deps before each build attempt
+        if fix_csharp_xunit_packages(os.getcwd()):
+            log("Repair reapply: added xunit packages to .csproj.")
         # If any package.json exists but its node_modules is absent, run npm install.
         # The repair loop may rewrite package.json but never re-runs install.
         for t in p.tasks:

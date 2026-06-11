@@ -14,6 +14,7 @@ __all__ = [
     'fix_csharp_duplicate_classes',
     'fix_csharp_missing_using',
     'fix_csharp_missing_braces',
+    'fix_csharp_xunit_packages',
     'apply_csharp_write_reflexes',
     'apply_csharp_repair_reflexes',
 ]
@@ -286,6 +287,73 @@ def fix_csharp_missing_braces(file_path: str) -> bool:
     Path(file_path).write_text('\n'.join(new_lines) + '\n')
     print(f"==> [mu-agent] Reflex: removed {removed} extra closing brace(s) from {file_path}")
     return True
+
+
+def fix_csharp_xunit_packages(project_dir: str) -> bool:
+    """Add xunit NuGet package references to a .csproj that hosts test files.
+
+    The LLM frequently writes a single-project layout where test files (using
+    Xunit; / [Fact] / [Theory]) are compiled into the main .csproj but the xunit
+    packages are absent, causing CS0246 'Xunit could not be found' errors on every
+    build.
+
+    Fires when: a .csproj exists with no xunit PackageReference, AND at least one
+    .cs file anywhere in the project tree contains Xunit markers.  Adds
+    Microsoft.NET.Test.Sdk, xunit, and xunit.runner.visualstudio into the first
+    <ItemGroup> (or a new one before </Project>).  Skips csproj files that already
+    have the packages, or where no .cs test files exist.
+    """
+    base = Path(project_dir)
+    csproj_files = list(base.rglob('*.csproj'))
+    if not csproj_files:
+        return False
+
+    _XUNIT_MARKERS = re.compile(r'using\s+Xunit\b|\[Fact\]|\[Theory\]|IClassFixture\s*<')
+    _SKIP_DIRS = {'obj', 'bin', '.git', 'node_modules', '.venv'}
+
+    changed = False
+    for csproj in csproj_files:
+        csproj_text = csproj.read_text()
+        if 'xunit' in csproj_text.lower():
+            continue  # already has xunit package
+
+        # Check whether any .cs file in scope uses xunit
+        search_root = csproj.parent
+        has_xunit_cs = False
+        for cs in search_root.rglob('*.cs'):
+            if any(part in _SKIP_DIRS for part in cs.parts):
+                continue
+            try:
+                if _XUNIT_MARKERS.search(cs.read_text(errors='replace')):
+                    has_xunit_cs = True
+                    break
+            except OSError:
+                continue
+        if not has_xunit_cs:
+            continue
+
+        # Add the packages — insert before the first </ItemGroup> or before </Project>
+        new_packages = (
+            '  <ItemGroup>\n'
+            '    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />\n'
+            '    <PackageReference Include="xunit" Version="2.*" />\n'
+            '    <PackageReference Include="xunit.runner.visualstudio" Version="2.*" />\n'
+            '    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.*" />\n'
+            '  </ItemGroup>\n'
+        )
+        if '</ItemGroup>' in csproj_text:
+            # Insert after the last </ItemGroup>
+            idx = csproj_text.rfind('</ItemGroup>') + len('</ItemGroup>')
+            new_text = csproj_text[:idx] + '\n' + new_packages + csproj_text[idx:]
+        elif '</Project>' in csproj_text:
+            idx = csproj_text.rfind('</Project>')
+            new_text = csproj_text[:idx] + new_packages + csproj_text[idx:]
+        else:
+            continue
+        csproj.write_text(new_text)
+        print(f"==> [mu-agent] Reflex: added xunit packages to {csproj}")
+        changed = True
+    return changed
 
 
 def apply_csharp_write_reflexes(file_path: str) -> None:

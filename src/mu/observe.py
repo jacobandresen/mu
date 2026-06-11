@@ -157,8 +157,19 @@ def _cause_signature(focus: str) -> str:
     failures group together: drop the quoted identifier, the file, and the line
     numbers, keeping the shape (e.g. "undefined name 'json'" and "undefined name
     'app'" both become "undefined name 'X'")."""
-    s = _re.sub(r'^FOCUS[^:]*:\s*', '', focus.splitlines()[0])
-    s = _re.sub(r"'[^']*'", "'X'", s)
+    # FOCUS format: "FOCUS (most likely causes, in order):\n  - <cause>\n  - ..."
+    # The first line is just the header; extract the first bullet for the signature.
+    lines = focus.splitlines()
+    raw = ''
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith('- '):
+            raw = stripped[2:]
+            break
+    if not raw:
+        # Fallback: strip FOCUS header from first line (old single-line format)
+        raw = _re.sub(r'^FOCUS[^:]*:\s*', '', lines[0])
+    s = _re.sub(r"'[^']*'", "'X'", raw)
     s = _re.sub(r'`[^`]*`', '`X`', s)
     s = _re.sub(r'\S+\.\w+:\d+', 'FILE:N', s)
     s = _re.sub(r'\b\d+\b', 'N', s)

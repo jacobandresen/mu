@@ -79,7 +79,8 @@ _CATALOG: dict[str, list] = {
         makefile.fix_makefile_npm_test_jest, makefile.fix_makefile_binary_name,
         javascript.fix_jest_no_tests_found, javascript.fix_jest_config_js,
         javascript.fix_vitest_watch_mode, javascript.fix_vitest_globals,
-        makefile.fix_makefile_missing_test_target, makefile.fix_dotnet_test_cwd],
+        makefile.fix_makefile_missing_test_target, makefile.fix_dotnet_test_cwd,
+        csharp.fix_csharp_xunit_packages],
     'brace-paren-balance': [
         core.fix_json_unclosed_brackets, csharp.fix_csharp_missing_braces,
         javascript.fix_js_extra_closing_brace, javascript.fix_js_duplicate_const,
@@ -182,6 +183,7 @@ _ANNOTATIONS: dict = {
     csharp.fix_csharp_missing_braces:          {'artifact': 'cs', 'risk': 'medium'},
     csharp.fix_csharp_duplicate_classes:       {'artifact': 'cs'},
     csharp.fix_csharp_missing_using:           {'artifact': 'cs'},
+    csharp.fix_csharp_xunit_packages:          {'artifact': 'csproj', 'evidence': 'p10'},
     # ── go ────────────────────────────────────────────────────────────────────
     go.fix_go_missing_pkg_imports:             {'artifact': 'go'},
     go.fix_go_unused_imports:                  {'artifact': 'go'},
