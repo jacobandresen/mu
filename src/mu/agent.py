@@ -1469,8 +1469,9 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
                 if fix_csharp_missing_using(t.file_path, initial_out):
                     log("Fixed %s: added missing using directive(s).", t.file_path)
 
+    initial_test_out = _extract_test_failures(test_log)
     return sess.repair_loop(model, goal, _REPAIR_MAX_ITERS, float(writer_timeout),
-                            run_test, reapply, _repair_context(p), _syntax_check)
+                            run_test, reapply, _repair_context(p, initial_test_out), _syntax_check)
 
 
 def _syntax_check(path: str) -> tuple[bool, str]:
@@ -1494,6 +1495,10 @@ def _syntax_check(path: str) -> tuple[bool, str]:
             r = subprocess.run(['gofmt', '-e', path], capture_output=True,
                                text=True, timeout=15)
             return r.returncode == 0, (r.stderr or r.stdout)[:500]
+        if ext in ('.js', '.mjs') and shutil.which('node'):
+            r = subprocess.run(['node', '--check', path], capture_output=True,
+                               text=True, timeout=15)
+            return r.returncode == 0, (r.stderr or r.stdout)[:500]
     except SyntaxError as e:
         return False, f"{type(e).__name__}: {e}"
     except (OSError, ValueError, subprocess.SubprocessError):
@@ -1501,16 +1506,71 @@ def _syntax_check(path: str) -> tuple[bool, str]:
     return True, ''
 
 
-def _repair_context(p: Plan) -> str:
+_FUNC_START: dict[str, re.Pattern] = {
+    '.py':  re.compile(r'^(?:def |class |async def )'),
+    '.js':  re.compile(r'^(?:function |const |class |async function )'),
+    '.jsx': re.compile(r'^(?:function |const |class |async function )'),
+    '.ts':  re.compile(r'^(?:function |const |class |async function |export )'),
+    '.tsx': re.compile(r'^(?:function |const |class |async function |export )'),
+    '.rs':  re.compile(r'^(?:fn |pub fn |async fn |impl |pub struct )'),
+    '.go':  re.compile(r'^func '),
+}
+
+
+def _error_lines_for_file(file_path: str, test_output: str) -> list[int]:
+    """Return sorted list of line numbers referenced in test_output for file_path."""
+    fname = re.escape(Path(file_path).name)
+    matches = re.finditer(r'(?:^|[\s"\'(/])' + fname + r':(\d+)', test_output,
+                          re.MULTILINE)
+    nums = [int(m.group(1)) for m in matches if 1 <= int(m.group(1)) <= 100_000]
+    return sorted(set(nums))
+
+
+def _file_block(fp: str, test_output: str, per_file: int) -> str:
+    """Return a code block for fp, windowed to the enclosing function around the
+    first error line if one is found in test_output. Falls back to head-truncation
+    for files with no referenced line, and returns '' on read error.
+    """
+    try:
+        body = Path(fp).read_text()
+    except OSError:
+        return ''
+
+    error_lines = _error_lines_for_file(fp, test_output)
+    if not error_lines:
+        if len(body) > per_file:
+            body = body[:per_file] + '\n... [truncated]'
+        return f'### {fp}\n```\n{body}\n```\n'
+
+    # Locate the first mentioned error, walk back to enclosing function start.
+    err = error_lines[0]
+    lines = body.splitlines()
+    n = len(lines)
+    ext = Path(fp).suffix.lower()
+    func_pat = _FUNC_START.get(ext)
+
+    start = max(0, err - 30)
+    if func_pat:
+        for i in range(err - 2, max(-1, err - 100), -1):
+            if i < n and func_pat.match(lines[i]):
+                start = i
+                break
+    end = min(n, err + 10)
+
+    chunk = '\n'.join(lines[start:end])
+    if len(chunk) > per_file:
+        chunk = chunk[:per_file] + '\n... [truncated]'
+    note = f' (lines {start + 1}–{end}, error at {err})'
+    return f'### {fp}{note}\n```\n{chunk}\n```\n'
+
+
+def _repair_context(p: Plan, test_output: str = '') -> str:
     """Show the repair model the project's actual files, bounded in size.
 
-    The repair loop otherwise sees only the test command's output. A small model
-    cannot fix a root cause it can never see — e.g. a test that shares on-disk
-    state, or a mismatch between a test's expectations and the source. Surfacing
-    the real files lets it diagnose instead of editing blind. General by design:
-    it dumps whatever files the plan names, with no problem-specific content.
-    Source files are shown before test files so the model reads the code under
-    test alongside the assertions that exercise it.
+    When test_output contains ``file:line`` references, each file's block is
+    windowed to the enclosing function around the first error line instead of
+    being head-truncated. Source files are shown before test files so the model
+    reads the implementation alongside the assertions that exercise it.
     """
     per_file, total_budget = 2500, 8000
     blocks, used = [], 0
@@ -1518,13 +1578,9 @@ def _repair_context(p: Plan) -> str:
         fp = t.file_path
         if not Path(fp).exists():
             continue
-        try:
-            body = Path(fp).read_text()
-        except OSError:
+        block = _file_block(fp, test_output, per_file)
+        if not block:
             continue
-        if len(body) > per_file:
-            body = body[:per_file] + '\n... [truncated]'
-        block = f'### {fp}\n```\n{body}\n```\n'
         if used + len(block) > total_budget:
             break
         blocks.append(block)
