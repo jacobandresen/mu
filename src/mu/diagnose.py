@@ -152,6 +152,24 @@ _RULES: list[_Rule] = [
           lambda m: f"command not found: '{m['cmd']}' — a typo, an uninstalled tool, "
                     f"or a devDependency binary that needs npx"),
 
+    # ── C compiler errors (undefined function, nested definition) ────────────
+    _rule(r"call to undeclared function ['`]?(?P<func>\w+)[`']?",
+          lambda m: f"C: call to undeclared function '{m['func']}' — add a forward declaration "
+                    f"or move the definition before its call site",
+          re.I),
+    _rule(r"function definition is not allowed here",
+          lambda m: "C: nested function definition — move function to file scope",
+          re.I),
+    # ── make target ran but no binary was produced ────────────────────────────
+    _rule(r"make: Nothing to be done for [`'](?P<target>[^`']+)[`']",
+          lambda m: f"Makefile: target '{m['target']}' is up-to-date but binary is missing "
+                    f"— check that source files changed or add a .PHONY declaration",
+          re.I),
+    # ── Vitest/Jest no tests found or empty test suite ────────────────────────
+    _rule(r"\(0 test\w*\)",
+          lambda m: "Vitest: test suite has 0 tests — check that describe/it blocks are present "
+                    "and the file matches the testMatch pattern"),
+
     # ── generic test assertion (jest/dotnet/CTest 'Expected vs Actual') ──
     _rule(r"^\s*Expected:\s*(?P<exp>.+)$",
           lambda m: f"output assertion failed — expected: {_clip(m['exp'], 60)}"),

@@ -252,6 +252,19 @@ def normalize_test_command(path: str) -> bool:
         new_cmd = re.sub(r'--filter\s+(\S+)', _quote_filter, p_tmp.test_command)
         if new_cmd != p_tmp.test_command:
             updated = _set_test_command(updated, new_cmd)
+    # C/Makefile: `make && ./binary` where the Makefile has a `test` target.
+    # The planner guesses the output binary name (e.g. `./sdl2_line`) but the
+    # fixture Makefile's `test` target already runs the binary correctly, so
+    # `make test` is simpler and always correct. Only rewrite when a Makefile
+    # exists AND has a `test:` rule.
+    p_c = parse_content(updated)
+    if (p_c.test_command
+            and re.search(r'^make\b.*&&\s*\./', p_c.test_command)
+            and Path('Makefile').exists()):
+        mk = Path('Makefile').read_text(errors='replace')
+        if re.search(r'^test\s*:', mk, re.MULTILINE):
+            updated = _set_test_command(updated, 'make test')
+
     # dotnet test <foo>.csproj where foo.csproj doesn't exist — find the real one.
     # If the found .csproj has no test references, use 'dotnet build' instead.
     p2 = parse_content(updated)
