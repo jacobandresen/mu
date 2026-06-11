@@ -98,6 +98,7 @@ _CATALOG: dict[str, list] = {
         makefile.fix_no_targets, makefile.fix_inline_recipe, makefile.fix_nested_targets,
         makefile.fix_binary_target_runs_itself, makefile.fix_makefile_missing_compile_rule,
         makefile.fix_makefile_double_colon_target, makefile.fix_makefile_recipe_is_prerequisite_list,
+        makefile.fix_makefile_executable_prerequisites,
         makefile.fix_missing_venv_rule, makefile.fix_makefile_wrong_c_compiler,
         makefile.fix_makefile_sdl2_config_typo, makefile.fix_config_tool_redundant_flag,
         makefile.fix_makefile_pip_no_venv, makefile.fix_python_venv_cmd],
@@ -179,6 +180,8 @@ _ANNOTATIONS: dict = {
     # ── makefile (new) ───────────────────────────────────────────────────────
     makefile.fix_makefile_missing_test_target: {'artifact': 'Makefile',
                                                 'evidence': 'p7-flask'},
+    makefile.fix_makefile_executable_prerequisites: {'artifact': 'Makefile',
+                                                     'evidence': 'p7-flask'},
     makefile.fix_dotnet_test_cwd:              {'artifact': 'Makefile', 'risk': 'medium',
                                                 'evidence': 'p10'},
     # ── csharp ────────────────────────────────────────────────────────────────
