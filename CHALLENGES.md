@@ -113,3 +113,6 @@ quality and must not be overfit.*
 26. **Mocking conflicts**
   - Mocks for the same module can conflict if not properly isolated; ensure each mock is unique and does not interfere with others.
 
+27. **Test state leaks across runs**
+  - Tests sharing mutable storage accumulate state between invocations; require setup/teardown that isolates state per test.
+
