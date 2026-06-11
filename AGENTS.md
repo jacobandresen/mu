@@ -121,7 +121,7 @@ skills/               skill prompts loaded by the planner at runtime
 A weak model samples tokens, so dojo results swing run to run (p7 passes, then stalls). You can't eliminate that, but don't let it fool you into "fixing" noise. Discipline:
 
 - **Measure continuous metrics, not pass/fail.** Pass/fail is one binary sample per round. Repair-iters, first-try rate, and **tokens/call** shift smoothly and detect a real change with far fewer runs. (We caught the writer-prompt savings via prompt/call where pass/fail was pure noise.)
-- **Pin the plan to test the writer/reflexes.** The planner is the dominant variance source. `mu dojo measure <id>` runs a problem N times from a committed golden plan (`dojo/golden/<id>/PLAN.md`) via `mu iterate`, so only the writer/repair layer varies. It reports pass rate **and** avg repair iters. `--regen` regenerates the plan.
+- **Measure multiple runs.** The planner is the dominant variance source. `mu dojo measure <id>` runs a problem N times, generating a fresh plan each run. It reports pass rate, avg repair iters, and stochasticity score.
 - **N runs, compare rates — never trust one round.** `mu dojo practice --rounds 5`; read the distribution.
 - **Pin the RNG for clean A/B.** `MU_SEED=<int>` (client.py) sets the seed and forces temperature 0, so identical input reproduces identical output. A *prompt* change still alters the stream, so this helps reflex/writer A/B more than prompt A/B. Unset by default (sampling surfaces diverse failures).
 - **Push fixes into reflexes, not prompts.** A reflex works 100% of the time; a prompt rule only nudges a stochastic model. Converting a failure class to a deterministic reflex/normalizer removes it from the noise band entirely — the single most reliable way to cut variance.

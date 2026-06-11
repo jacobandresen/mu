@@ -340,10 +340,11 @@ def _cmd_setup(args) -> int:
     # Each is skipped (no-op) when absent, so none are required.
     print()
     print("Optional analysis tools (repair loop enrichment)")
+    import importlib.util as _ilu
     missing_opt: list[tuple[str, list[str]]] = []
-    if not shutil.which('ruff'):
+    if not _ilu.find_spec('ruff'):
         missing_opt.append(('ruff', [sys.executable, '-m', 'pip', 'install', 'ruff']))
-    if not shutil.which('pyright'):
+    if not _ilu.find_spec('pyright'):
         missing_opt.append(('pyright', [sys.executable, '-m', 'pip', 'install', 'pyright']))
     if shutil.which('npm'):
         if not shutil.which('eslint'):

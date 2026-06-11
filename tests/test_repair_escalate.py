@@ -3,7 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-from mu.session import REPAIR_ESCALATE, Session, _FOCUS_LOOP_THRESHOLD
+from mu.session import REPAIR_ESCALATE, Session, _FOCUS_LOOP_THRESHOLD, _REPAIR_HISTORY_WINDOW
 
 
 def _make_repair_session() -> Session:
@@ -104,3 +104,58 @@ def test_repair_escalate_constant_is_negative():
 def test_focus_loop_threshold_is_at_least_two():
     """Threshold must be ≥2 so a single bad repair pass can't trigger escalation."""
     assert _FOCUS_LOOP_THRESHOLD >= 2
+
+
+def test_window_preserves_tool_call_pairing():
+    """After the history window engages, every assistant tool_calls msg must be
+    immediately followed by matching tool messages — no orphaned tool calls.
+
+    Orphaned tool_calls → HTTP 400 from the OpenAI-compatible endpoint.  The
+    window works by keeping complete iteration units (user + assistant + tool
+    results), so pairing is structural, not per-element.
+    """
+    captured_msgs: list[list[dict]] = []
+
+    def capturing_stub(*args, **kwargs):
+        msgs_arg = args[1] if len(args) > 1 else kwargs.get('messages', [])
+        captured_msgs.append(list(msgs_arg))
+        msg = {
+            'role': 'assistant',
+            'content': '',
+            'tool_calls': [{'id': f'tc-{len(captured_msgs)}', 'type': 'function',
+                            'function': {'name': 'Edit',
+                                         'arguments': '{"file_path":"x","old_string":"a","new_string":"b"}'}}],
+        }
+        stats = MagicMock(prompt_tokens=1, generated_tokens=1)
+        return msg, stats
+
+    sess = _make_repair_session()
+    # Run more iterations than the window so windowing is forced to engage.
+    n_iters = _REPAIR_HISTORY_WINDOW + 2
+    outputs = [(False, "some error")] * n_iters + [(True, "pass")]
+
+    with patch('mu.session.chat_or_retry', side_effect=capturing_stub):
+        sess.repair_loop(
+            model='stub', goal='test', max_iters=n_iters + 1,
+            per_turn_timeout=30.0,
+            run_test=iter(outputs).__next__,
+            reapply=None,
+            context='',
+        )
+
+    # Check every call after the window engages (iteration > _REPAIR_HISTORY_WINDOW).
+    # For earlier calls all turns are present so the invariant trivially holds there too.
+    for call_idx, msgs in enumerate(captured_msgs):
+        for j, m in enumerate(msgs):
+            if m.get('role') == 'assistant' and m.get('tool_calls'):
+                expected_ids = {tc['id'] for tc in m['tool_calls']}
+                following_tool_ids = {
+                    msgs[k].get('tool_call_id')
+                    for k in range(j + 1, len(msgs))
+                    if msgs[k].get('role') == 'tool'
+                    and msgs[k].get('tool_call_id') in expected_ids
+                }
+                assert expected_ids == following_tool_ids, (
+                    f"call {call_idx}: assistant tool_calls {expected_ids} not matched "
+                    f"by following tool messages {following_tool_ids} at position {j}"
+                )

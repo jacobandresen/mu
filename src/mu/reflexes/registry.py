@@ -78,12 +78,13 @@ _CATALOG: dict[str, list] = {
         makefile.fix_makefile_bare_pytest, makefile.fix_makefile_bare_vitest,
         makefile.fix_makefile_pytest_in_non_python, javascript.fix_package_json_bare_jest,
         makefile.fix_makefile_npm_test_jest, makefile.fix_makefile_binary_name,
-        javascript.fix_jest_no_tests_found, javascript.fix_jest_config_js,
+        javascript.fix_jest_no_tests_found, javascript.fix_jest_esm, javascript.fix_jest_config_js,
         javascript.fix_vitest_watch_mode, javascript.fix_vitest_globals,
         makefile.fix_makefile_missing_test_target, makefile.fix_dotnet_test_cwd,
         csharp.fix_csharp_xunit_packages],
     'brace-paren-balance': [
         core.fix_json_unclosed_brackets, csharp.fix_csharp_missing_braces,
+        csharp.fix_csharp_lambda_brace_confusion,
         javascript.fix_js_extra_closing_brace, javascript.fix_js_duplicate_const,
         rust.fix_rust_unbalanced_braces, python.fix_missing_close_paren],
     'syntax-artifact': [
@@ -170,6 +171,7 @@ _ANNOTATIONS: dict = {
                                                 'evidence': 'p8-node'},
     javascript.fix_vue_missing_package:        {'artifact': 'package.json',
                                                 'evidence': 'p9-vue'},
+    javascript.fix_jest_esm:                   {'artifact': 'package.json'},
     javascript.fix_jest_config_js:             {'artifact': 'js', 'evidence': 'p8-node'},
     javascript.fix_js_duplicate_require:       {'artifact': 'js'},
     javascript.fix_js_missing_requires:        {'artifact': 'js'},
@@ -191,6 +193,7 @@ _ANNOTATIONS: dict = {
     csharp.fix_csharp_duplicate_classes:       {'artifact': 'cs'},
     csharp.fix_csharp_missing_using:           {'artifact': 'cs'},
     csharp.fix_csharp_xunit_packages:          {'artifact': 'csproj', 'evidence': 'p10'},
+    csharp.fix_csharp_lambda_brace_confusion:  {'artifact': 'cs', 'evidence': 'p10'},
     # ── go ────────────────────────────────────────────────────────────────────
     go.fix_go_missing_pkg_imports:             {'artifact': 'go'},
     go.fix_go_unused_imports:                  {'artifact': 'go'},

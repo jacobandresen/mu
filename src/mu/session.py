@@ -15,7 +15,9 @@ the caller should escalate (e.g. to architect mode).
 
 REPAIR_ESCALATE: int = -2
 _FOCUS_LOOP_THRESHOLD: int = 2  # same FOCUS ≥ this many consecutive passes → escalate
+_REPAIR_HISTORY_WINDOW: int = 3  # complete iteration-units to retain in the repair prompt
 
+import difflib
 import hashlib
 import time
 from pathlib import Path
@@ -29,12 +31,30 @@ from mu.degeneration import guard_enabled, is_degenerate, note_refusal
 from mu.diagnose import distill_test_errors
 
 
+def _compute_edit_diff(before: str, after: str, path: str, max_chars: int = 1500) -> str:
+    """Return a capped unified diff; falls back to a summary line if the diff is too large."""
+    before_lines = before.splitlines(keepends=True)
+    after_lines = after.splitlines(keepends=True)
+    chunks = list(difflib.unified_diff(
+        before_lines, after_lines,
+        fromfile=f'a/{Path(path).name}', tofile=f'b/{Path(path).name}',
+    ))
+    if not chunks:
+        return ''
+    diff_text = ''.join(chunks)
+    if len(diff_text) > max_chars:
+        return (f"Last edit: rewrote {Path(path).name} "
+                f"({len(before_lines)}→{len(after_lines)} lines; diff too large to show)")
+    return f"Last edit diff:\n```diff\n{diff_text}```"
+
+
 def _apply_repair_tool_call(
     tc: dict,
     seen_states: dict,
     consecutive_dups: dict,
     msgs: list,
     syntax_check,
+    diffs: Optional[list] = None,
 ) -> bool:
     """Execute one repair-loop tool call and append the result to *msgs*.
 
@@ -54,22 +74,22 @@ def _apply_repair_tool_call(
     name, raw_args = fn['name'], fn['arguments']
     path = tools._as_dict(raw_args).get('path', '')
 
-    # Snapshot the file before writing so we can roll back on syntax errors.
-    snapshot, ok_before = None, True
-    if syntax_check and name in ('Write', 'Edit') and path and Path(path).exists():
+    before_text: Optional[str] = None
+    if name in ('Write', 'Edit') and path and Path(path).exists():
         try:
-            snapshot = Path(path).read_text()
+            before_text = Path(path).read_text()
         except OSError:
-            snapshot = None
+            pass
+
+    snapshot: Optional[str] = before_text
+    ok_before = True
+    if syntax_check and before_text is not None:
         ok_before, _ = syntax_check(path)
 
     # Record the pre-dispatch digest for duplicate-edit detection.
-    if name in ('Write', 'Edit') and path and Path(path).exists():
-        try:
-            seen_states.setdefault(path, set()).add(
-                hashlib.sha1(Path(path).read_bytes()).hexdigest())
-        except OSError:
-            pass
+    if before_text is not None:
+        seen_states.setdefault(path, set()).add(
+            hashlib.sha1(before_text.encode()).hexdigest())
 
     result = tools.dispatch(name, raw_args)
 
@@ -111,6 +131,16 @@ def _apply_repair_tool_call(
                 pass
 
     msgs.append({'role': 'tool', 'content': result, 'tool_call_id': tc.get('id', '')})
+
+    if diffs is not None and before_text is not None:
+        try:
+            after_text = Path(path).read_text() if Path(path).exists() else ''
+            diff_str = _compute_edit_diff(before_text, after_text, path)
+            if diff_str:
+                diffs.append(diff_str)
+        except OSError:
+            pass
+
     return stuck
 
 
@@ -188,14 +218,17 @@ class Session:
                     reapply: Optional[Callable[[], None]],
                     context: str = '',
                     syntax_check: Optional[Callable[[str], tuple[bool, str]]] = None,
+                    make_context: Optional[Callable[[str], str]] = None,
                     ) -> tuple[bool, int]:
         tool_defs = self.tool_set if self.tool_set is not None else tools.REPAIR
-        msgs: list[dict] = [{'role': 'system', 'content': self.system_prompt}]
-        seen_states: dict[str, set[str]] = {}  # path -> set of sha1 hashes of seen file contents
-        consecutive_dups: dict[str, int] = {}  # path -> consecutive duplicate count
+        system_msg: dict = {'role': 'system', 'content': self.system_prompt}
+        all_turns: list[list[dict]] = []  # complete per-iteration units; windowed to last N
+        seen_states: dict[str, set[str]] = {}
+        consecutive_dups: dict[str, int] = {}
         stuck = False
         _prev_focus: Optional[str] = None
         _same_focus_count: int = 0
+        last_diffs: list[str] = []
         print("  Repairing...")
 
         for i in range(max_iters):
@@ -226,19 +259,34 @@ class Session:
             else:
                 _prev_focus = focus
                 _same_focus_count = 0
+
             if i == 0:
-                content = (f"GOAL: {goal}\n\n{context}{focus_block}The project's tests are failing. Make ONE targeted "
+                ctx = make_context(test_out) if make_context else context
+                content = (f"GOAL: {goal}\n\n{ctx}{focus_block}The project's tests are failing. Make ONE targeted "
                            f"change (call Edit, or Write to replace a whole file) to fix the "
                            f"underlying cause. Do not run any commands — the test is run for you "
                            f"and the new output is shown after each edit. Test output:\n\n{test_out}")
             else:
-                content = (f"{focus_block}Still failing after your last edit. Latest test output:\n\n{test_out}"
+                fresh_ctx = make_context(test_out) if make_context else ''
+                ctx_block = f"{fresh_ctx}\n\n" if fresh_ctx else ''
+                diff_block = ('\n\n'.join(last_diffs) + '\n\n') if last_diffs else ''
+                content = (f"{ctx_block}{diff_block}{focus_block}Still failing after your last edit. "
+                           f"Latest test output:\n\n{test_out}"
                            f"\n\nMake ONE more targeted edit. Do not repeat an edit that did not help.")
-            msgs.append({'role': 'user', 'content': content})
+
+            user_msg: dict = {'role': 'user', 'content': content}
+            current: list[dict] = [user_msg]
+            # Complete units (user→assistant→tool results) keep the tool-call pairing invariant.
+            msgs: list[dict] = (
+                [system_msg]
+                + [m for u in all_turns[-_REPAIR_HISTORY_WINDOW:] for m in u]
+                + [user_msg]
+            )
 
             deadline = time.time() + per_turn_timeout
             edited = False
             connection_dead = False
+            iter_diffs: list[str] = []
             for t in range(3):
                 if time.time() >= deadline:
                     break
@@ -255,18 +303,27 @@ class Session:
                         connection_dead = True
                     break
                 msgs.append(msg)
+                current.append(msg)
                 if not msg.get('tool_calls'):
                     if t < 2:
-                        msgs.append({'role': 'user',
-                                     'content': 'Call Edit or Write now — do not write prose.'})
+                        nudge = {'role': 'user',
+                         'content': 'Call Edit or Write now — do not write prose.'}
+                        msgs.append(nudge)
+                        current.append(nudge)
                         continue
                     break
+                pre = len(msgs)
                 for tc in msg['tool_calls']:
                     if _apply_repair_tool_call(tc, seen_states, consecutive_dups,
-                                               msgs, syntax_check):
+                                               msgs, syntax_check, iter_diffs):
                         stuck = True
+                current.extend(msgs[pre:])
                 edited = True
                 break
+
+            all_turns.append(current)
+            last_diffs = iter_diffs
+
             if connection_dead:
                 print("==> [mu-agent] Repair: connection lost — aborting repair loop.")
                 break

@@ -31,7 +31,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest='cmd', required=True)
 
     # -- measure ------------------------------------------------------------
-    m = sub.add_parser('measure', help='measure one problem over N runs from a frozen plan')
+    m = sub.add_parser('measure', help='measure one problem over N runs (fresh plan each run)')
     m.add_argument('problem_id', help='catalog id, e.g. p7-flask')
     m.add_argument('-n', '--runs', type=int, default=int(os.environ.get('N', '5')),
                    help='number of runs (default 5, or $N)')

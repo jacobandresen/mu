@@ -15,6 +15,7 @@ __all__ = [
     'fix_csharp_missing_using',
     'fix_csharp_missing_braces',
     'fix_csharp_xunit_packages',
+    'fix_csharp_lambda_brace_confusion',
     'apply_csharp_write_reflexes',
     'apply_csharp_repair_reflexes',
 ]
@@ -356,10 +357,32 @@ def fix_csharp_xunit_packages(project_dir: str) -> bool:
     return changed
 
 
+def fix_csharp_lambda_brace_confusion(file_path: str) -> bool:
+    """Replace {){ artifacts from mis-nested C# lambda chains.
+
+    Models sometimes close a nested lambda chain with `{){` instead of the
+    correct closing parens.  E.g.:
+        s.AddDbContext<AppDb>(o => o.UseSqlite("..."))){){
+    `{){` is never valid C# in this position; substituting `))` re-balances the
+    expression so the repair model can fix any remaining semantic error.
+    """
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+    cleaned = re.sub(r'\{\s*\)\s*\{', '))', text)
+    if cleaned == text:
+        return False
+    Path(file_path).write_text(cleaned)
+    print(f"==> [mu-agent] Reflex: removed {{){{ lambda artifact in {file_path}")
+    return True
+
+
 def apply_csharp_write_reflexes(file_path: str) -> None:
     """Write-phase C# chain — preserves the order used in agent.py ~748."""
     if not file_path.endswith('.cs'):
         return
+    fix_csharp_lambda_brace_confusion(file_path)
     fix_csharp_keyword_prefix_artifacts(file_path)
     fix_csharp_verbatim_string_escape(file_path)
     fix_csharp_using_order(file_path)
@@ -367,13 +390,16 @@ def apply_csharp_write_reflexes(file_path: str) -> None:
     fix_csharp_duplicate_classes(file_path)
 
 
-def apply_csharp_repair_reflexes(file_path: str, test_output: str = '') -> None:
-    """Repair-phase C# chain — preserves the order used in agent.py ~1333."""
+def apply_csharp_repair_reflexes(file_path: str, test_output: str = '') -> bool:
+    """Repair-phase C# chain. Returns True if any reflex changed the file."""
     if not file_path.endswith('.cs'):
-        return
-    fix_csharp_keyword_prefix_artifacts(file_path)
-    fix_csharp_verbatim_string_escape(file_path)
-    fix_csharp_using_order(file_path)
-    fix_csharp_missing_braces(file_path)
-    if test_output:
-        fix_csharp_missing_using(file_path, test_output)
+        return False
+    changed = any([
+        fix_csharp_lambda_brace_confusion(file_path),
+        fix_csharp_keyword_prefix_artifacts(file_path),
+        fix_csharp_verbatim_string_escape(file_path),
+        fix_csharp_using_order(file_path),
+        fix_csharp_missing_braces(file_path),
+        fix_csharp_missing_using(file_path, test_output) if test_output else False,
+    ])
+    return changed

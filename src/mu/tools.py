@@ -104,6 +104,13 @@ def _as_dict(args) -> dict:
     return args or {}
 
 
+def _coerce_str(val) -> str:
+    """Coerce a tool argument to str — models sometimes pass lists instead of strings."""
+    if isinstance(val, list):
+        return '\n'.join(str(v) for v in val)
+    return val if isinstance(val, str) else str(val) if val is not None else ''
+
+
 def dispatch(name: str, args) -> str:
     """Route a model tool-call by name to the correct implementation.
 
@@ -112,10 +119,12 @@ def dispatch(name: str, args) -> str:
     """
     args = _as_dict(args)
     if name == 'Write':
-        return _write(args.get('path', ''), args.get('content', ''))
+        return _write(_coerce_str(args.get('path', '')),
+                      _coerce_str(args.get('content', '')))
     if name == 'Edit':
-        return _edit(args.get('path', ''), args.get('old_string', ''),
-                     args.get('new_string', ''))
+        return _edit(_coerce_str(args.get('path', '')),
+                     _coerce_str(args.get('old_string', '')),
+                     _coerce_str(args.get('new_string', '')))
     if name == 'Bash':
         return _bash(args.get('command', ''))
     if name == 'Read':

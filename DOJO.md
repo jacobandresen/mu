@@ -28,11 +28,11 @@ mu dojo run                        # all available problems, shuffled
 mu dojo run p3-sdl2                 # a single problem
 mu dojo run --route --model M      # skip problems M is measured hopeless on
 mu dojo practice --rounds 5        # repeated rounds: run, distill, reflect, repeat
-mu dojo measure p7-flask --runs 5  # N runs from a frozen plan (isolates writer variance)
+mu dojo measure p7-flask --runs 5  # N runs, fresh plan each run; reports pass rate + stochasticity
 mu dojo fixture apply p6-rust .    # copy a problem's committed fixtures into a dir
 ```
 
-Results are written to `~/.mu/sessions/` and cleaned from `dojo/` after each run (committed `dojo/golden/` and `dojo/fixtures/` are spared). The long-standing env knobs still work as flag defaults — `ROUNDS`, `N`, `MU_SEED`, `MU_ROUTE`, `SKIP_CLEAN`, etc.
+Results are written to `~/.mu/sessions/` and cleaned from `dojo/` after each run (committed `dojo/fixtures/` is spared). The long-standing env knobs still work as flag defaults — `ROUNDS`, `N`, `MU_SEED`, `MU_ROUTE`, `SKIP_CLEAN`, etc.
 
 Inspect failures in `~/.mu/sessions/<id>/logs/`; the `diagnose` sensor (`src/mu/diagnose.py`) distills a test/lint log into a one-line root cause.
 
@@ -115,7 +115,7 @@ Most of the dojo's stochasticity is **self-inflicted by the formulation**, not i
 
 Ranked by how much each moves the outcome:
 
-1. **The planner.** A fresh decomposition, set of filenames, and test command on every run. This is the biggest source: run a problem from a *frozen* plan and it is reproducible (5/5 with `MU_SEED`), but run it live and it swings between pass and stall.
+1. **The planner.** A fresh decomposition, set of filenames, and test command on every run. This is the biggest source — the plan changes every run and takes the outcome with it.
 2. **Inferred structure.** When the goal doesn't state the contract, the model invents filenames and exported symbols — each a guess.
 3. **Degeneration.** The model loops or stalls. This is the model's ceiling; no reflex can reach it.
 4. **Cross-file coupling.** Multi-file tasks (p7, p8, p10) add import/symbol-resolution failures.

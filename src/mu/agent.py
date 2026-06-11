@@ -53,6 +53,7 @@ from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
                          fix_csharp_missing_using,
                          fix_csharp_xunit_packages,
                          fix_jest_config_js,
+                         fix_jest_esm,
                          fix_jest_no_tests_found,
                          fix_json_unclosed_brackets,
                          fix_package_json_bare_jest,
@@ -81,6 +82,8 @@ from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
                          fix_requirements_stdlib_entries,
                          fix_rust_cargo_toml,
                          fix_rust_cargo_bad_dependency,
+                         fix_rust_duplicate_use,
+                         fix_rust_println_missing_arg,
                          fix_rust_missing_trait_import,
                          fix_rust_unbalanced_braces,
                          fix_sqlite_class_missing_init_table,
@@ -1290,8 +1293,8 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
                         log("Deleted orphaned .cs duplicate: %s", cs_file)
                     except OSError:
                         pass
-            else:
-                # Delete .cs in unexpected subdirectory — likely a repair artifact
+            elif any(cs_file.name == sp.name for sp in stage_paths):
+                # Unexpected subdir but same basename as a stage file → repair duplicate
                 try:
                     cs_file.unlink()
                     log("Deleted stale .cs from unexpected subdir: %s", cs_file)
@@ -1327,9 +1330,11 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
                         log("Repair reapply: added missing trait import to %s.", t.file_path)
             elif t.file_path.endswith('.cs'):
                 test_out = _tail_file(test_log, 60) if Path(test_log).exists() else ''
-                apply_csharp_repair_reflexes(t.file_path, test_out)
-                if test_out:
-                    log("Repair reapply: applied C# repair reflexes to %s.", t.file_path)
+                # skip files not mentioned in the error output — avoids redundant work
+                fname = Path(t.file_path).name
+                if not test_out or fname in test_out or t.file_path in test_out:
+                    if apply_csharp_repair_reflexes(t.file_path, test_out):
+                        log("Repair reapply: applied C# repair reflexes to %s.", t.file_path)
             elif Path(t.file_path).suffix.lower() in ('.js', '.jsx', '.mjs', '.ts', '.tsx'):
                 js_test_out = _tail_file(test_log, 60) if Path(test_log).exists() else ''
                 apply_js_repair_reflexes(t.file_path, js_test_out)
@@ -1398,6 +1403,8 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
             latest_out = _tail_file(test_log, 60)
             if fix_jest_no_tests_found(latest_out, os.getcwd()):
                 log("Re-applied Jest testRegex (repair: No tests found).")
+            if fix_jest_esm(latest_out, os.getcwd()):
+                log("Re-applied NODE_OPTIONS=--experimental-vm-modules (repair: Jest ESM).")
             if fix_vitest_watch_mode(os.getcwd()):
                 log("Re-applied vitest run mode in package.json.")
             if fix_vue_missing_package(os.getcwd()):
@@ -1451,6 +1458,8 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
                 log("Added Flask client fixture to %s.", t.file_path)
     if fix_jest_no_tests_found(initial_out, os.getcwd()):
         log("Broadened Jest testRegex in package.json (No tests found).")
+    if fix_jest_esm(initial_out, os.getcwd()):
+        log("Added NODE_OPTIONS=--experimental-vm-modules for Jest ESM (pre-flight).")
     if fix_vitest_watch_mode(os.getcwd()):
         log("Changed vitest to vitest run in package.json.")
     if fix_vue_missing_package(os.getcwd()):
@@ -1469,9 +1478,9 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
                 if fix_csharp_missing_using(t.file_path, initial_out):
                     log("Fixed %s: added missing using directive(s).", t.file_path)
 
-    initial_test_out = _extract_test_failures(test_log)
     return sess.repair_loop(model, goal, _REPAIR_MAX_ITERS, float(writer_timeout),
-                            run_test, reapply, _repair_context(p, initial_test_out), _syntax_check)
+                            run_test, reapply, syntax_check=_syntax_check,
+                            make_context=lambda test_out: _repair_context(p, test_out))
 
 
 def _syntax_check(path: str) -> tuple[bool, str]:
