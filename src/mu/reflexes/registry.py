@@ -81,8 +81,8 @@ _CATALOG: dict[str, list] = {
         makefile.fix_makefile_missing_test_target, makefile.fix_dotnet_test_cwd],
     'brace-paren-balance': [
         core.fix_json_unclosed_brackets, csharp.fix_csharp_missing_braces,
-        javascript.fix_js_extra_closing_brace, rust.fix_rust_unbalanced_braces,
-        python.fix_missing_close_paren],
+        javascript.fix_js_extra_closing_brace, javascript.fix_js_duplicate_const,
+        rust.fix_rust_unbalanced_braces, python.fix_missing_close_paren],
     'syntax-artifact': [
         core.fix_tool_call_artifacts, core.fix_literal_newlines,
         makefile.fix_makefile_literal_tab_escape, makefile.fix_makefile_literal_newline_escape,
@@ -168,6 +168,7 @@ _ANNOTATIONS: dict = {
     javascript.fix_js_missing_requires:        {'artifact': 'js'},
     # ── javascript (new) ─────────────────────────────────────────────────────
     javascript.fix_js_const_reassignment:      {'artifact': 'js', 'evidence': 'p8-node'},
+    javascript.fix_js_duplicate_const:        {'artifact': 'js', 'evidence': 'p8-node'},
     javascript.fix_vue_attr_quotes:            {'artifact': 'vue', 'evidence': 'p9-vue'},
     # ── makefile (new) ───────────────────────────────────────────────────────
     makefile.fix_makefile_missing_test_target: {'artifact': 'Makefile',
