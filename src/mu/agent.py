@@ -45,6 +45,7 @@ from mu.plan import (Plan, _EXT_LANGUAGE, check_goal_alignment, clear_challenges
                      repair_history, strip_thinking_artifacts, tasks_remaining,
                      write_sketches)
 from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
+                         fix_go_trailing_dot,
                          apply_plan_spec_reflexes, run_reflexes,
                          apply_csharp_write_reflexes, apply_csharp_repair_reflexes,
                          apply_js_write_reflexes, apply_js_repair_reflexes,
@@ -782,6 +783,8 @@ def run(goal: str, model: str = '', target_dir: str = '',
                 log("Applied JS/Vue write reflexes to %s.", task.file_path)
 
             if task.file_path.endswith('.go') or task.file_path.endswith('go.mod'):
+                if fix_go_trailing_dot(task.file_path):
+                    log("Reflex: removed dangling trailing '.' in %s.", task.file_path)
                 if apply_go_reflexes():
                     log("Resolved Go module dependencies (go mod tidy).")
 
@@ -1319,6 +1322,9 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
                 if Path(test_log).exists():
                     if fix_python_undefined_imports(t.file_path, _tail_file(test_log, 60)):
                         log("Repair reapply: added missing import(s) to %s.", t.file_path)
+        for t in p.tasks:  # trailing-dot in any .go file before go mod tidy
+            if t.file_path.endswith('.go') and Path(t.file_path).exists():
+                fix_go_trailing_dot(t.file_path)
         apply_go_reflexes()  # resolve Go module deps before each build attempt
         if fix_csharp_xunit_packages(os.getcwd()):
             log("Repair reapply: added xunit packages to .csproj.")
