@@ -5,30 +5,7 @@ CHALLENGES.md, KB_BASELINE.md. Refreshed 2026-06-10.
 
 ---
 
-## 1. Fix `fix_inline_recipe` / `fix_makefile_recipe_is_prerequisite_list` oscillation
-
-**Why it's #1:** sequence data shows symmetric ping-pong: each fires after the other ×93,
-burning all repair passes on Makefile churn. Root cause identified: `fix_inline_recipe`
-uses `declared` for its guard, `fix_makefile_recipe_is_prerequisite_list` uses
-`declared | _KNOWN_TARGETS`. When `install`/`test` are in `_KNOWN_TARGETS` but not
-declared as targets, the two reflexes undo each other every pass.
-
-**Fix:** In `fix_inline_recipe` line 182, change:
-```python
-if all(w in declared for w in after.split()):
-```
-to:
-```python
-if all(w in (declared | _KNOWN_TARGETS) for w in after.split()):
-```
-This makes the prerequisite-list guard use the same set as `fix_makefile_recipe_is_prerequisite_list`.
-Add idempotency test: two back-to-back applies produce the same output.
-
-Files: `src/mu/reflexes/makefile.py:182`.
-
----
-
-## 2. Ablate `fix_inline_recipe` — measure Δ and record into `reflex.efficacy`
+## 1. Ablate `fix_inline_recipe` — measure Δ and record into `reflex.efficacy`
 
 **Why:** combination report shows P=0.54 [0.45, 0.63] vs base 0.67 (n=113) — CI entirely
 below base rate, already statistically distinguishable. After #1 lands (oscillation stopped),
@@ -49,19 +26,7 @@ True with positive Δ → remove the reflex.
 
 ---
 
-## 3. Reflex: fix module-level SQLite connection (`fix_sqlite_conn_scope`)
-
-**Why:** `cannot import name 'conn' from 'main'` recurs in p2-sqlite (9 sessions, 3rd in
-observe output). Multi-session, deterministic, within one problem — meets ≥2-session threshold
-for a scan reflex even if single-problem, because the pattern is general Python.
-
-**What to do:** add a scan reflex in `src/mu/reflexes/python.py` that detects a module-level
-`conn = sqlite3.connect(...)` or `cursor = conn.cursor()` and wraps it in a `get_connection()`
-factory function. Test: fixture with the pattern, assert reflex fires and result is importable.
-
----
-
-## 4. Fix p5-gin (Go) sessions archiving as `unknown` with `project_dir: None`
+## 2. Fix p5-gin (Go) sessions archiving as `unknown` with `project_dir: None`
 
 **Why:** every round has 1–2 p5-gin sessions labelled `unknown`. `mu observe` shows p5-gin
 failure rate 0.19 (n=84) — that 19% may be partially masked by archiving failures.
@@ -81,3 +46,5 @@ without a project dir. Check `dojo/runner.py` and `archive.py` for the code path
 - **KB Iter 3: shared-core refactor** — `_fix_duplicate_decls` in `core.py`, iter 3 commit 48f995a
 - **KB Iters 4–5** — composite chains + validation tests, commits 4746d22, 25f3d3e
 - **Reduce no-distilled-cause** — added 7 new patterns to `diagnose.py` + `observe.py` blank-log/no-log handlers; qwen2.5 bucket dropped 120→24
+- **Oscillation fix** — `fix_inline_recipe` guard extended to `declared | _KNOWN_TARGETS`; regression test added (`test_inline_recipe_oscillation.py`)
+- **`fix_sqlite_conn_scope`** — adds `cursor = conn.cursor()` at module level when conn is top-level but cursor is missing; fires only when test imports cursor; 6 tests
