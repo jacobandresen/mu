@@ -81,3 +81,7 @@ quality and must not be overfit.*
 
 ---
 *Updated continuously as challenges arise and reflexes/skills resolve them.*
+
+18. **Missing closing brace**
+  - Ensure every opening curly brace `{` has a corresponding closing brace `}` in the same scope.
+
