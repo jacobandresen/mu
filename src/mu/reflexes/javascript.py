@@ -967,6 +967,7 @@ def apply_js_write_reflexes(file_path: str) -> None:
     fix_js_env_data_file(file_path)
     fix_js_missing_requires(file_path)
     fix_js_parent_to_sibling_import(file_path)
+    fix_js_program_parse_guard(file_path)
 
 
 def apply_js_repair_reflexes(file_path: str, test_output: str = '') -> None:

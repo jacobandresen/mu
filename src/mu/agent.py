@@ -83,6 +83,8 @@ from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
                          fix_rust_cargo_bad_dependency,
                          fix_rust_missing_trait_import,
                          fix_rust_unbalanced_braces,
+                         fix_sqlite_class_missing_init_table,
+                         fix_sqlite_conn_scope,
                          fix_sqlite_path_unlink,
                          fix_sqlite_test_isolation,
                          fix_sqlite_memory_multi_connect,
@@ -1315,6 +1317,8 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
                 fix_flask_init_db_import(t.file_path)
                 fix_sqlite_missing_row_factory(t.file_path)
                 fix_sqlite_memory_multi_connect(t.file_path)
+                fix_sqlite_conn_scope(t.file_path)
+                fix_sqlite_class_missing_init_table(t.file_path)
                 fix_flask_post_missing_201(t.file_path)
                 # A test that uses app/db/a model from the implementation module
                 # without importing it passes the syntax-only lint gate and only
