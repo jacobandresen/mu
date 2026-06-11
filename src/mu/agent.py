@@ -1266,7 +1266,7 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
     set_chat_context('repair')
 
     def run_test() -> tuple[bool, str]:
-        return _run_cmd(test_cmd, test_log), _tail_file(test_log, 60)
+        return _run_cmd(test_cmd, test_log), _extract_test_failures(test_log)
 
     def reapply() -> None:
         # Remove stale .cs files that are NOT in this stage's plan.
@@ -2146,6 +2146,22 @@ def _lint_failures_all_cosmetic(lint_log: str) -> bool:
     return all('assigned to but never used' in ln for ln in lines)
 
 
+_CARGO_CLIPPY_AVAILABLE: 'Optional[bool]' = None
+
+
+def _cargo_clippy_available() -> bool:
+    """Return True if `cargo clippy` is installed (checked once and cached)."""
+    global _CARGO_CLIPPY_AVAILABLE
+    if _CARGO_CLIPPY_AVAILABLE is None:
+        try:
+            r = subprocess.run(['cargo', 'clippy', '--version'],
+                               capture_output=True, timeout=10)
+            _CARGO_CLIPPY_AVAILABLE = r.returncode == 0
+        except Exception:
+            _CARGO_CLIPPY_AVAILABLE = False
+    return bool(_CARGO_CLIPPY_AVAILABLE)
+
+
 def _lint_command(file_path: str, p: Plan) -> str:
     if is_build_file(file_path):
         return ''
@@ -2177,7 +2193,7 @@ def _lint_command(file_path: str, p: Plan) -> str:
             rs_tasks = [t for t in p.tasks if t.file_path.endswith('.rs')]
             if any(not Path(t.file_path).exists() for t in rs_tasks):
                 return ''
-            return 'cargo check'
+            return 'cargo clippy' if _cargo_clippy_available() else 'cargo check'
         stem = Path(file_path).stem
         return (f"rustc --edition=2021 -Dwarnings {file_path} "
                 f"-o /tmp/mu_lint_{stem} && rm -f /tmp/mu_lint_{stem}")
@@ -2247,6 +2263,50 @@ def _read_file_lines(path: str, n: int, *, tail: bool = False) -> str:
 
 def _tail_file(path: str, n: int) -> str:
     return _read_file_lines(path, n, tail=True)
+
+
+def _extract_test_failures(log_path: str, max_chars: int = 3000) -> str:
+    """Extract failure-focused content from a test log.
+
+    Locates the FAILURES/ERRORS section (pytest), bullet failure blocks (jest/vitest),
+    or the failures summary (cargo test), and returns that — not the noisy header.
+    Falls back to the last 60 lines for unrecognised formats or passing runs.
+    """
+    try:
+        raw = Path(log_path).read_text(errors='replace')
+        content = _strip_ansi(raw)
+    except OSError:
+        return ''
+    if not content.strip():
+        return ''
+
+    # Pytest: "=== FAILURES ===" or "=== ERRORS ===" section
+    m = re.search(r'^={5,}\s+(FAILURES|ERRORS)\s+={5,}', content, re.MULTILINE)
+    if m:
+        chunk = content[m.start():]
+        if len(chunk) > max_chars:
+            chunk = chunk[:max_chars] + '\n... [truncated]'
+        return chunk
+
+    # Jest / Vitest: failure blocks start with a "● " bullet
+    m = re.search(r'^\s*●\s+', content, re.MULTILINE)
+    if m:
+        chunk = content[m.start():]
+        if len(chunk) > max_chars:
+            chunk = chunk[:max_chars] + '\n... [truncated]'
+        return chunk
+
+    # Cargo test: "failures:" summary block
+    m = re.search(r'^failures:\s*$', content, re.MULTILINE)
+    if m:
+        chunk = content[m.start():]
+        if len(chunk) > max_chars:
+            chunk = chunk[:max_chars] + '\n... [truncated]'
+        return chunk
+
+    # Unknown format or passing run: fall back to tail
+    lines = content.splitlines()
+    return '\n'.join(lines[-60:])
 
 
 def _head_file(path: str, n: int) -> str:

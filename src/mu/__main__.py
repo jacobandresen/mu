@@ -233,6 +233,32 @@ def _cmd_check(args) -> int:
             fail_count += 1
     print()
 
+    # Optional static-analysis tools. Present = repair loop can use them.
+    # Not counted toward pass/fail — all are optional enrichments.
+    print("Optional analysis (repair loop enrichment — no-op when absent)")
+    opt_tools = [
+        ("ruff",    "ruff",    "pip3 install ruff",                          "Python fast linter"),
+        ("pyright", "pyright", "pip3 install pyright  OR  npm i -g pyright", "Python type checker"),
+        ("eslint",  "eslint",  "npm install -g eslint",                      "JavaScript/TypeScript linter"),
+        ("biome",   "biome",   "npm install -g @biomejs/biome",              "JS/TS formatter+linter"),
+    ]
+    for label, cmd, hint, desc in opt_tools:
+        if shutil.which(cmd):
+            print(f"  [--]  {label}")
+        else:
+            print(f"  [--]  {label:<10} not found   {hint}")
+    # cargo clippy: separate component from cargo itself
+    import subprocess as _sp
+    try:
+        _cp = _sp.run(['cargo', 'clippy', '--version'], capture_output=True, timeout=5)
+        if _cp.returncode == 0:
+            print("  [--]  cargo clippy")
+        else:
+            print("  [--]  cargo clippy not found   rustup component add clippy")
+    except Exception:
+        print("  [--]  cargo clippy not found   rustup component add clippy")
+    print()
+
     # Optional plan-lint extra (Option A). Informational only — never counted
     # toward pass/fail, since the feature is opt-in behind MU_LINT_PLAN=1.
     print("Plan lint (optional — MU_LINT_PLAN=1)")
