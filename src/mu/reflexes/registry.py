@@ -70,6 +70,7 @@ _CATALOG: dict[str, list] = {
     'unused-import': [go.fix_go_unused_imports],
     'test-isolation': [
         python.fix_sqlite_test_isolation, python.fix_sqlite_conn_scope, python.fix_sqlite_memory_multi_connect,
+        javascript.fix_js_program_parse_guard,
         python.fix_missing_flask_client_fixture, javascript.fix_jest_fs_mock,
         python.fix_sqlite_missing_row_factory, python.fix_sqlite_path_unlink],
     'test-command-correctness': [
@@ -169,6 +170,7 @@ _ANNOTATIONS: dict = {
     # ── javascript (new) ─────────────────────────────────────────────────────
     javascript.fix_js_const_reassignment:      {'artifact': 'js', 'evidence': 'p8-node'},
     javascript.fix_js_duplicate_const:        {'artifact': 'js', 'evidence': 'p8-node'},
+    javascript.fix_js_program_parse_guard:    {'artifact': 'js', 'evidence': 'p8-node'},
     javascript.fix_vue_attr_quotes:            {'artifact': 'vue', 'evidence': 'p9-vue'},
     # ── makefile (new) ───────────────────────────────────────────────────────
     makefile.fix_makefile_missing_test_target: {'artifact': 'Makefile',
