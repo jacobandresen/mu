@@ -152,6 +152,29 @@ _RULES: list[_Rule] = [
           lambda m: f"command not found: '{m['cmd']}' — a typo, an uninstalled tool, "
                     f"or a devDependency binary that needs npx"),
 
+    # ── SQLite runtime errors ─────────────────────────────────────────────────
+    _rule(r"sqlite3\.\w+Error: no such table:\s*(?P<table>\w+)",
+          lambda m: f"sqlite3: table '{m['table']}' not found — call init_db() before tests "
+                    f"or ensure EnsureCreated runs at startup",
+          re.I),
+    _rule(r"sqlite3\.\w+Error:\s*(?P<msg>.+?)(?:\s*$)",
+          lambda m: f"sqlite3 error: {_clip(m['msg'], 80)} — check schema init and connection scope",
+          re.I),
+
+    # ── Python runtime errors (generic) ───────────────────────────────────────
+    _rule(r"^E\s+(?:KeyError|IndexError|AttributeError|TypeError|ValueError):\s*(?P<msg>.+)$",
+          lambda m: f"Python runtime error: {_clip(m['msg'], 80)} — check data structure shape",
+          re.I),
+    # pytest assertion (assert X == Y)
+    _rule(r"^E\s+AssertionError:\s*assert\s+(?P<a>\S+)\s*==\s*(?P<b>\S+)$",
+          lambda m: f"assertion failed: expected {m['a']!r} to equal {m['b']!r}",
+          re.I),
+
+    # ── make error exit ───────────────────────────────────────────────────────
+    _rule(r"make:\s*\*\*\*\s*\[(?P<target>[^\]]+)\]\s*Error\s*(?P<code>\d+)",
+          lambda m: f"Makefile: target '{m['target']}' failed with exit code {m['code']} "
+                    f"— check the recipe output above for the actual error"),
+
     # ── C compiler errors (undefined function, nested definition) ────────────
     _rule(r"call to undeclared function ['`]?(?P<func>\w+)[`']?",
           lambda m: f"C: call to undeclared function '{m['func']}' — add a forward declaration "
