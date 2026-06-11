@@ -72,3 +72,5 @@ Or: change jest command to `NODE_OPTIONS='--experimental-vm-modules' npx jest`.
 - **`fix_sqlite_conn_scope`** — adds `cursor = conn.cursor()` at module level when conn is top-level but cursor is missing; fires only when test imports cursor; 6 tests
 - **`fix_dotnet_test_cwd` extended** — now also handles `dotnet test tests/` where `tests/` has no `.csproj` (the MSB1003 source for 67 sessions)
 - **p5-gin archiving** — resolved; 0 sessions with missing project_dir as of 2026-06-11
+- **`fix_js_duplicate_const`** — removes consecutive duplicate const/let in test files; 9 of 18 "Jest ESM" sessions are this pattern
+- **`fix_js_program_parse_guard`** — wraps `program.parse(process.argv)` with `require.main === module`; fixes 13 sessions where commander.js exits during test import
