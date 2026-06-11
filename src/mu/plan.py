@@ -281,6 +281,20 @@ def normalize_test_command(path: str) -> bool:
             else:
                 # No .csproj at all — strip the bad path so dotnet auto-discovers
                 updated = _set_test_command(updated, f'{m.group(1)}{m.group(3)}')
+    # dotnet test <dir> (no .csproj inside dir) — redirect to root project file.
+    # Fires when the LLM writes `dotnet test tests/` but tests/ has no .csproj.
+    # fix_csharp_xunit_packages will add xunit to the root csproj during reapply().
+    p3 = parse_content(updated)
+    if p3.test_command:
+        m3 = re.match(r'dotnet\s+test\s+([^\s-]\S*)\s*$', p3.test_command)
+        if m3 and not m3.group(1).endswith('.csproj'):
+            arg_path = Path(m3.group(1).rstrip('/'))
+            if arg_path.is_dir() and not list(arg_path.glob('*.csproj')):
+                real = sorted(Path('.').glob('*.csproj'))
+                if real:
+                    updated = _set_test_command(updated, f'dotnet test {real[0]}')
+                else:
+                    updated = _set_test_command(updated, 'dotnet test')
     if updated == data:
         return False
     Path(path).write_text(updated)
