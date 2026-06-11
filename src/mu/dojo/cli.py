@@ -69,14 +69,12 @@ def _build_parser() -> argparse.ArgumentParser:
     pr.add_argument('--reflect-limit', type=int,
                     default=int(os.environ.get('REFLECT_LIMIT', '10')),
                     help='max lessons written per reflect call')
-    pr.add_argument('--digest', default=os.environ.get('DOJO_DIGEST', 'dojo-failures.md'),
-                    help='per-round failure digest path')
     pr.add_argument('--model', default=os.environ.get('MU_AGENT_MODEL', ''),
                     help='model id for the agent; $MU_AGENT_MODEL')
     pr.add_argument('--no-reflect', action='store_true', default=_env_flag('SKIP_REFLECT'),
                     help='skip the post-round reflect step')
-    pr.add_argument('--no-autocommit', action='store_true', default=_env_flag('SKIP_AUTOCOMMIT'),
-                    help='skip committing README/CHALLENGES/token_usage')
+    pr.add_argument('--autocommit', action='store_true', default=False,
+                    help='commit README/CHALLENGES/token_usage after each round')
     pr.add_argument('--no-preflight', action='store_true', default=_env_flag('SKIP_PREFLIGHT'),
                     help='skip the LM Studio reachability check')
 
@@ -121,9 +119,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         os.environ['STOP_AFTER_BARREN'] = str(args.stop_after_barren)
         os.environ['ROUND_TIMEOUT'] = str(args.round_timeout)
         os.environ['REFLECT_LIMIT'] = str(args.reflect_limit)
-        os.environ['DOJO_DIGEST'] = args.digest
         _set_flag('SKIP_REFLECT', args.no_reflect)
-        _set_flag('SKIP_AUTOCOMMIT', args.no_autocommit)
+        _set_flag('SKIP_AUTOCOMMIT', not args.autocommit)
         _set_flag('SKIP_PREFLIGHT', args.no_preflight)
         from . import practice
         return practice.run()

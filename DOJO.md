@@ -41,10 +41,9 @@ Inspect failures in `~/.mu/sessions/<id>/logs/`; the `diagnose` sensor (`src/mu/
 `mu dojo practice` is how mu is trained: run the set with a weak model, find the general classes of mistake it makes, encode a reflex (or normalizer) that fixes the class. Each round:
 
 1. Runs the full set via `mu dojo run`.
-2. Appends every failed session to `dojo-failures.md`, tagged with its problem id and **distilled root cause** (the diagnose sensor).
-3. Reflects the round's failures into `CHALLENGES.md` (`mu reflect`).
-4. Rewrites the `DOJO-RESULTS` block in `README.md` with that round's PASS/FAIL (last round only — it overwrites).
-5. Prints a per-problem pass-rate table, worst-first.
+2. Reflects the round's failures into `CHALLENGES.md` (`mu reflect`), each tagged with its distilled root cause (the diagnose sensor).
+3. Rewrites the `DOJO-RESULTS` block in `README.md` with that round's PASS/FAIL (last round only — it overwrites).
+4. Prints a per-problem pass-rate table, worst-first.
 
 Read the table and the causes: a problem failing every round with the **same** cause is a general class to turn into a reflex; one that varies run to run is model quality — don't overfit it.
 

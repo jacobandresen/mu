@@ -1,10 +1,9 @@
 """Run repeated dojo rounds and learn from each one. (Port of practice.sh.)
 
-Each round runs the full problem set (``python -m mu.dojo run``), then walks the
-session archive for everything finalized during the round and appends a
-structured digest to ``dojo-failures.md``. Failed sessions carry their distilled
-root cause, so the next round's planner (which reads CHALLENGES.md and the enrich
-retriever, ``MU_ENRICH_LESSONS=1``) has visible evidence of what failed and why.
+Each round runs the full problem set (``python -m mu.dojo run``), then reflects
+failures into CHALLENGES.md via ``mu reflect``. The per-problem pass-rate table
+(printed at the end) shows which problems fail chronically — those are reflex
+candidates. TODO.md tracks the improvement backlog.
 
     python -m mu.dojo practice                      # 100 rounds
     ROUNDS=10 python -m mu.dojo practice
@@ -24,18 +23,8 @@ from collections import Counter
 from pathlib import Path
 
 from . import readme, sessions
-from .env import augment_path, iso_now, lmstudio_host, mu_cmd
+from .env import augment_path, lmstudio_host, mu_cmd
 from .sessions import SessionMeta
-
-_DIGEST_HEADER = """# Dojo Practice Digest
-
-One section per practice round. Each round lists the outcome of every
-mu session finalized during the round. Failed sessions are listed by
-goal so the next round's planner (which reads CHALLENGES.md and queries
-the enrich retriever) has visible evidence of what failed and why.
-
-"""
-
 
 @contextlib.contextmanager
 def _best_effort(label: str):
@@ -79,33 +68,6 @@ def _preflight_ok() -> bool:
         print(f"practice: LM Studio not reachable at {host}", file=sys.stderr)
         print("  start it and load a model, or re-run with SKIP_PREFLIGHT=1", file=sys.stderr)
         return False
-
-
-# --------------------------------------------------------------------------- #
-# Digest + README
-# --------------------------------------------------------------------------- #
-def _seed_digest(digest: Path) -> None:
-    if not digest.exists():
-        digest.write_text(_DIGEST_HEADER, encoding='utf-8')
-
-
-def _failure_line(s: SessionMeta) -> str:
-    cause = sessions.root_cause(s.dir)
-    suffix = f" -- cause: {cause}" if cause else ""
-    return f"- **{s.outcome}** ({s.session_id}) [{s.problem_id}] — {s.goal}{suffix}"
-
-
-def _append_round(digest: Path, round_num: int, round_sessions: list[SessionMeta]) -> None:
-    fails = [s for s in round_sessions if not s.passed]
-    parts = [
-        f"\n## round {round_num} — {iso_now()}",
-        f"\nsuccesses: {len(round_sessions) - len(fails)}  failures: {len(fails)}\n",
-    ]
-    if fails:
-        parts.append("Failed sessions:\n")
-        parts.extend(_failure_line(s) for s in fails)
-    with digest.open('a', encoding='utf-8') as f:
-        f.write('\n'.join(parts) + '\n')
 
 
 # --------------------------------------------------------------------------- #
@@ -191,7 +153,6 @@ def run() -> int:
     rounds = int(os.environ.get('ROUNDS', '100'))
     stop_after_barren = int(os.environ.get('STOP_AFTER_BARREN', '5'))
     round_timeout = int(os.environ.get('ROUND_TIMEOUT', '1800'))
-    digest = Path(os.environ.get('DOJO_DIGEST') or 'dojo-failures.md')
 
     _acquire_lock()  # held for the life of the process
     if not _preflight_ok():
@@ -200,8 +161,6 @@ def run() -> int:
     print("Warming up the model…")
     with _best_effort('warm'):
         subprocess.run(mu_cmd() + ['model', 'warm'], check=False)
-
-    _seed_digest(digest)
 
     all_sessions: list[SessionMeta] = []
     total_ok = total_fail = 0
@@ -227,7 +186,6 @@ def run() -> int:
         successes = len(round_sessions) - len(fails)
         all_sessions.extend(round_sessions)
 
-        _append_round(digest, round_num, round_sessions)
         with _best_effort('readme'):
             readme.refresh(round_sessions, round_num)
 
@@ -263,12 +221,9 @@ def run() -> int:
 
     total_elapsed = int(time.time() - started)
     print(f"\npractice complete: {total_ok} ok / {total_fail} fail across "
-          f"{last_round} round(s) in {total_elapsed}s. Digest: {digest}")
+          f"{last_round} round(s) in {total_elapsed}s")
 
     if all_sessions:
         summary = _pass_rate_summary(all_sessions)
         print(f"\nper-problem pass rate (worst first):\n{summary}")
-        with digest.open('a', encoding='utf-8') as f:
-            f.write(f"\n## per-problem summary — {iso_now()}\n\n")
-            f.write(summary + '\n')
     return 0
