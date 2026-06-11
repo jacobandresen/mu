@@ -70,6 +70,7 @@ _CATALOG: dict[str, list] = {
     'unused-import': [go.fix_go_unused_imports],
     'test-isolation': [
         python.fix_sqlite_test_isolation, python.fix_sqlite_conn_scope, python.fix_sqlite_memory_multi_connect,
+        python.fix_sqlite_class_missing_init_table,
         javascript.fix_js_program_parse_guard,
         python.fix_missing_flask_client_fixture, javascript.fix_jest_fs_mock,
         python.fix_sqlite_missing_row_factory, python.fix_sqlite_path_unlink],
@@ -153,6 +154,7 @@ _ANNOTATIONS: dict = {
                                                 'evidence': 'p2-sqlite'},
     python.fix_sqlite_test_isolation:          {'artifact': 'py', 'evidence': 'p2-sqlite'},
     python.fix_sqlite_conn_scope:              {'artifact': 'py', 'evidence': 'p2-sqlite'},
+    python.fix_sqlite_class_missing_init_table: {'artifact': 'py', 'evidence': 'p2-sqlite'},
     python.fix_sqlite_memory_multi_connect:    {'artifact': 'py', 'evidence': 'p2-sqlite'},
     python.fix_flask_init_db_import:           {'artifact': 'py', 'risk': 'medium',
                                                 'evidence': 'p7-flask'},
