@@ -189,6 +189,10 @@ _PY_STDLIB_IMPORTS = {
     'copy': 'import copy',
     'time': 'import time',
     'logging': 'import logging',
+    # Common third-party frameworks that appear without imports
+    'Flask': 'from flask import Flask',
+    'request': 'from flask import request',
+    'jsonify': 'from flask import jsonify',
 }
 
 def _sibling_py_sources(file_path: str) -> dict[str, str]:
