@@ -107,7 +107,8 @@ _CATALOG: dict[str, list] = {
         javascript.fix_vue_test_utils_import],
     'syntax-repair': [
         javascript.fix_js_const_reassignment,
-        javascript.fix_vue_attr_quotes],
+        javascript.fix_vue_attr_quotes,
+        javascript.fix_js_parent_to_sibling_import],
     'code-structure': [
         python.fix_python_method_indent, python.fix_python_missing_def,
         python.fix_flask_post_missing_201, python.fix_flask_test_route_decorators,
@@ -177,6 +178,7 @@ _ANNOTATIONS: dict = {
     javascript.fix_js_duplicate_const:        {'artifact': 'js', 'evidence': 'p8-node'},
     javascript.fix_js_program_parse_guard:    {'artifact': 'js', 'evidence': 'p8-node'},
     javascript.fix_vue_attr_quotes:            {'artifact': 'vue', 'evidence': 'p9-vue'},
+    javascript.fix_js_parent_to_sibling_import: {'artifact': 'ts', 'evidence': 'p9-vue'},
     # ── makefile (new) ───────────────────────────────────────────────────────
     makefile.fix_makefile_missing_test_target: {'artifact': 'Makefile',
                                                 'evidence': 'p7-flask'},

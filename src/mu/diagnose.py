@@ -188,6 +188,12 @@ _RULES: list[_Rule] = [
           lambda m: f"Makefile: target '{m['target']}' is up-to-date but binary is missing "
                     f"— check that source files changed or add a .PHONY declaration",
           re.I),
+    # ── Vite import resolution (must precede the 0-test pattern) ─────────────
+    _rule(r'Failed to resolve import "(?P<imp>[^"]+)"',
+          lambda m: f"Vite: failed to resolve import '{m['imp']}' "
+                    f"— check the relative path (e.g. './App.vue' not '../App.vue') "
+                    f"or install the package",
+          re.I),
     # ── Vitest/Jest no tests found or empty test suite ────────────────────────
     _rule(r"\(0 test\w*\)",
           lambda m: "Vitest: test suite has 0 tests — check that describe/it blocks are present "
