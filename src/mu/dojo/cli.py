@@ -43,6 +43,8 @@ def _build_parser() -> argparse.ArgumentParser:
                    metavar='ID[,ID...]',
                    help='ablation: switch off these reflex(es) for the run, to '
                         'measure their efficacy (docs/REFLEX_KB.md §9)')
+    m.add_argument('--emit-json', default='', metavar='PATH',
+                   help='write structured result JSON to PATH (for record_efficacy)')
 
     # -- run ----------------------------------------------------------------
     r = sub.add_parser('run', help='run one problem, or all available')
@@ -105,7 +107,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         if args.disable:
             os.environ['MU_DISABLE_REFLEX'] = args.disable  # reaches the iterate subprocess
         from . import measure
-        return measure.run(args.problem_id)
+        return measure.run(args.problem_id, emit_json=args.emit_json)
 
     if args.cmd == 'run':
         if args.model:

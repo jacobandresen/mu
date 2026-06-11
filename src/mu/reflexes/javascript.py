@@ -8,6 +8,8 @@ import json
 import re
 from pathlib import Path
 
+from mu.reflexes.core import _fix_duplicate_decls, fix_literal_newlines
+
 
 __all__ = [
     'fix_vue_missing_package',
@@ -23,6 +25,10 @@ __all__ = [
     'fix_package_json_bare_jest',
     'fix_package_json_builtin_deps',
     'fix_js_duplicate_require',
+    'fix_js_const_reassignment',
+    'fix_vue_attr_quotes',
+    'apply_js_write_reflexes',
+    'apply_js_repair_reflexes',
 ]
 
 
@@ -328,26 +334,13 @@ def fix_js_duplicate_require(file_path: str) -> bool:
     ext = Path(file_path).suffix.lower()
     if ext not in ('.js', '.jsx', '.mjs', '.ts', '.tsx'):
         return False
-    try:
-        lines = Path(file_path).read_text().splitlines()
-    except OSError:
-        return False
-    seen: set[str] = set()
-    out, removed = [], 0
-    for line in lines:
+    def _match(line: str):
         m = _JS_REQUIRE_DECL_RE.match(line)
-        if m:
-            name = m.group('name')
-            if name in seen:
-                removed += 1
-                continue  # drop the redeclaration
-            seen.add(name)
-        out.append(line)
-    if not removed:
-        return False
-    Path(file_path).write_text('\n'.join(out) + '\n')
-    print(f"==> [mu-agent] Reflex: removed {removed} duplicate require declaration(s) from {file_path}")
-    return True
+        return m.group('name') if m else None
+    removed = _fix_duplicate_decls(file_path, _match, keepends=False)
+    if removed:
+        print(f"==> [mu-agent] Reflex: removed {removed} duplicate require declaration(s) from {file_path}")
+    return removed > 0
 
 def fix_js_extra_closing_brace(file_path: str, test_output: str = '') -> bool:
     """Fix unbalanced braces in JS/TS files when the parser reports a mismatch.
@@ -728,3 +721,112 @@ def fix_package_json_builtin_deps(project_dir: str) -> bool:
     pkg_path.write_text(_json.dumps(data, indent=2) + '\n')
     print(f"==> [mu-agent] Reflex: removed Node builtin(s) from {pkg_path}: {removed}")
     return True
+
+
+def fix_js_const_reassignment(file_path: str, test_output: str) -> bool:
+    """Change `const` to `let` for variables that are reassigned after declaration.
+
+    When test output contains 'Assignment to constant variable', the model
+    declared a variable with `const` but later reassigns it. Scans for each
+    `const NAME` declaration and checks if NAME appears in a bare assignment
+    (= not ==) later in the same file.
+    """
+    if 'Assignment to constant variable' not in test_output:
+        return False
+    if Path(file_path).suffix.lower() not in ('.js', '.jsx', '.mjs', '.ts', '.tsx'):
+        return False
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+
+    changed = False
+
+    def check_reassign(m: re.Match) -> str:
+        nonlocal changed
+        name = m.group(1)
+        after = text[m.end():]
+        # bare assignment: NAME = ... but not ==, ===, !=, +=, -=, etc.
+        if re.search(
+            rf'(?<![=!<>+\-*/%&|^])\b{re.escape(name)}\s*=(?![=>])',
+            after,
+        ):
+            changed = True
+            return f'let {name}'
+        return m.group(0)
+
+    new_text = re.sub(r'\bconst\s+(\w+)', check_reassign, text)
+    if not changed:
+        return False
+    Path(file_path).write_text(new_text)
+    print(f"==> [mu-agent] Reflex: changed const→let for reassigned variable(s) in {file_path}")
+    return True
+
+
+def fix_vue_attr_quotes(file_path: str) -> bool:
+    """Strip invalid characters from Vue HTML template attribute names.
+
+    HTML attribute names cannot contain U+0022 ("), U+0027 ('), or U+003C (<).
+    When the model writes `v-bind:"prop"=value`, the Vue compiler raises
+    SyntaxError. This reflex strips those characters from attribute names
+    (the text before `=`) inside the <template> section only.
+    """
+    if not file_path.lower().endswith('.vue'):
+        return False
+    try:
+        text = Path(file_path).read_text()
+    except OSError:
+        return False
+
+    template_m = re.search(r'(<template(?:\s[^>]*)?>)(.*?)(</template>)', text, re.DOTALL)
+    if not template_m:
+        return False
+
+    template = template_m.group(2)
+
+    def fix_name(m: re.Match) -> str:
+        name = m.group(1)
+        clean = name.replace('"', '').replace("'", '').replace('<', '')
+        return clean
+
+    # Match an attribute name that contains at least one invalid char before '='.
+    # The lookahead (?==) keeps the '=' unconsumed so the surrounding text is intact.
+    new_template = re.sub(
+        r"""(?<=[ \t\n])([\w:@$./-]*["'<][\w:@$./\"'<-]*)(?==)""",
+        fix_name,
+        template,
+    )
+
+    if new_template == template:
+        return False
+
+    new_text = text[:template_m.start(2)] + new_template + text[template_m.end(2):]
+    Path(file_path).write_text(new_text)
+    print(f"==> [mu-agent] Reflex: stripped invalid chars from Vue attribute names in {file_path}")
+    return True
+
+
+_JS_EXTS = frozenset(('.js', '.jsx', '.mjs', '.ts', '.tsx'))
+
+
+def apply_js_write_reflexes(file_path: str) -> None:
+    """Write-phase JS/TS/Vue chain — preserves the order used in agent.py ~795-811."""
+    ext = Path(file_path).suffix.lower()
+    if ext not in _JS_EXTS and not file_path.lower().endswith('.vue'):
+        return
+    fix_jest_fs_mock(file_path)
+    fix_vue_test_utils_import(file_path)
+    fix_vue_attr_quotes(file_path)
+    fix_js_duplicate_require(file_path)
+    fix_js_env_data_file(file_path)
+    fix_js_missing_requires(file_path)
+
+
+def apply_js_repair_reflexes(file_path: str) -> None:
+    """Repair-phase JS/TS chain — preserves the order used in agent.py ~1341."""
+    if Path(file_path).suffix.lower() not in _JS_EXTS:
+        return
+    fix_js_duplicate_require(file_path)
+    fix_js_env_data_file(file_path)
+    fix_js_missing_requires(file_path)
+    fix_literal_newlines(file_path)

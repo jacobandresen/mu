@@ -87,10 +87,30 @@ _RULES: list[_Rule] = [
           lambda m: f"Go: undefined symbol '{m['symbol']}' (missing import or declaration)"),
     _rule(r'"(?P<import>[^"]+)" imported and not used',
           lambda m: f"Go: import '{m['import']}' is unused — remove it"),
+    _rule(r"^(?P<file>\S+?\.go):(?P<line>\d+):\d+:\s*syntax error:\s*(?P<msg>.+)$",
+          lambda m: f"{m['file']}:{m['line']}: Go syntax error: {_clip(m['msg'])}"),
 
     # ── C# / MSBuild ──
     _rule(r"error (?P<code>CS\d+):\s*(?P<msg>.+?)(?:\s*\[|$)",
           lambda m: f"{m['code']}: {_clip(m['msg'])}"),
+    _rule(r"MSBUILD\s*:\s*error (?P<code>MSB\d+):\s*(?P<msg>.+?)(?:\s*\[|$)",
+          lambda m: f"MSBuild {m['code']}: {_clip(m['msg'])}",
+          re.I),
+
+    # ── Go (extended) ──
+    _rule(r"cannot use (?P<expr>.+?) \((?:type|variable of type) .+?\) as (?:type )?(?P<typ>\S+)",
+          lambda m: f"Go: type error — cannot use {_clip(m['expr'], 40)} as {m['typ']}",
+          re.I),
+    _rule(r"not enough arguments in call to (?P<func>\S+)",
+          lambda m: f"Go: not enough arguments in call to '{m['func']}'",
+          re.I),
+    _rule(r"too many arguments in call to (?P<func>\S+)",
+          lambda m: f"Go: too many arguments in call to '{m['func']}'",
+          re.I),
+    _rule(r"(?P<file>\S+?\.go):(?P<line>\d+):\d+:\s*(?P<name>\w+) declared (?:and|but) not used",
+          lambda m: f"{m['file']}:{m['line']}: '{m['name']}' declared but not used — remove it"),
+    _rule(r"^--- FAIL:\s*(?P<test>\w+)",
+          lambda m: f"Go test failed: {m['test']}"),
 
     # ── Go modules ──
     _rule(r"go: errors parsing go\.mod",
@@ -109,6 +129,10 @@ _RULES: list[_Rule] = [
     # ── generic test assertion (jest/dotnet/CTest 'Expected vs Actual') ──
     _rule(r"^\s*Expected:\s*(?P<exp>.+)$",
           lambda m: f"output assertion failed — expected: {_clip(m['exp'], 60)}"),
+    # vitest / jest fluent assertion: "expected 'X' to contain 'Y'"
+    _rule(r"expected (?P<a>.+?) to (?P<rel>contain|be|equal|match|include|have) (?P<b>.+?)\s*$",
+          lambda m: f"assertion failed: expected {_clip(m['a'], 40)} to {m['rel']} {_clip(m['b'], 40)}",
+          re.I),
 ]
 
 

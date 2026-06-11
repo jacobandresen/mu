@@ -86,7 +86,8 @@ class AgentSession:
         try:
             Path(os.path.join(self.archive_path, 'meta.json')).write_text(
                 json.dumps({'session_id': self.id, 'goal': goal,
-                            'outcome': 'unknown', 'exit_code': -1}) + '\n')
+                            'outcome': 'unknown', 'exit_code': -1,
+                            'project_dir': self.project_dir}) + '\n')
         except OSError:
             pass
 

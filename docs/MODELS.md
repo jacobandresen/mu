@@ -1,38 +1,16 @@
 # Models — recommendation & characterization
 
-## What the dojo requires
-
-Seven problems across Python, C (SDL2), C# (dotnet), Go (Gin), Rust (cargo), and a hard Flask+SQLite+pytest problem.
-The top failure modes (from DOJO.md) are:
-
-1. **Tool calling failure** — model generates prose instead of calling Write; repair agent never acts.
-2. **API hallucination** — wrong library versions (gin v2.0.0), SDL3 vs SDL2 APIs, bad go.mod pins.
-3. **Makefile syntax** — spaces instead of tabs, orphan commands, wrong SDL2 wiring.
-4. **Multi-language breadth** — model must write idiomatic Python, C, Go, Rust, C# in one session.
-
-Tool calling reliability is the single biggest lever: gemma4:e2b hit 5/7 with sensors but collapsed
-on P2/P7 every time because the repair agent generated explanations instead of tool calls.
-
-The most predictive benchmark for the dojo is **SWE-bench Verified** (fixing real GitHub issues with
-tools) — not HumanEval (Python autocomplete). Models that score well on SWE-bench have demonstrated
-they can call tools, iterate on failures, and write correct multi-file code.
-
----
+Tool-calling reliability is the single biggest lever. The most predictive benchmark
+is **SWE-bench Verified** (real GitHub issues, tool use + multi-file) — not HumanEval.
 
 ## Recommendation by VRAM
 
-| Model | Dojo problem | Notes |
+| Model | VRAM | Notes |
 |---|---|---|
-| `google/gemma-4-e2b` | Repair agent never calls tools (CHALLENGES #1, #9) | Fast but unreliable; fails P2/P7 every run |
-| `mistralai/mistral-7b-instruct-v0.3` | General model, pre-2025, no code specialization | Likely worse than Qwen2.5-Coder on multi-lang code |
-| `ibm/granite-4.1-3b` | ~2 GB; fits Pi and 8GB machines; 128K context | **Primary recommendation** |
-| `Qwen2.5-Coder-7B-Instruct` | Best 8GB code specialist | **Runner-up for 8GB** |
-| `Devstral-Small-2507` | Agentic, 53.6% SWE-bench | **Recommended for 16GB** |
-| `Devstral-Small-2` | Agentic, **68.0% SWE-bench** | **Recommended for 32GB** |
-
-SWE-bench Verified (real GitHub issues, tool use + multi-file debugging) is the most
-predictive benchmark for the dojo — not HumanEval. Tool-calling reliability is the single
-biggest lever.
+| `ibm/granite-4.1-3b` | ~2 GB | **Primary** — fits Pi and 8GB; 128K context |
+| `Qwen2.5-Coder-7B-Instruct` | ~4.5 GB | **Runner-up for 8GB** — best code specialist |
+| `Devstral-Small-2507` | ~16 GB | 53.6% SWE-bench — recommended for 16GB |
+| `Devstral-Small-2` | ~32 GB | **68.0% SWE-bench** — recommended for 32GB |
 
 ---
 

@@ -39,6 +39,8 @@ __all__ = [
     'fix_config_tool_redundant_flag',
     'fix_makefile_recipe_is_prerequisite_list',
     'fix_makefile_bare_vitest',
+    'fix_makefile_missing_test_target',
+    'fix_dotnet_test_cwd',
     'apply_makefile_reflexes',
 ]
 
@@ -161,6 +163,7 @@ def fix_inline_recipe(f: str) -> bool:
         data = Path(f).read_text()
     except OSError:
         return False
+    declared = set(re.findall(r'^([A-Za-z0-9_.-]+)\s*:', data, re.MULTILINE))
     lines, changed, out = data.splitlines(), False, []
     for line in lines:
         trimmed = line.strip()
@@ -172,6 +175,13 @@ def fix_inline_recipe(f: str) -> bool:
                 is_known = target in _KNOWN_TARGETS
                 is_compiler = _INLINE_COMPILER_RE.match(after)
                 if (is_known or is_compiler) and ' ' in after and not after.startswith('='):
+                    # If every word after the colon is a declared target, this is a
+                    # prerequisite list (e.g. "all: install test") — leave it alone.
+                    # Splitting it would trigger fix_makefile_recipe_is_prerequisite_list
+                    # to immediately undo the change, causing an oscillation loop.
+                    if all(w in declared for w in after.split()):
+                        out.append(line)
+                        continue
                     out.extend([target + ':', '\t' + after])
                     changed = True
                     continue
@@ -1051,6 +1061,85 @@ def fix_makefile_bare_vitest(f: str) -> bool:
     print(f"==> [mu-agent] Reflex: replaced bare vitest with npx vitest run in {f}")
     return True
 
+
+def fix_makefile_missing_test_target(f: str) -> bool:
+    """Add a `test:` phony target when the Makefile has none.
+
+    When `make test` fails with "no rule to make target 'test'", the model
+    generated a Makefile without a test target.  Detects the test runner used
+    elsewhere in the file (pytest, npm, cargo, go, dotnet) and inserts a
+    minimal `test:` target.  Only fires when a recognisable test invocation is
+    already present — never guesses.
+    """
+    try:
+        content = Path(f).read_text()
+    except OSError:
+        return False
+    if re.search(r'^test\s*:', content, re.MULTILINE):
+        return False  # already has a test target
+    # Detect test runner from existing recipes
+    if re.search(r'\.venv/bin/pytest', content):
+        recipe = '\t.venv/bin/pytest'
+    elif re.search(r'\bpytest\b', content):
+        recipe = '\tpytest'
+    elif re.search(r'\bnpm\s+test\b|\bnpx\s+(?:jest|vitest)\b', content):
+        recipe = '\tnpm test'
+    elif re.search(r'\bcargo\s+test\b', content):
+        recipe = '\tcargo test'
+    elif re.search(r'\bdotnet\s+test\b', content):
+        recipe = '\tdotnet test'
+    elif re.search(r'\bgo\s+test\b', content):
+        recipe = '\tgo test ./...'
+    else:
+        return False
+    sep = '' if content.endswith('\n') else '\n'
+    Path(f).write_text(content + sep + '\ntest:\n' + recipe + '\n')
+    print(f"==> [mu-agent] Reflex: added test: target to {f}")
+    return True
+
+
+def fix_dotnet_test_cwd(f: str) -> bool:
+    """Add a project/solution path to bare `dotnet test` in a Makefile.
+
+    When `dotnet test` is run from the repo root without a project argument,
+    MSBuild fails with MSB1003 if no .sln/.csproj is in the working directory.
+    This reflex finds a .sln (preferred) or test .csproj in the directory tree
+    and adds it as an argument.
+    """
+    try:
+        content = Path(f).read_text()
+    except OSError:
+        return False
+    # Only act on bare `dotnet test` (no path argument follows)
+    if not re.search(r'\bdotnet\s+test\b(?!\s+\S)', content):
+        return False
+    base = Path(f).parent
+    # Prefer a .sln (covers all projects); fall back to a *test* .csproj
+    sln_files = sorted(base.rglob('*.sln'))
+    if sln_files:
+        target = sln_files[0]
+    else:
+        csproj_files = sorted(base.rglob('*.csproj'))
+        if not csproj_files:
+            return False
+        test_csproj = [c for c in csproj_files if 'test' in c.stem.lower()]
+        target = test_csproj[0] if test_csproj else csproj_files[0]
+    try:
+        rel = target.relative_to(base)
+    except ValueError:
+        return False
+    new_content = re.sub(
+        r'\bdotnet\s+test\b(?!\s+\S)',
+        f'dotnet test {rel}',
+        content,
+    )
+    if new_content == content:
+        return False
+    Path(f).write_text(new_content)
+    print(f"==> [mu-agent] Reflex: added project path to dotnet test in {f}: {rel}")
+    return True
+
+
 _MAKEFILE_REFLEXES = [
     # 1. text artifacts
     fix_tool_call_artifacts,
@@ -1069,6 +1158,8 @@ _MAKEFILE_REFLEXES = [
     fix_makefile_pip_install_empty, fix_makefile_pytest_in_non_python,
     fix_makefile_bare_pytest, fix_makefile_npm_test_jest, fix_makefile_bare_vitest,
     fix_missing_venv_rule, fix_config_tool_redundant_flag,
+    fix_dotnet_test_cwd,
+    fix_makefile_missing_test_target,
 ]
 
 def apply_makefile_reflexes(f: str) -> None:

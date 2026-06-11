@@ -1,0 +1,3 @@
+apply_makefile_reflexes
+fix_json_unclosed_brackets
+fix_no_targets

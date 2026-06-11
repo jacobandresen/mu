@@ -46,8 +46,9 @@ from mu.plan import (Plan, _EXT_LANGUAGE, check_goal_alignment, clear_challenges
                      write_sketches)
 from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
                          apply_plan_spec_reflexes, run_reflexes,
-                         fix_csharp_duplicate_classes,
-                         fix_csharp_missing_braces,
+                         apply_csharp_write_reflexes, apply_csharp_repair_reflexes,
+                         apply_js_write_reflexes, apply_js_repair_reflexes,
+                         apply_rust_source_reflexes,
                          fix_csharp_missing_using,
                          fix_jest_config_js,
                          fix_jest_no_tests_found,
@@ -59,15 +60,11 @@ from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
                          fix_missing_flask_client_fixture,
                          fix_sqlite_missing_row_factory,
                          fix_flask_post_missing_201,
-                         fix_js_duplicate_require,
-                         fix_js_env_data_file,
                          fix_js_extra_closing_brace,
-                         fix_js_missing_requires,
                          fix_vitest_globals,
                          fix_vitest_watch_mode,
                          fix_vue_missing_package,
-                         fix_jest_fs_mock,
-                         fix_vue_test_utils_import,
+                         fix_js_const_reassignment,
                          fix_literal_newlines,
                          fix_makefile_binary_name,
                          fix_missing_close_paren, fix_missing_pip_packages,
@@ -80,14 +77,9 @@ from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
                          fix_python_undefined_imports,
                          fix_requirements_path_entries,
                          fix_requirements_stdlib_entries,
-                         fix_csharp_keyword_prefix_artifacts,
-                         fix_csharp_verbatim_string_escape,
-                         fix_csharp_using_order,
                          fix_rust_cargo_toml,
                          fix_rust_cargo_bad_dependency,
-                         fix_rust_duplicate_use,
                          fix_rust_missing_trait_import,
-                         fix_rust_println_missing_arg,
                          fix_rust_unbalanced_braces,
                          fix_sqlite_path_unlink,
                          fix_sqlite_test_isolation,
@@ -743,16 +735,8 @@ def run(goal: str, model: str = '', target_dir: str = '',
                 log("Fixed %s: replaced literal \\n with real newlines.", task.file_path)
 
             if task.file_path.endswith('.cs'):
-                if fix_csharp_keyword_prefix_artifacts(task.file_path):
-                    log("Fixed %s: removed keyword prefix artifacts.", task.file_path)
-                if fix_csharp_verbatim_string_escape(task.file_path):
-                    log("Fixed %s: fixed verbatim string escaping.", task.file_path)
-                if fix_csharp_using_order(task.file_path):
-                    log("Fixed %s: moved using statements to top.", task.file_path)
-                if fix_csharp_missing_braces(task.file_path):
-                    log("Fixed %s: fixed unbalanced brace(s).", task.file_path)
-                if fix_csharp_duplicate_classes(task.file_path):
-                    log("Fixed %s: removed duplicate class definitions.", task.file_path)
+                apply_csharp_write_reflexes(task.file_path)
+                log("Applied C# write reflexes to %s.", task.file_path)
 
             if task.file_path.endswith('.py'):
                 if fix_flask_test_route_decorators(task.file_path):
@@ -790,19 +774,11 @@ def run(goal: str, model: str = '', target_dir: str = '',
                             if fix_sqlite_memory_multi_connect(str(sib)):
                                 log("Fixed sibling %s: consolidated :memory: SQLite connections.", str(sib))
 
-            if Path(task.file_path).suffix.lower() in ('.ts', '.tsx', '.js', '.jsx', '.mjs'):
-                if fix_jest_fs_mock(task.file_path):
-                    log("Fixed %s: added missing jest.fn() to fs mock.", task.file_path)
-                if fix_vue_test_utils_import(task.file_path):
-                    log("Fixed %s: corrected Vue test-utils import.", task.file_path)
-
-            if Path(task.file_path).suffix.lower() in ('.js', '.jsx', '.mjs', '.ts', '.tsx'):
-                if fix_js_duplicate_require(task.file_path):
-                    log("Fixed %s: removed duplicate require declaration(s).", task.file_path)
-                if fix_js_env_data_file(task.file_path):
-                    log("Fixed %s: converted env-var constant to getter function.", task.file_path)
-                if fix_js_missing_requires(task.file_path):
-                    log("Fixed %s: added missing Node.js require(s).", task.file_path)
+            ext_lower = Path(task.file_path).suffix.lower()
+            if ext_lower in ('.ts', '.tsx', '.js', '.jsx', '.mjs', '.vue') \
+                    or task.file_path.lower().endswith('.vue'):
+                apply_js_write_reflexes(task.file_path)
+                log("Applied JS/Vue write reflexes to %s.", task.file_path)
 
             if task.file_path.endswith('.go') or task.file_path.endswith('go.mod'):
                 if apply_go_reflexes():
@@ -815,10 +791,8 @@ def run(goal: str, model: str = '', target_dir: str = '',
                              task.file_path)
 
             if task.file_path.endswith('.rs'):
-                if fix_rust_duplicate_use(task.file_path):
-                    log("Fixed %s: removed duplicate use statement(s).", task.file_path)
-                if fix_rust_println_missing_arg(task.file_path):
-                    log("Fixed %s: added missing println! argument.", task.file_path)
+                apply_rust_source_reflexes(task.file_path)
+                log("Applied Rust source reflexes to %s.", task.file_path)
 
             if task.file_path.endswith('requirements.txt'):
                 if fix_requirements_path_entries(task.file_path):
@@ -1325,18 +1299,12 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
                     if fix_rust_missing_trait_import(t.file_path, _tail_file(test_log, 60)):
                         log("Repair reapply: added missing trait import to %s.", t.file_path)
             elif t.file_path.endswith('.cs'):
-                fix_csharp_keyword_prefix_artifacts(t.file_path)
-                fix_csharp_verbatim_string_escape(t.file_path)
-                fix_csharp_using_order(t.file_path)
-                fix_csharp_missing_braces(t.file_path)
-                if Path(test_log).exists():
-                    if fix_csharp_missing_using(t.file_path, _tail_file(test_log, 60)):
-                        log("Repair reapply: added missing using directive(s) to %s.", t.file_path)
+                test_out = _tail_file(test_log, 60) if Path(test_log).exists() else ''
+                apply_csharp_repair_reflexes(t.file_path, test_out)
+                if test_out:
+                    log("Repair reapply: applied C# repair reflexes to %s.", t.file_path)
             elif Path(t.file_path).suffix.lower() in ('.js', '.jsx', '.mjs', '.ts', '.tsx'):
-                fix_js_duplicate_require(t.file_path)
-                fix_js_env_data_file(t.file_path)
-                fix_js_missing_requires(t.file_path)
-                fix_literal_newlines(t.file_path)
+                apply_js_repair_reflexes(t.file_path)
             if t.file_path.endswith('.py'):
                 fix_flask_test_route_decorators(t.file_path)
                 fix_flask_init_db_import(t.file_path)
@@ -1402,6 +1370,13 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
             if fix_vitest_globals(os.getcwd(), latest_out):
                 log("Re-applied Vitest globals:true (repair: ReferenceError).")
             for t in p.tasks:
+                if Path(t.file_path).exists() and Path(t.file_path).suffix.lower() in (
+                    '.js', '.jsx', '.mjs', '.ts', '.tsx'
+                ):
+                    if fix_js_const_reassignment(t.file_path, latest_out):
+                        log("Fixed %s: changed const to let (Assignment to constant variable).",
+                            t.file_path)
+            for t in p.tasks:
                 if Path(t.file_path).exists() and t.file_path.endswith('.py'):
                     if fix_missing_flask_client_fixture(t.file_path, latest_out):
                         log("Re-applied: added Flask client fixture to %s.", t.file_path)
@@ -1451,6 +1426,10 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
         if Path(t.file_path).exists():
             if fix_js_extra_closing_brace(t.file_path, initial_out):
                 log("Fixed %s: fixed unbalanced brace/paren.", t.file_path)
+            if Path(t.file_path).suffix.lower() in ('.js', '.jsx', '.mjs', '.ts', '.tsx'):
+                if fix_js_const_reassignment(t.file_path, initial_out):
+                    log("Fixed %s: changed const to let (Assignment to constant variable).",
+                        t.file_path)
             if t.file_path.endswith('.cs') and 'CS0246' in initial_out:
                 if fix_csharp_missing_using(t.file_path, initial_out):
                     log("Fixed %s: added missing using directive(s).", t.file_path)

@@ -51,7 +51,7 @@ def _ensure_golden(problem_id: str, goal: str, golden: Path) -> None:
     print(f"Golden plan saved: {golden} — commit it to freeze the planner.")
 
 
-def run(problem_id: str) -> int:
+def run(problem_id: str, emit_json: str = '') -> int:
     augment_path()
     n = int(os.environ.get('N', '5'))
     seed = os.environ.get('MU_SEED', '')
@@ -93,12 +93,29 @@ def run(problem_id: str) -> int:
             shutil.rmtree(work)
 
     print()
-    _print_summary(problem_id, outcomes, repair_total, n, seed)
+    ok, stoch = _print_summary(problem_id, outcomes, repair_total, n, seed)
+
+    if emit_json:
+        import datetime, json as _json
+        result = {
+            'problem_id': problem_id,
+            'seed': seed,
+            'disabled': disabled,
+            'n': n,
+            'hits': ok,
+            'pass_rate': ok / n if n else 0.0,
+            'avg_repair_iters': repair_total / n if n else 0.0,
+            'stochasticity': stoch,
+            'ts': datetime.datetime.now().isoformat(timespec='seconds'),
+        }
+        Path(emit_json).write_text(_json.dumps(result, indent=2))
+        print(f"Result written to {emit_json}")
+
     return 0
 
 
 def _print_summary(problem_id: str, outcomes: list[str], repair_total: int,
-                   n: int, seed: str) -> None:
+                   n: int, seed: str) -> tuple[int, float]:
     ok = sum(o == 'success' for o in outcomes)
     rate = 100 * ok // n if n else 0
     # Stochasticity: fraction of runs that differ from the most common outcome.
@@ -111,3 +128,4 @@ def _print_summary(problem_id: str, outcomes: list[str], repair_total: int,
     print(f"{problem_id}: {ok}/{n} passed ({rate}%) · "
           f"avg repair iters {repair_total / n:.1f} · "
           f"stochasticity {stoch:.2f} · plan frozen{note}")
+    return ok, stoch
