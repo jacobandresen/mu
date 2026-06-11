@@ -23,13 +23,20 @@ from typing import Callable, NamedTuple, Optional
 
 
 class _Rule(NamedTuple):
-    """One error grammar: a compiled pattern and how to phrase a match."""
+    """One error grammar: a compiled pattern and how to phrase a match.
+
+    ``weak`` marks a banner-level grammar (e.g. Jest's "encountered an
+    unexpected token" preamble) whose hint is only useful when no specific
+    grammar matched anywhere in the output — otherwise it shadows the real
+    cause, because banners print *before* the detail lines."""
     pattern: re.Pattern
     render: Callable[[re.Match], str]
+    weak: bool
 
 
-def _rule(regex: str, render: Callable[[re.Match], str], flags: int = 0) -> _Rule:
-    return _Rule(re.compile(regex, flags), render)
+def _rule(regex: str, render: Callable[[re.Match], str], flags: int = 0,
+          weak: bool = False) -> _Rule:
+    return _Rule(re.compile(regex, flags), render, weak)
 
 
 def _clip(text: str, limit: int = 90) -> str:
@@ -124,14 +131,27 @@ _RULES: list[_Rule] = [
     _rule(r"npm error Missing script:\s*[\"']?(?P<script>[^\"'\s]+)[\"']?",
           lambda m: f"npm: missing script '{m['script']}' — add it to package.json or fix Makefile test target",
           re.I),
+    # Banner only — Jest prints this preamble before the actual SyntaxError
+    # detail, which the Babel-shaped rules below extract. Weak: kept only when
+    # nothing specific matched (then a parse failure is all we know).
     _rule(r"Jest encountered an unexpected token",
-          lambda m: "Jest: ESM/CJS parse error — add Babel transform or jest.config transform for ES modules"),
+          lambda m: "Jest could not parse a test file — fix the SyntaxError it reports "
+                    "(a syntax error in the file, or an ESM/CJS mismatch)",
+          weak=True),
+    _rule(r"Cannot use import statement outside a module",
+          lambda m: "Jest: ES module 'import' in a CommonJS project — convert imports to "
+                    "require(), or set \"type\":\"module\" plus NODE_OPTIONS=--experimental-vm-modules"),
     _rule(r"SyntaxError: .+?:\s*Identifier ['\"](?P<name>[^'\"]+)['\"] has already been declared",
           lambda m: f"Jest SyntaxError: duplicate 'const {m['name']}' declaration in test file — rename second occurrence",
           re.I),
     _rule(r"SyntaxError: .+?:\s*Unexpected reserved word ['\"]?(?P<word>\w+)['\"]?",
           lambda m: f"Jest SyntaxError: unexpected reserved word '{m['word']}' — likely top-level await outside async function",
           re.I),
+    # Generic Babel parse error: "SyntaxError: /path/file.js: <msg> (LINE:COL)".
+    # Catches Missing semicolon, Unexpected token, Unterminated string constant,
+    # 'return' outside of function, … after the specific shapes above.
+    _rule(r"SyntaxError: (?P<file>\S+?):\s*(?P<msg>[^(\n]+?)\s*\((?P<line>\d+):\d+\)",
+          lambda m: f"{m['file']}:{m['line']}: JS syntax error: {_clip(m['msg'], 60)}"),
     _rule(r"Cannot find module ['\"](?P<mod>[^'\"]+)['\"] from",
           lambda m: f"Jest: cannot find module '{m['mod']}' — run npm install or add it to package.json"),
     _rule(r"●\s+process\.exit called with ['\"](?P<code>\d+)['\"]",
@@ -209,14 +229,14 @@ _RULES: list[_Rule] = [
 ]
 
 
-def _hint_for_line(line: str) -> Optional[str]:
-    """Return the FOCUS phrase for the first rule that matches *line*, or None."""
+def _hint_for_line(line: str) -> Optional[tuple[str, bool]]:
+    """Return (FOCUS phrase, weak) for the first rule that matches *line*, or None."""
     for rule in _RULES:
         match = rule.pattern.search(line)
         if match is None:
             continue
         try:
-            return rule.render(match)
+            return rule.render(match), rule.weak
         except (IndexError, AttributeError):
             return None
     return None
@@ -226,18 +246,27 @@ def distill_test_errors(output: str, max_hints: int = 3) -> str:
     """Return a short ``FOCUS`` block naming the first actionable error(s), or ''.
 
     Scans *output* line by line, collecting up to *max_hints* distinct hints from
-    the known error grammars. Returns '' when nothing matches, so callers can
-    prepend the result unconditionally without altering behavior on unrecognized
-    output.
+    the known error grammars. Weak (banner-level) hints are kept only when no
+    specific grammar matched — a banner always precedes the detail lines it
+    summarizes, and must not shadow them. Returns '' when nothing matches, so
+    callers can prepend the result unconditionally without altering behavior on
+    unrecognized output.
     """
     hints: list[str] = []
+    weak_hints: list[str] = []
     for line in (output or '').splitlines():
-        hint = _hint_for_line(line.rstrip())
-        if hint and hint not in hints:
-            hints.append(hint)
+        result = _hint_for_line(line.rstrip())
+        if result is None:
+            continue
+        hint, weak = result
+        bucket = weak_hints if weak else hints
+        if hint not in bucket:
+            bucket.append(hint)
             if len(hints) >= max_hints:
                 break
 
+    if not hints:
+        hints = weak_hints[:max_hints]
     if not hints:
         return ''
     if len(hints) == 1:

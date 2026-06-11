@@ -61,6 +61,7 @@ _CATALOG: dict[str, list] = {
         makefile.fix_makefile_pip_install_empty],
     'duplicate-declaration': [
         rust.fix_rust_duplicate_use, javascript.fix_js_duplicate_require,
+        javascript.fix_js_same_scope_redeclaration,
         csharp.fix_csharp_duplicate_classes, makefile.fix_duplicate_var],
     'missing-symbol-import': [
         python.fix_python_undefined_imports, python.fix_python_missing_project_imports,
@@ -108,6 +109,7 @@ _CATALOG: dict[str, list] = {
         javascript.fix_vue_test_utils_import],
     'syntax-repair': [
         javascript.fix_js_const_reassignment,
+        javascript.fix_js_dot_bracket_access,
         javascript.fix_vue_attr_quotes,
         javascript.fix_js_parent_to_sibling_import],
     'code-structure': [
@@ -178,6 +180,8 @@ _ANNOTATIONS: dict = {
     # ── javascript (new) ─────────────────────────────────────────────────────
     javascript.fix_js_const_reassignment:      {'artifact': 'js', 'evidence': 'p8-node'},
     javascript.fix_js_duplicate_const:        {'artifact': 'js', 'evidence': 'p8-node'},
+    javascript.fix_js_same_scope_redeclaration: {'artifact': 'js', 'evidence': 'p8-node'},
+    javascript.fix_js_dot_bracket_access:     {'artifact': 'js', 'evidence': 'p8-node'},
     javascript.fix_js_program_parse_guard:    {'artifact': 'js', 'evidence': 'p8-node'},
     javascript.fix_vue_attr_quotes:            {'artifact': 'vue', 'evidence': 'p9-vue'},
     javascript.fix_js_parent_to_sibling_import: {'artifact': 'ts', 'evidence': 'p9-vue'},

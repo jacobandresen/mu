@@ -27,21 +27,22 @@ positive Δ → remove the reflex.
 
 ---
 
-## 3. Jest ESM configuration reflex (18 qwen2.5 sessions)
-
-**Why:** `mu observe` shows 18 sessions with "Jest: ESM/CJS parse error" — second largest
-distillable bucket after MSBuild. Pattern: LLM writes ES module JS (import/export) but Jest
-config lacks ESM transform.
-
-**What to do:** Reflex in `javascript.py`: if package.json has `jest` config without transform
-for `.js` files, and test log has `Jest encountered an unexpected token`, add
-`"type": "module"` to package.json and `"testEnvironment": "node"` to jest config.
-Or: change jest command to `NODE_OPTIONS='--experimental-vm-modules' npx jest`.
-
----
-
 ## Done (recent)
 
+- **"Jest ESM" bucket resolved (2026-06-11)** — the 18-session "Jest: ESM/CJS parse error"
+  bucket was *mislabeled*: diagnose's banner rule ("Jest encountered an unexpected token")
+  matched before the Babel `SyntaxError` detail line, so every Jest parse failure — none of
+  which were actually ESM — got the ESM label. Three fixes:
+  - `diagnose.py` weak-rule mechanism: banner hints survive only when no specific grammar
+    matched; added a generic Babel `SyntaxError: file: msg (L:C)` rule and a real-ESM rule
+    (`Cannot use import statement outside a module`). Replayed against all 19 archived
+    banner sessions: each now distills to its specific cause.
+  - `fix_js_same_scope_redeclaration` — the dominant real pattern (10+ sessions):
+    `const todos = readTodos();` re-declared mid-test-block. Converts the re-declaration to
+    an assignment and promotes the first decl to `let`; brace-depth scope tracking leaves
+    legal shadowing alone. (`fix_js_duplicate_const` only handled *consecutive* duplicates.)
+  - `fix_js_dot_bracket_access` — `).[0].id` member access (2 sessions); deletes the stray
+    dot, leaves `?.[` / `...[` alone.
 - **Oscillation fix** — `fix_inline_recipe` guard extended to `declared | _KNOWN_TARGETS`; regression test added
 - **`fix_dotnet_test_cwd` extended** — handles `dotnet test tests/` where `tests/` has no `.csproj` (MSB1003, 67 sessions)
 - **`fix_js_duplicate_const`** — removes consecutive duplicate const/let in test files

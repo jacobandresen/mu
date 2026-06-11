@@ -31,3 +31,6 @@ Recurring failures observed in dojo runs. Updated as new patterns emerge and exi
 ### Group 4 — Harness / environment
 
 16. **Environment hygiene** — system-wide vs Homebrew Python (use venvs); server port already in use; empty session log → no distillable cause.
+
+17. **Syntax errors in test files** — JS: same-scope `const` re-declaration (10+ sessions; was mislabeled "Jest ESM" because the Jest banner shadowed the Babel SyntaxError detail — diagnose now demotes banner-level hints) and `.[0]` member access; both covered by `fix_js_same_scope_redeclaration` and `fix_js_dot_bracket_access`. C#: unmatched parentheses/semicolons in test files — generic, see item 1.
+
