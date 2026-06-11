@@ -171,13 +171,22 @@ def _distill_session(session_dir: str) -> str:
     logs = sorted(glob.glob(os.path.join(session_dir, 'logs', 'tests*.log')) +
                   glob.glob(os.path.join(session_dir, 'logs', 'lint*.log')),
                   key=lambda p: os.path.getmtime(p), reverse=True)
+    if not logs:
+        return '(no test log)'
+    blank_seen = False
     for log in logs:
         try:
-            focus = distill_test_errors(Path(log).read_text(errors='replace'))
+            text = Path(log).read_text(errors='replace')
         except OSError:
             continue
+        if not text.strip():
+            blank_seen = True
+            continue
+        focus = distill_test_errors(text)
         if focus:
             return _cause_signature(focus)
+    if blank_seen:
+        return '(test log empty)'
     return '(no distilled cause)'
 
 

@@ -175,11 +175,13 @@ def fix_inline_recipe(f: str) -> bool:
                 is_known = target in _KNOWN_TARGETS
                 is_compiler = _INLINE_COMPILER_RE.match(after)
                 if (is_known or is_compiler) and ' ' in after and not after.startswith('='):
-                    # If every word after the colon is a declared target, this is a
-                    # prerequisite list (e.g. "all: install test") — leave it alone.
-                    # Splitting it would trigger fix_makefile_recipe_is_prerequisite_list
-                    # to immediately undo the change, causing an oscillation loop.
-                    if all(w in declared for w in after.split()):
+                    # If every word after the colon is a declared target or a known
+                    # target name, this is a prerequisite list — leave it alone.
+                    # fix_makefile_recipe_is_prerequisite_list uses declared|_KNOWN_TARGETS
+                    # as its promotion set; using the same set here prevents oscillation
+                    # when words like 'install'/'test' are in _KNOWN_TARGETS but not
+                    # explicitly declared as targets in this file.
+                    if all(w in (declared | _KNOWN_TARGETS) for w in after.split()):
                         out.append(line)
                         continue
                     out.extend([target + ':', '\t' + after])
