@@ -99,7 +99,7 @@ def run_reflexes(fns, target: str, max_passes: int = 4) -> None:
     print(f"==> [mu-agent] Reflexes did not converge on {target} after "
           f"{max_passes} passes — continuing with current state.", flush=True)
 
-_CODE_EXTS = {'.py', '.cs', '.rs', '.go', '.c', '.cpp', '.h', '.java', '.js', '.ts', '.jsx', '.tsx'}
+_CODE_EXTS = {'.py', '.cs', '.rs', '.go', '.c', '.cpp', '.h', '.java', '.js', '.ts', '.jsx', '.tsx', '.vue'}
 
 def fix_tool_call_artifacts(file_path: str) -> bool:
     """Strip lines containing model tool-call JSON leaked into source files.
