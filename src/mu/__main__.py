@@ -383,7 +383,8 @@ def _cmd_setup(args) -> int:
 
     print()
     print("AI backend: LM Studio")
-    model = client.recommended_model()
+    catalog = client.load_catalog()
+    model = next((m['id'] for m in catalog if m.get('setup_default')), None) or client.recommended_model()
     if not model:
         print("  Could not determine a recommended model for this hardware.")
         print("  Browse options with: mu model list")
