@@ -89,7 +89,8 @@ _CATALOG: dict[str, list] = {
         makefile.fix_makefile_literal_tab_escape, makefile.fix_makefile_literal_newline_escape,
         makefile.fix_makefile_escaped_dollar, makefile.fix_makefile_backslash_artifact,
         csharp.fix_csharp_verbatim_string_escape, csharp.fix_csharp_keyword_prefix_artifacts,
-        python.fix_multiline_single_quote, python.fix_python_decorator_colon],
+        python.fix_multiline_single_quote, python.fix_python_decorator_colon,
+        go.fix_go_trailing_dot],
     'build-rule-structure': [
         makefile.fix_makefile_space_indent, makefile.fix_orphan_top_level_commands,
         makefile.fix_no_targets, makefile.fix_inline_recipe, makefile.fix_nested_targets,
@@ -184,6 +185,7 @@ _ANNOTATIONS: dict = {
     # ── go ────────────────────────────────────────────────────────────────────
     go.fix_go_missing_pkg_imports:             {'artifact': 'go'},
     go.fix_go_unused_imports:                  {'artifact': 'go'},
+    go.fix_go_trailing_dot:                    {'artifact': 'go', 'evidence': 'p5-gin'},
     go.apply_go_reflexes:                      {'artifact': 'go'},
     # ── composite chains (iter 4) ─────────────────────────────────────────────
     csharp.apply_csharp_write_reflexes:        {'artifact': 'cs'},
