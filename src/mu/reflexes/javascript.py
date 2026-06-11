@@ -26,6 +26,7 @@ __all__ = [
     'fix_package_json_builtin_deps',
     'fix_js_duplicate_require',
     'fix_js_const_reassignment',
+    'fix_js_duplicate_const',
     'fix_vue_attr_quotes',
     'fix_js_parent_to_sibling_import',
     'apply_js_write_reflexes',
@@ -968,11 +969,12 @@ def apply_js_write_reflexes(file_path: str) -> None:
     fix_js_parent_to_sibling_import(file_path)
 
 
-def apply_js_repair_reflexes(file_path: str) -> None:
+def apply_js_repair_reflexes(file_path: str, test_output: str = '') -> None:
     """Repair-phase JS/TS chain — preserves the order used in agent.py ~1341."""
     if Path(file_path).suffix.lower() not in _JS_EXTS:
         return
     fix_js_duplicate_require(file_path)
+    fix_js_duplicate_const(file_path, test_output)
     fix_js_env_data_file(file_path)
     fix_js_missing_requires(file_path)
     fix_literal_newlines(file_path)

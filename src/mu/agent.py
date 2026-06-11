@@ -1308,7 +1308,8 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
                 if test_out:
                     log("Repair reapply: applied C# repair reflexes to %s.", t.file_path)
             elif Path(t.file_path).suffix.lower() in ('.js', '.jsx', '.mjs', '.ts', '.tsx'):
-                apply_js_repair_reflexes(t.file_path)
+                js_test_out = _tail_file(test_log, 60) if Path(test_log).exists() else ''
+                apply_js_repair_reflexes(t.file_path, js_test_out)
             if t.file_path.endswith('.py'):
                 fix_flask_test_route_decorators(t.file_path)
                 fix_flask_init_db_import(t.file_path)
