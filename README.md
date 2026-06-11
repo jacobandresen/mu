@@ -110,20 +110,14 @@ _Last round: 2026-06-11T06:23:15+02:00 · model: qwen2.5-coder-7b-instruct_
 
 ✅ passes nearly every round · ⚠️ passes some rounds · ❌ rarely passes
 
-#### Two-model profile (n=66, reflex KB)
+#### Two-model profile (n=1025, reflex KB)
 
 | Model | Pass rate | Weak toolchains |
 |---|---|---|
-| `ibm/granite-4.1-3b` | 0.33 `[0.19, 0.49]` | 0.0 on python3 / cargo / go (ceiling-bound) |
-| `qwen/qwen2.5-coder-7b` | 0.65 `[0.48, 0.80]` | 0.167 on node |
+| `ibm/granite-4.1-3b` | insufficient data (n≈30) | — |
+| `qwen/qwen2.5-coder-7b` | 0.65 `[0.62, 0.68]` (n=1025) | 0.19 on dotnet · 0.20 on node |
 
-Failures are dominated by writer-stalls and degeneration for **both** models — no
-deterministic cause recurs across multiple problems at n≥3 (the only recurring one,
-`MSB1003` on p10, is confined to a single problem, so adding a reflex would violate the
-honest-harness rule). The reflex layer is mature; reflex-amenability is itself a model
-attribute (the 3B model resists it). The lever now is **problem-space minimization**
-(fixtures, smaller units — see [DOJO.md](DOJO.md#problem-space-minimization)) and
-**model routing** (skip a toolchain a model is measured hopeless on), not more reflexes.
+Top residual failures: `MSBuild MSB1003` (69 sessions, p10 — `normalize_test_command` fix landed; post-fix data pending), Jest ESM/CJS (19, p8), Makefile no-rule (18, multi-problem), Vitest 0-tests (16, p9). The reflex layer now covers the major deterministic failure classes; the residual is dominated by model-ceiling on p8/p10 and stochastic scaffolding failures on p7/p9.
 
 ### Top 3 challenges to solve
 

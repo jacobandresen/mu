@@ -26,6 +26,7 @@ __all__ = [
     'fix_python_decorator_colon',
     'fix_python_missing_def',
     'fix_sqlite_missing_row_factory',
+    'fix_sqlite_conn_scope',
     'fix_sqlite_class_missing_init_table',
     'fix_flask_post_missing_201',
     'fix_flask_test_route_decorators',
