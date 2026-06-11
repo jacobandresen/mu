@@ -11,7 +11,7 @@ Five iterations on `kb-implementation`. Local model: `qwen2.5-coder-7b-instruct`
 | 1 | Idempotency test harness | ✓ | a6798d3 |
 | 2 | Schema fields + efficacy storage | ✓ | 53d6e06 |
 | 3 | Shared-core refactor | ✓ | 48f995a |
-| 4 | Offline-baked chain order | Part 1 ✓ (4746d22) / Part 2 skipped — no signal | — |
+| 4 | Offline-baked chain order | ✓ Part 1 (4746d22) / Part 2 skipped — no signal | ef31e94 |
 | 5 | Validation discipline + interaction model | ✓ | 25f3d3e |
 
 ## Iter 4 Part 2 — closed: no signal (2026-06-10)

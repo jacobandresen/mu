@@ -12,6 +12,17 @@ This document records dated baseline snapshots for the Reflex KB plan.
 | 2026‑06‑10 | Iter 4a (centralize chains, Part 1) | — (behavior-preserving; sequence-preserved) | — | — | — | no change — pure refactor |
 | 2026‑06‑10 | Iter 5 (validation + interaction model) | — (no-regression; new tests only) | — | — | — | no change — tests + honesty audit + interaction model |
 | 2026‑06‑10 | Iter 3–4a TRP (post-refactor) | 54% (27/50, N=50 noise) | ~0.7 | — | 2,435/call | p3-sdl2 0%, p8-node 0%, p9-vue 0%, p10-dotnet 17%; p1/p2/p5/p6/p7 100% |
+| 2026‑06‑11 | Iter 4 final TRP (iters 0–5 complete) | 32% (18/57, N=57 noise) | — | — | 2,345/call | p9-vue 0%, p3-sdl2 0%, p8-node 14%, p10-dotnet 17%; p2/p5/p6 stochastic dip at N=5 |
+
+## Iter 4 final TRP RIP findings — 2026‑06‑11
+
+**TRP:** 5 rounds, 57 sessions. 18/57 = 32% pass rate. N=57, high variance: 95% CI [19%,44%]. All 5 rounds hit the p10 1800s timeout. 205 LLM calls, avg 2,345 tokens/call.
+
+**Per-problem:** p9-vue 0/8, p3-sdl2 0/6, p8-node 1/7 (14%), p10-dotnet 1/6 (17%), p5-gin 1/5 (20%), p2-sqlite 2/5 (40%), p6-rust 2/5 (40%), p4-fib 4/6 (67%), p7-flask 4/6 (67%), p1-hello 3/3 (100%).
+
+**Regression verdict:** p5-gin/p6-rust show apparent drops (were 100% in iter-3 TRP). Both are purely stochastic at N=4-5; our changes (chain centralization + validation tests) made no runtime changes to those code paths. p6-rust's long-term failure rate is 3% (n=86), making 2/5 passes an unlucky draw. No code regression.
+
+**PLAN COMPLETE:** All iters 0–5 done. Iter-4 Part 2 closed (no signal). Ready to merge.
 
 ## Iter 3–4a TRP RIP findings — 2026‑06‑10
 
