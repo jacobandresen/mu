@@ -336,6 +336,35 @@ def _cmd_setup(args) -> int:
         print(f"Unsupported OS: {system}", file=sys.stderr)
         return 1
 
+    # Optional analysis tools — repair loop enrichment.
+    # Each is skipped (no-op) when absent, so none are required.
+    print()
+    print("Optional analysis tools (repair loop enrichment)")
+    missing_opt: list[tuple[str, list[str]]] = []
+    if not shutil.which('ruff'):
+        missing_opt.append(('ruff', [sys.executable, '-m', 'pip', 'install', 'ruff']))
+    if not shutil.which('pyright'):
+        missing_opt.append(('pyright', [sys.executable, '-m', 'pip', 'install', 'pyright']))
+    if shutil.which('npm'):
+        if not shutil.which('eslint'):
+            missing_opt.append(('eslint', ['npm', 'install', '-g', 'eslint']))
+        if not shutil.which('biome'):
+            missing_opt.append(('biome', ['npm', 'install', '-g', '@biomejs/biome']))
+    if shutil.which('rustup'):
+        try:
+            cp = subprocess.run(['cargo', 'clippy', '--version'],
+                                capture_output=True, timeout=5)
+            if cp.returncode != 0:
+                missing_opt.append(('cargo clippy', ['rustup', 'component', 'add', 'clippy']))
+        except Exception:
+            missing_opt.append(('cargo clippy', ['rustup', 'component', 'add', 'clippy']))
+    if not missing_opt:
+        print("  All optional analysis tools already present.")
+    else:
+        for label, cmd in missing_opt:
+            print(f"  {label} not found.")
+            run_cmd(*cmd)
+
     # Optional plan-lint extra (Option A): only fetch the spaCy model if the
     # user has installed `mu[lint]`. Never force the heavy dependency here.
     try:
