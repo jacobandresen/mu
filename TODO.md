@@ -1,7 +1,7 @@
 # TODO — ranked by impact
 
-Evidence base: `mu observe` + `mu kb` combination report (n≈900 sessions, qwen2.5),
-CHALLENGES.md, KB_BASELINE.md. Refreshed 2026-06-10.
+Evidence base: `mu observe` + `mu kb` combination report (n≈1025 sessions, qwen2.5),
+CHALLENGES.md, KB_BASELINE.md. Refreshed 2026-06-11.
 
 ---
 
@@ -11,35 +11,16 @@ CHALLENGES.md, KB_BASELINE.md. Refreshed 2026-06-10.
 below base rate, already statistically distinguishable. After #1 lands (oscillation stopped),
 re-measure to see if the reflex is now harmless or still net-negative.
 
-**What to do:**
-```sh
-# baseline (3 seeds, 5 runs each)
-MU_SEED=42 python3 -m mu.dojo measure p7-flask --runs 5 --emit-json /tmp/base_42.json
-MU_SEED=0  python3 -m mu.dojo measure p7-flask --runs 5 --emit-json /tmp/base_0.json
-MU_SEED=7  python3 -m mu.dojo measure p7-flask --runs 5 --emit-json /tmp/base_7.json
-# disabled
-MU_SEED=42 python3 -m mu.dojo measure p7-flask --runs 5 --disable fix_inline_recipe --emit-json /tmp/dis_42.json
-# … repeat for seeds 0, 7
-```
-Then `reflexdb.record_efficacy('fix_inline_recipe', ...)`. If `sz5_gate(deltas)` returns
-True with positive Δ → remove the reflex.
-
----
-
-## 2. Ablate `fix_inline_recipe` after oscillation fix lands in session data
-
-**Why:** Before the oscillation fix, `fix_inline_recipe` had P=0.54 vs base 0.67 (CI entirely
-below base). After the fix, re-measure to see if it's now harmless or still net-negative. The
-oscillation burned repair passes on both reflexes — the true Δ is not known until clean data.
-
 **What to do:** after ≥50 new sessions accumulate post-oscillation-fix (2026-06-11+), run:
 ```sh
+# 3 seeds × 5 runs baseline (fresh plan each run — no --regen)
 MU_NUM_CTX=6000 MU_SEED=42 python3 -m mu.dojo measure p7-flask -n 5 --emit-json /tmp/base_42.json
 MU_NUM_CTX=6000 MU_SEED=0  python3 -m mu.dojo measure p7-flask -n 5 --emit-json /tmp/base_0.json
 MU_NUM_CTX=6000 MU_SEED=7  python3 -m mu.dojo measure p7-flask -n 5 --emit-json /tmp/base_7.json
 # then with fix_inline_recipe disabled:
 MU_NUM_CTX=6000 MU_SEED=42 python3 -m mu.dojo measure p7-flask -n 5 --disable fix_inline_recipe --emit-json /tmp/dis_42.json
-# repeat seeds 0, 7
+MU_NUM_CTX=6000 MU_SEED=0  python3 -m mu.dojo measure p7-flask -n 5 --disable fix_inline_recipe --emit-json /tmp/dis_0.json
+MU_NUM_CTX=6000 MU_SEED=7  python3 -m mu.dojo measure p7-flask -n 5 --disable fix_inline_recipe --emit-json /tmp/dis_7.json
 ```
 Call `reflexdb.record_efficacy('fix_inline_recipe', ...)`. If `sz5_gate(deltas)` is True with
 positive Δ → remove the reflex.
@@ -61,6 +42,9 @@ Or: change jest command to `NODE_OPTIONS='--experimental-vm-modules' npx jest`.
 
 ## Done (archived)
 
+- **Repair-loop degeneration → architect escalation** — `REPAIR_ESCALATE` sentinel in `session.py`; same distilled error ≥2 consecutive passes → escalates to `_run_architect_pass()`, then `run_staged()`; 6 tests in `test_repair_escalate.py`
+- **Drop fixtures/goldens** — removed `dojo/fixtures/` (p3-sdl2, p6-rust) and `dojo/golden/`; `runner.py` no longer scaffolds; `measure.py` generates fresh plan per run (higher variance, honest signal)
+- **KB-1 reflex harvest** — MSBuild MSB1003, Go trailing dot, Makefile exec-prereqs, Vite import, fix_js_parent_to_sibling_import, 3 unwired reflexes wired; `fix_sqlite_conn_scope` added to `__all__`
 - **`fix_js_const_reassignment`** — implemented in `javascript.py` (test-out, p8-node)
 - **`fix_vue_attr_quotes`** — implemented in `javascript.py` (scan, p9-vue)
 - **`fix_makefile_missing_test_target`** — implemented in `makefile.py`
