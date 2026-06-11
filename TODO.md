@@ -74,3 +74,6 @@ Or: change jest command to `NODE_OPTIONS='--experimental-vm-modules' npx jest`.
 - **p5-gin archiving** — resolved; 0 sessions with missing project_dir as of 2026-06-11
 - **`fix_js_duplicate_const`** — removes consecutive duplicate const/let in test files; 9 of 18 "Jest ESM" sessions are this pattern
 - **`fix_js_program_parse_guard`** — wraps `program.parse(process.argv)` with `require.main === module`; fixes 13 sessions where commander.js exits during test import
+- **Flask import auto-add** — added Flask/jsonify/request to `_PY_STDLIB_IMPORTS`; fixes 7 p7-flask NameError sessions
+- **`fix_go_trailing_dot`** — removes dangling `.` in Go method chains; fixes 12 p5-gin sessions with `unexpected ., expected }`
+- **`.vue` tool-call artifact fix** — added `.vue` to `_CODE_EXTS`; fixes 2 sessions with `SyntaxError: Invalid end tag`
