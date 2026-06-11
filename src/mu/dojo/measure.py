@@ -1,20 +1,14 @@
-"""Measure ONE dojo problem over N runs from a FROZEN plan — separate signal
-from stochastic noise. (Port of measure.sh.)
+"""Measure ONE dojo problem over N runs — separate signal from stochastic noise.
+(Port of measure.sh.)
 
-The planner is the dominant variance source: a different decomposition each run
-changes everything downstream, so single-round pass/fail tells you almost
-nothing. This generates a golden ``PLAN.md`` once (cached under
-``dojo/golden/<id>/``), then runs ``mu iterate`` N times from a fresh copy, so
-the only thing varying is the writer/repair layer under test. It reports pass
+Each run generates a fresh plan (mu plan) and then executes it (mu iterate), so
+variance includes both the planner and the writer/repair layer. It reports pass
 rate, average repair iterations (a continuous metric that moves with far fewer
 runs than binary pass/fail), and a stochasticity score.
 
-    python -m mu.dojo measure p7-flask           # N=5 runs from the frozen plan
+    python -m mu.dojo measure p7-flask           # N=5 runs
     N=10 python -m mu.dojo measure p7-flask
-    MU_SEED=42 python -m mu.dojo measure p7-flask # also pin the writer RNG
-    REGEN=1 python -m mu.dojo measure p7-flask    # regenerate the golden plan
-
-Commit ``dojo/golden/<id>/PLAN.md`` to freeze the plan across machines.
+    MU_SEED=42 python -m mu.dojo measure p7-flask # pin the writer RNG (planner still samples)
 """
 
 import os
@@ -37,27 +31,11 @@ def _goal(problem_id: str) -> str:
     sys.exit(f"measure: unknown problem id: {problem_id}")
 
 
-def _ensure_golden(problem_id: str, goal: str, golden: Path) -> None:
-    """Generate the golden plan once (or on REGEN). The only planner call."""
-    if golden.exists() and not os.environ.get('REGEN'):
-        return
-    print(f"Generating golden plan for {problem_id} …")
-    if golden.parent.exists():
-        shutil.rmtree(golden.parent)
-    golden.parent.mkdir(parents=True, exist_ok=True)
-    r = subprocess.run(mu_cmd() + ['plan', goal, '--dir', str(golden.parent)])
-    if r.returncode != 0 or not golden.exists():
-        sys.exit("measure: mu plan failed to produce a PLAN.md")
-    print(f"Golden plan saved: {golden} — commit it to freeze the planner.")
-
-
 def run(problem_id: str, emit_json: str = '') -> int:
     augment_path()
     n = int(os.environ.get('N', '5'))
     seed = os.environ.get('MU_SEED', '')
     goal = _goal(problem_id)
-    golden = Path('dojo/golden') / problem_id / 'PLAN.md'
-    _ensure_golden(problem_id, goal, golden)
 
     subprocess.run(mu_cmd() + ['model', 'warm'],
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -66,7 +44,7 @@ def run(problem_id: str, emit_json: str = '') -> int:
     seed_note = f" (seed={seed}, temp 0)" if seed else ""
     disabled = os.environ.get('MU_DISABLE_REFLEX', '')
     abl_note = f" · reflex(es) DISABLED: {disabled}" if disabled else ""
-    print(f"Measuring {problem_id} over {n} run(s) from the frozen plan{seed_note}{abl_note}…")
+    print(f"Measuring {problem_id} over {n} run(s) with fresh plan each run{seed_note}{abl_note}…")
 
     outcomes: list[str] = []
     repair_total = 0
@@ -75,10 +53,9 @@ def run(problem_id: str, emit_json: str = '') -> int:
             if work.exists():
                 shutil.rmtree(work)
             work.mkdir(parents=True)
-            shutil.copy2(golden, work / 'PLAN.md')
 
             marker = now()
-            subprocess.run(mu_cmd() + ['iterate', goal, '--dir', str(work)],
+            subprocess.run(mu_cmd() + ['agent', goal, '--dir', str(work)],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
             s = sessions.latest_since(marker)
@@ -124,8 +101,8 @@ def _print_summary(problem_id: str, outcomes: list[str], repair_total: int,
     # this minimization level (the number the ladder drives down — DOJO.md).
     modal = Counter(outcomes).most_common(1)[0][1] if outcomes else 0
     stoch = 1 - modal / n if n else 0
-    note = f" · seed={seed}" if seed else " · sampled (set MU_SEED to pin)"
+    note = f" · seed={seed}" if seed else " · sampled"
     print(f"{problem_id}: {ok}/{n} passed ({rate}%) · "
           f"avg repair iters {repair_total / n:.1f} · "
-          f"stochasticity {stoch:.2f} · plan frozen{note}")
+          f"stochasticity {stoch:.2f}{note}")
     return ok, stoch

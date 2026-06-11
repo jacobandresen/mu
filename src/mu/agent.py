@@ -91,7 +91,7 @@ from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
                          fix_test_import_module,
                          fix_tool_call_artifacts,
                          py_autofix)
-from mu.session import Session
+from mu.session import REPAIR_ESCALATE, Session
 
 LOG_DIR = ".mu"
 
@@ -546,6 +546,7 @@ def run(goal: str, model: str = '', target_dir: str = '',
     sess = AgentSession(goal, archive_dir, LOG_DIR, max_iter, model=model)
     current_plan: Optional[Plan] = None
     exit_code = 0
+    _architect_escalated = False  # cap: at most one architect escalation per session
 
     def _on_signal(sig, frame):
         print("\nInterrupted.", file=sys.stderr)
@@ -874,8 +875,18 @@ def run(goal: str, model: str = '', target_dir: str = '',
                     ok, iters = _run_test_repair_loop(model, test_cmd, test_log, p,
                                                       auto_system, writer_timeout, goal,
                                                       plan_file)
-                    sess.repair_iters += iters
+                    sess.repair_iters += max(iters, 0)
                     if not ok:
+                        if iters == REPAIR_ESCALATE and not _architect_escalated:
+                            _architect_escalated = True
+                            log("Repair stuck — escalating to architect mode.")
+                            print("==> [mu-agent] Repair loop stalled. Escalating to architect.",
+                                  flush=True)
+                            stages = _run_architect_pass(goal, model, planner_timeout)
+                            if len(stages) > 1:
+                                return run_staged(goal, model, max_iter=max_iter)
+                            log("Architect produced %d stage(s) — cannot escalate further.",
+                                len(stages))
                         log("Tests still failing after repair for %s.", task.file_path)
                         record_failed_repair(f"test repair after writing {task.file_path}",
                                              _tail_file(test_log, 5), plan_file)
@@ -895,8 +906,18 @@ def run(goal: str, model: str = '', target_dir: str = '',
         if not tasks_remaining(p):
             err, iters = _final_test_gate(model, p, auto_system, writer_timeout, goal,
                                           plan_file)
-            sess.repair_iters += iters
+            sess.repair_iters += max(iters, 0)
             if err:
+                if iters == REPAIR_ESCALATE and not _architect_escalated:
+                    _architect_escalated = True
+                    log("Final gate stuck — escalating to architect mode.")
+                    print("==> [mu-agent] Final gate stalled. Escalating to architect.",
+                          flush=True)
+                    stages = _run_architect_pass(goal, model, planner_timeout)
+                    if len(stages) > 1:
+                        return run_staged(goal, model, max_iter=max_iter)
+                    log("Architect produced %d stage(s) — cannot escalate further.",
+                        len(stages))
                 exit_code = 3
                 return exit_code
             log("Goal complete.")
@@ -1656,7 +1677,10 @@ def _final_test_gate(model: str, p: Optional[Plan], autonomous_system: str,
         return None, iters
     record_failed_repair("final test gate: repair loop exhausted", _tail_file(test_log, 30),
                          plan_file)
-    print("\n  Tests still failing after repair loop. Giving up.\n", flush=True)
+    if iters == REPAIR_ESCALATE:
+        print("\n  Tests stuck (same error repeating). Escalating.\n", flush=True)
+    else:
+        print("\n  Tests still failing after repair loop. Giving up.\n", flush=True)
     return "final tests failed", iters
 
 

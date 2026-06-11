@@ -6,7 +6,15 @@ is the **critic's execution arm** — it runs the test gate after each model edi
 and loops until the performance standard (tests exit 0) is met or the iteration
 budget is exhausted. The repair loop returns ``(passed, iters)`` so the caller
 can accumulate repair iterations into the session's ``Utility`` record.
+
+``REPAIR_ESCALATE`` is the sentinel ``iters`` value returned when the loop detects
+the same distilled error persisting for ``_FOCUS_LOOP_THRESHOLD`` consecutive
+passes with no change — a signal that the current plan is structurally stuck and
+the caller should escalate (e.g. to architect mode).
 """
+
+REPAIR_ESCALATE: int = -2
+_FOCUS_LOOP_THRESHOLD: int = 2  # same FOCUS ≥ this many consecutive passes → escalate
 
 import hashlib
 import time
@@ -186,6 +194,8 @@ class Session:
         seen_states: dict[str, set[str]] = {}  # path -> set of sha1 hashes of seen file contents
         consecutive_dups: dict[str, int] = {}  # path -> consecutive duplicate count
         stuck = False
+        _prev_focus: Optional[str] = None
+        _same_focus_count: int = 0
         print("  Repairing...")
 
         for i in range(max_iters):
@@ -204,6 +214,18 @@ class Session:
             # the right thing. Empty for unrecognized output — then nothing changes.
             focus = distill_test_errors(test_out)
             focus_block = f"{focus}\n\n" if focus else ''
+
+            # Detect structural stall: same distilled error ≥ threshold consecutive
+            # passes with no resolution — the current plan cannot fix this.
+            if focus and focus == _prev_focus:
+                _same_focus_count += 1
+                if _same_focus_count >= _FOCUS_LOOP_THRESHOLD:
+                    print(f"==> [mu-agent] Repair stuck: same error for "
+                          f"{_same_focus_count + 1} passes — escalating.")
+                    return False, REPAIR_ESCALATE
+            else:
+                _prev_focus = focus
+                _same_focus_count = 0
             if i == 0:
                 content = (f"GOAL: {goal}\n\n{context}{focus_block}The project's tests are failing. Make ONE targeted "
                            f"change (call Edit, or Write to replace a whole file) to fix the "

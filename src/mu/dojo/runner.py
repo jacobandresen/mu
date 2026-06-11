@@ -1,10 +1,9 @@
 """Run the dojo problems — one, or all of them. (Port of sit.sh.)
 
 Loads the catalog, drops problems whose toolchains aren't installed, and runs
-each remaining one through ``mu agent``. Two opt-in minimization levers wrap the
-run (DOJO.md § Problem-space minimization): competence **routing** (``MU_ROUTE`` skips a problem
-the chosen model is measured hopeless on) and **fixtures** (committed boilerplate
-copied in so the model can't write it wrong).
+each remaining one through ``mu agent``. Competence **routing** (``MU_ROUTE``)
+skips a problem the chosen model is measured hopeless on so rounds aren't burned
+generating noise.
 
     python -m mu.dojo run                 # all available problems (shuffled)
     python -m mu.dojo run p1-helloworld   # just one
@@ -63,20 +62,14 @@ def run_problem(problem_id: str, goal: str) -> None:
         shutil.rmtree(work)          # fresh dir prevents a stale PLAN.md
     work.mkdir(parents=True, exist_ok=True)
 
-    provided = fixtures.apply(problem_id, str(work))
-    if provided:
-        print(f"Fixtures provided for '{problem_id}': {' '.join(provided)}")
-
     print(f"Running problem '{problem_id}'")
     # cwd=work + `--dir .` matches sit.sh's pushd; non-zero is swallowed — the
     # outcome is recorded in the session archive, not the exit code.
     subprocess.run(mu_cmd() + ['agent', goal, '--dir', '.'], cwd=work)
 
 
-# Committed inputs that live under dojo/ but must survive cleanup. sit.sh's
-# `find dojo -mindepth 1 -maxdepth 1 -exec rm -rf` wiped these (the recurring
-# "golden plans deleted" footgun); the port spares them on purpose.
-_PROTECTED = {'golden', 'fixtures'}
+# Committed inputs that live under dojo/ but must survive cleanup.
+_PROTECTED: set[str] = set()
 
 
 def _cleanup() -> None:

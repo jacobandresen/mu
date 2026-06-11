@@ -119,10 +119,4 @@ _Last round: 2026-06-11T06:23:15+02:00 · model: qwen2.5-coder-7b-instruct_
 
 Top residual failures: `MSBuild MSB1003` (69 sessions, p10 — `normalize_test_command` fix landed; post-fix data pending), Jest ESM/CJS (19, p8), Makefile no-rule (18, multi-problem), Vitest 0-tests (16, p9). The reflex layer now covers the major deterministic failure classes; the residual is dominated by model-ceiling on p8/p10 and stochastic scaffolding failures on p7/p9.
 
-### Top 3 challenges to solve
-
-1. **Degenerate generation.** Weak models fall into repetition loops or emit malformed structured output — a `print(f"{task[print(f"{task[…` loop that corrupts a file from the first token, or a Vue `<template>` with an `Invalid end tag` from a duplicated block (p9). These cannot be reconstructed by a reflex (you can't recover intent from a loop), so they are fought on two fronts: *prevented* at the sampler with a windowed `repeat_penalty` (`MU_REPEAT_PENALTY`), and *caught* when one slips through by a degeneration guard (`mu.degeneration`, `MU_DEGEN_GUARD`) that refuses a repetition-loop write so the writer resamples instead of committing a corrupt file. The guard is conservative (it only flags tight back-to-back repetition, never the distant repetition real code is full of); its effect on the pass rate is not yet ablated. Still the dominant residual failure mode — not fully solved.
-2. **Full-stack orchestration (p10).** Coordinating a backend, a frontend, and a cross-language test harness (dotnet + vitest) exceeds a small model's planning coherence within the context budget. Architect mode and staged plans help but it remains the hardest problem.
-3. **Separating model-ceiling failures from deterministic ones.** A failure that recurs with the *same* root cause every round is a general class to turn into a reflex; one that varies run to run is model quality and must not be overfit. This is why `mu dojo practice` measures across rounds — the discipline that keeps reflexes general rather than problem-specific.
-
-See [DOJO.md](DOJO.md) for the problem set, the training loop, and where to fix things.
+See [DOJO.md](DOJO.md) for the problem set, the training loop, and open problems. See [TODO.md](TODO.md) for the ranked improvement backlog.

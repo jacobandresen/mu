@@ -34,11 +34,9 @@ def _build_parser() -> argparse.ArgumentParser:
     m = sub.add_parser('measure', help='measure one problem over N runs from a frozen plan')
     m.add_argument('problem_id', help='catalog id, e.g. p7-flask')
     m.add_argument('-n', '--runs', type=int, default=int(os.environ.get('N', '5')),
-                   help='runs from the frozen plan (default 5, or $N)')
+                   help='number of runs (default 5, or $N)')
     m.add_argument('--seed', default=os.environ.get('MU_SEED', ''),
                    help='pin the writer RNG (greedy, near-deterministic); $MU_SEED')
-    m.add_argument('--regen', action='store_true', default=_env_flag('REGEN'),
-                   help='regenerate the golden plan even if cached')
     m.add_argument('--disable', default=os.environ.get('MU_DISABLE_REFLEX', ''),
                    metavar='ID[,ID...]',
                    help='ablation: switch off these reflex(es) for the run, to '
@@ -102,8 +100,6 @@ def main(argv: Optional[list[str]] = None) -> int:
         os.environ['N'] = str(args.runs)
         if args.seed:
             os.environ['MU_SEED'] = args.seed
-        if args.regen:
-            os.environ['REGEN'] = '1'
         if args.disable:
             os.environ['MU_DISABLE_REFLEX'] = args.disable  # reaches the iterate subprocess
         from . import measure
