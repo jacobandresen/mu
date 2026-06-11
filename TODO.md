@@ -1,7 +1,7 @@
 # TODO — ranked by impact
 
 Evidence base: `mu observe` + `mu kb` combination report (n≈1025 sessions, qwen2.5),
-CHALLENGES.md, KB_BASELINE.md. Refreshed 2026-06-11.
+CHALLENGES.md. Refreshed 2026-06-11.
 
 ---
 
@@ -40,24 +40,11 @@ Or: change jest command to `NODE_OPTIONS='--experimental-vm-modules' npx jest`.
 
 ---
 
-## Done (archived)
+## Done (recent)
 
-- **Repair-loop degeneration → architect escalation** — `REPAIR_ESCALATE` sentinel in `session.py`; same distilled error ≥2 consecutive passes → escalates to `_run_architect_pass()`, then `run_staged()`; 6 tests in `test_repair_escalate.py`
-- **Drop fixtures/goldens** — removed `dojo/fixtures/` (p3-sdl2, p6-rust) and `dojo/golden/`; `runner.py` no longer scaffolds; `measure.py` generates fresh plan per run (higher variance, honest signal)
-- **KB-1 reflex harvest** — MSBuild MSB1003, Go trailing dot, Makefile exec-prereqs, Vite import, fix_js_parent_to_sibling_import, 3 unwired reflexes wired; `fix_sqlite_conn_scope` added to `__all__`
-- **`fix_js_const_reassignment`** — implemented in `javascript.py` (test-out, p8-node)
-- **`fix_vue_attr_quotes`** — implemented in `javascript.py` (scan, p9-vue)
-- **`fix_makefile_missing_test_target`** — implemented in `makefile.py`
-- **`fix_dotnet_test_cwd`** — implemented in `makefile.py` (p10-dotnet)
-- **KB Iter 3: shared-core refactor** — `_fix_duplicate_decls` in `core.py`, iter 3 commit 48f995a
-- **KB Iters 4–5** — composite chains + validation tests, commits 4746d22, 25f3d3e
-- **Reduce no-distilled-cause** — added 7 new patterns to `diagnose.py` + `observe.py` blank-log/no-log handlers; qwen2.5 bucket dropped 120→24
-- **Oscillation fix** — `fix_inline_recipe` guard extended to `declared | _KNOWN_TARGETS`; regression test added (`test_inline_recipe_oscillation.py`)
-- **`fix_sqlite_conn_scope`** — adds `cursor = conn.cursor()` at module level when conn is top-level but cursor is missing; fires only when test imports cursor; 6 tests
-- **`fix_dotnet_test_cwd` extended** — now also handles `dotnet test tests/` where `tests/` has no `.csproj` (the MSB1003 source for 67 sessions)
-- **p5-gin archiving** — resolved; 0 sessions with missing project_dir as of 2026-06-11
-- **`fix_js_duplicate_const`** — removes consecutive duplicate const/let in test files; 9 of 18 "Jest ESM" sessions are this pattern
-- **`fix_js_program_parse_guard`** — wraps `program.parse(process.argv)` with `require.main === module`; fixes 13 sessions where commander.js exits during test import
-- **Flask import auto-add** — added Flask/jsonify/request to `_PY_STDLIB_IMPORTS`; fixes 7 p7-flask NameError sessions
-- **`fix_go_trailing_dot`** — removes dangling `.` in Go method chains; fixes 12 p5-gin sessions with `unexpected ., expected }`
-- **`.vue` tool-call artifact fix** — added `.vue` to `_CODE_EXTS`; fixes 2 sessions with `SyntaxError: Invalid end tag`
+- **Oscillation fix** — `fix_inline_recipe` guard extended to `declared | _KNOWN_TARGETS`; regression test added
+- **`fix_dotnet_test_cwd` extended** — handles `dotnet test tests/` where `tests/` has no `.csproj` (MSB1003, 67 sessions)
+- **`fix_js_duplicate_const`** — removes consecutive duplicate const/let in test files
+- **`fix_js_program_parse_guard`** — wraps `program.parse(process.argv)` with `require.main === module`
+- **Reflex KB** — catalog + schema + model profiles + Beta-Binomial posteriors + ablation + combination report + shared-core refactor + validation tests (iters 1–5)
+- **Repair-loop degeneration → architect escalation** — same distilled error ≥2 passes → `_run_architect_pass()`

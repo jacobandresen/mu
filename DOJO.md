@@ -56,33 +56,6 @@ Read the table and the causes: a problem failing every round with the **same** c
 - **Skills** (`skills/<name>/SKILL.md`) — prompt fragments injected at plan time. Prefer a skill when a better instruction would prevent the mistake.
 - **Agent logic** (`src/mu/agent.py`) — orchestration, timeouts, where reflexes chain into the gates. Touch this last.
 
-## Current baseline
-
-**9/10** — qwen2.5-coder-7b-instruct, num_ctx=8192 (2026-05-31), SKIP_CLEAN runs
-
-**7/10** — qwen2.5-coder-7b-instruct, num_ctx=8192 (2026-05-31), fresh full run
-
-- p1–p6: consistently pass
-- p7: model-limited (test mixes HTTP client with ORM method; repair loop stuck)
-- p8: passes on SKIP_CLEAN; stochastic on fresh plans (Jest test file naming)
-- p9: passes on SKIP_CLEAN; stochastic on fresh plans (Vue compiler-sfc peer deps)
-- p10: model stage passes; backend stage stochastic (C# code quality issues in repair)
-
-### What improved (6→9/10)
-
-| Area | Change |
-|------|--------|
-| Architect workflow | `mu architect` generates ARCHITECTURE.md + staged plan files for hard multi-layer problems |
-| Plan parsing | `mark_task_done` handles backtick-wrapped filenames; fenced test commands extracted correctly |
-| Context trimming | Lean system on writer retry; relevant_files_context capped at 3000 chars |
-| Rust | Cargo.toml grounding with explicit `[[bin]]` path; duplicate-use reflex; corruption fix |
-| Makefile | `\n`, `\t`, `\@`, `\$(npm)`, bare `vitest` — all normalized deterministically |
-| C# | using-order fix; verbatim string escape fix; keyword-prefix artifact stripping; EF Core in csproj |
-| Vue/Node | `vitest` → `vitest run` in package.json; missing `vue` peer dep added automatically |
-| Repair loop | Duplicate-edit early exit; prose-response nudge; post-retry file relocation |
-
-See CHALLENGES.md for open items.
-
 Open challenges tracked in [CHALLENGES.md](CHALLENGES.md).
 
 ## Model / tuning
@@ -171,5 +144,5 @@ The guiding principle: **specify everything except the one thing you're measurin
 L0–L1 are **capability probes** (accept variance, many rounds); L2–L4 are **logic probes** (low variance). Record each problem's level with its result — a 95%-pass at L4 isn't a 95%-pass at L0.
 
 - **Fixture mode (L2–L4 mechanism, shipped):** `dojo/fixtures/<id>/` files are copied in and their task marked done, so the writer only fills the rest — a given file can't be written wrong. First fixture: `dojo/fixtures/p6-rust/Cargo.toml`.
-- **Model-adaptive (partial):** intended to run at the declared level, **bump a rung** for mid-competence, **skip** for ≈0. Only the skip end is built (`fixtures.should_skip_problem`); auto-bump and reading the `minimize` field are planned.
+- **Model-adaptive (partial):** skips problems where a model is measured near-0 (`fixtures.should_skip_problem`); auto-bump for mid-competence is not yet built.
 - **Validation (shipped):** `mu dojo measure` reports a **stochasticity** metric (`1 − modal/N`); higher level should mean lower variance, ≈0 at L4 for an in-competence model.

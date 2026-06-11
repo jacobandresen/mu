@@ -1,25 +1,5 @@
 # Reflex Knowledge Base — Design & Reference
 
-Status: **built** (iter-5 complete). Remaining: iter-4 Part 2 (offline order bake,
-blocked pending TRP A/B data) + final TRP + RIP.
-
-- **Built:** catalog + schema + model profiles (`reflexes/registry.py`,
-  `reflexdb.py`, `mu kb`); Beta-Binomial posterior (`observe.py`);
-  completeness check (`registry.unregistered()`); ablation mechanism
-  (`MU_DISABLE_REFLEX`, `mu dojo measure --disable`); combination report +
-  ablation shortlist; full schema fields (`artifact`/`phase`/`idempotent`/
-  `risk`/`evidence`); idempotency tests + committed measurement artifact;
-  `record_efficacy()` + `sz5_gate()`; registry-contract tests; shared-core
-  refactor (`_fix_duplicate_decls`, §5); composite-chain functions for
-  C#/JS/Rust (§8 centralize); calibration test (`test_calibration.py`);
-  ablation rule test (`test_ablation_rule.py`); honesty audit
-  (`honesty_audit()` in `reflexdb.py`); interaction model (`interaction.py`,
-  pgmpy, §10 leak guard).
-- **Pending:** iter-4 Part 2 — offline order bake + §5z A/B across ≥3 seeds
-  (blocked on TRP completing); final TRP + RIP.
-
----
-
 ## 1. Motivation
 
 Reflexes (`src/mu/reflexes/`) are deterministic condition→action fixers chained
@@ -96,12 +76,12 @@ Live exhaustive list: `mu kb` catalog section.
 
 ---
 
-## 5. Sharing reflexes across toolchains *(planned — iter-3)*
+## 5. Sharing reflexes across toolchains
 
 Several semantic groups are *one algorithm + a per-toolchain table*
-(duplicate-declaration, missing-symbol-import, dependency-hygiene). Planned target:
-generic core + thin `(parser, predicate)` adapters so a new toolchain = add one
-row. Behavior-preserving; gated by golden tests from iter-1.
+(duplicate-declaration, missing-symbol-import, dependency-hygiene). Built as
+generic core + thin `(parser, predicate)` adapters (`_fix_duplicate_decls` in
+`core.py`); composite-chain functions for C#/JS/Rust.
 
 ---
 
@@ -131,9 +111,6 @@ Observational — hypothesis ranking, never causal claim.
 posterior mean + 95% credible interval (scipy exact if available, else normal
 approx). Rank by posterior mean *and* interval width — a lucky 3/3 with a wide
 interval ranks below 40/50 with a tight one.
-
-Planned: offline-baked chain order from §7 sequence edges + posteriors (static
-constant, never online sampling — preserves `MU_SEED` reproducibility).
 
 ---
 
@@ -166,13 +143,11 @@ They must stay separate: firing data must never enter the plan-time predictor.
 
 ## 11. Validation discipline
 
-Built: completeness (`test_registry.py`), ablation hook (`test_reflex_ablation.py`),
+Tests: completeness (`test_registry.py`), ablation hook (`test_reflex_ablation.py`),
 combination report (`test_combination_report.py`), idempotency + staleness check
 (`test_reflex_idempotency.py`, `idempotent_ids.txt`), efficacy write/read-back +
-§5z gate (`test_efficacy.py`).
-
-Planned (iter-5): calibration test (Beta-Binomial 95% coverage), ablation rule
-(`test_ablation_rule.py`), honesty audit (single-problem concentration flag).
+§5z gate (`test_efficacy.py`), calibration (`test_calibration.py`), ablation rule
+(`test_ablation_rule.py`), honesty audit (`honesty_audit()` in `reflexdb.py`).
 
 ---
 
