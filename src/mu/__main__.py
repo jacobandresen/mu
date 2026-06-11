@@ -365,18 +365,21 @@ def _cmd_setup(args) -> int:
             print(f"  {label} not found.")
             run_cmd(*cmd)
 
-    # Optional plan-lint extra (Option A): only fetch the spaCy model if the
-    # user has installed `mu[lint]`. Never force the heavy dependency here.
+    # Optional plan-lint (MU_LINT_PLAN=1): spaCy + en_core_web_sm model.
+    print()
+    print("Optional plan lint (MU_LINT_PLAN=1)")
     try:
         import spacy  # noqa: F401
         try:
             spacy.load('en_core_web_sm')
+            print("  spaCy + en_core_web_sm already present.")
         except OSError:
-            print()
-            print("Fetching spaCy model for plan lint (MU_LINT_PLAN)...")
+            print("  spaCy present, model missing.")
             run_cmd(sys.executable, '-m', 'spacy', 'download', 'en_core_web_sm')
     except ImportError:
-        pass
+        print("  spaCy not installed.")
+        if run_cmd(sys.executable, '-m', 'pip', 'install', "mu[lint]"):
+            run_cmd(sys.executable, '-m', 'spacy', 'download', 'en_core_web_sm')
 
     print()
     print("AI backend: LM Studio")
