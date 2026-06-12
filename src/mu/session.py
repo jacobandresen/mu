@@ -26,9 +26,51 @@ from typing import Callable, Optional
 from mu.reflexes import fix_requirements_path_entries
 
 from mu import tools
-from mu.client import chat_or_retry
+from mu.client import chat_or_retry, max_prompt_tokens
 from mu.degeneration import guard_enabled, is_degenerate, note_refusal
 from mu.diagnose import distill_test_errors
+
+
+def _msg_chars(m: dict) -> int:
+    """Approximate prompt weight of one message in characters.
+
+    Counts content plus tool-call arguments — an assistant turn that Writes a
+    whole file carries the file in its arguments, which is usually the
+    heaviest part of a repair unit. +80 covers role/JSON framing.
+    """
+    n = len(str(m.get('content') or ''))
+    for tc in m.get('tool_calls') or []:
+        n += len(str(tc.get('function', {}).get('arguments') or ''))
+    return n + 80
+
+
+def _fit_prompt_budget(system_msg: dict, all_turns: list[list[dict]],
+                       user_msg: dict) -> list[dict]:
+    """Assemble the repair prompt without exceeding the model's context.
+
+    The window of past iteration-units is dropped oldest-first while the
+    estimated total (4 chars ≈ 1 token, the project-wide estimate) exceeds
+    the per-request budget; as a last resort the middle of the current user
+    message is cut, keeping the head (FOCUS hint + instructions) and the
+    tail (the newest test errors). Without this, three history units each
+    embedding file contents and test output overflow a 6000-token window
+    and every repair turn dies with HTTP 400 (31 occurrences in the
+    2026-06-12 run-4 collection).
+    """
+    budget = max_prompt_tokens() * 4 * 9 // 10  # chars, with 10% safety margin
+    fixed = _msg_chars(system_msg) + _msg_chars(user_msg)
+    units = list(all_turns[-_REPAIR_HISTORY_WINDOW:])
+    while units and fixed + sum(_msg_chars(m) for u in units for m in u) > budget:
+        units.pop(0)
+    overshoot = fixed + sum(_msg_chars(m) for u in units for m in u) - budget
+    if overshoot > 0:
+        content = str(user_msg.get('content') or '')
+        keep = max(len(content) - overshoot, 1500)
+        if len(content) > keep:
+            head, tail = content[:keep * 2 // 3], content[-(keep // 3):]
+            user_msg['content'] = (head + '\n…[output trimmed to fit the '
+                                   'context window]…\n' + tail)
+    return [system_msg] + [m for u in units for m in u] + [user_msg]
 
 
 def _compute_edit_diff(before: str, after: str, path: str, max_chars: int = 1500) -> str:
@@ -276,12 +318,10 @@ class Session:
 
             user_msg: dict = {'role': 'user', 'content': content}
             current: list[dict] = [user_msg]
-            # Complete units (user→assistant→tool results) keep the tool-call pairing invariant.
-            msgs: list[dict] = (
-                [system_msg]
-                + [m for u in all_turns[-_REPAIR_HISTORY_WINDOW:] for m in u]
-                + [user_msg]
-            )
+            # Complete units (user→assistant→tool results) keep the tool-call
+            # pairing invariant; _fit_prompt_budget drops oldest units first
+            # so the total stays inside the model's context window.
+            msgs: list[dict] = _fit_prompt_budget(system_msg, all_turns, user_msg)
 
             deadline = time.time() + per_turn_timeout
             edited = False
