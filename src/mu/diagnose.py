@@ -154,6 +154,17 @@ _RULES: list[_Rule] = [
           lambda m: f"{m['file']}:{m['line']}: JS syntax error: {_clip(m['msg'], 60)}"),
     _rule(r"Cannot find module ['\"](?P<mod>[^'\"]+)['\"] from",
           lambda m: f"Jest: cannot find module '{m['mod']}' — run npm install or add it to package.json"),
+    # "Cannot spy the addTodo property because it is not a function; undefined
+    # given instead" — the test imports a function the module never exports.
+    # The fix is in the MODULE (export it), not the test; weak models keep
+    # rewriting the test instead (3 stalled p8 sessions, 2026-06-12 run 3).
+    _rule(r"Cannot spy the (?P<name>\w+) property because it is not a function",
+          lambda m: f"Jest: the module under test does not export '{m['name']}' — define it as a "
+                    f"module-level function and add it to module.exports (do not edit the test)"),
+    _rule(r"TypeError: (?P<name>\w+) is not a function",
+          lambda m: f"'{m['name']}' is not a function at runtime — likely missing from the module's "
+                    f"exports; export it from the module under test",
+          weak=True),
     _rule(r"●\s+process\.exit called with ['\"](?P<code>\d+)['\"]",
           lambda m: f"Jest: test code called process.exit({m['code']}) — remove exit call or catch it"),
     _rule(r"npm error code (?P<code>EJSONPARSE|E\w+)",
