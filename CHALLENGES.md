@@ -34,3 +34,6 @@ Recurring failures observed in dojo runs. Updated as new patterns emerge and exi
 
 17. **Syntax errors in test files** — JS: same-scope `const` re-declaration (10+ sessions; was mislabeled "Jest ESM" because the Jest banner shadowed the Babel SyntaxError detail — diagnose now demotes banner-level hints) and `.[0]` member access; both covered by `fix_js_same_scope_redeclaration` and `fix_js_dot_bracket_access`. C#: unmatched parentheses/semicolons in test files — generic, see item 1; stuttered duplicate method-signature openers covered by `fix_csharp_consecutive_duplicate_signatures`.
 
+18. **Mocking issues in Jest**
+  - Mock functions must be defined before they are used in test cases; ensure mocks are declared and initialized properly.
+
