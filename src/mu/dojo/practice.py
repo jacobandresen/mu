@@ -175,11 +175,24 @@ def run() -> int:
 
         marker = sessions.now()
         with _best_effort('round'):
+            # SIGTERM first so an in-flight mu session can finalize its
+            # archive (outcome 'interrupted') instead of being SIGKILLed
+            # into an unfinalized exit_code=-1 tombstone — one censored
+            # session per timed-out round in the 2026-06-12 runs 3 and 4.
+            proc = subprocess.Popen([sys.executable, '-m', 'mu.dojo', 'run'])
             try:
-                subprocess.run([sys.executable, '-m', 'mu.dojo', 'run'],
-                               timeout=round_timeout)
+                proc.wait(timeout=round_timeout)
             except subprocess.TimeoutExpired:
-                print(f"round {round_num}: exceeded {round_timeout}s — killed", file=sys.stderr)
+                proc.terminate()
+                try:
+                    proc.wait(timeout=30)
+                    print(f"round {round_num}: exceeded {round_timeout}s — terminated",
+                          file=sys.stderr)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+                    print(f"round {round_num}: exceeded {round_timeout}s — killed",
+                          file=sys.stderr)
 
         round_sessions = sessions.sessions_since(marker)
         fails = [s for s in round_sessions if not s.passed]

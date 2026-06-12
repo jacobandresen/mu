@@ -692,10 +692,7 @@ def run(goal: str, model: str = '', target_dir: str = '',
                 if not Path(task.file_path).exists():
                     # Writer may have put the file in a subdirectory — check and move.
                     basename = Path(task.file_path).name
-                    misplaced = next(
-                        (p2 for p2 in Path('.').rglob(basename)
-                         if p2 != Path(task.file_path) and p2.stat().st_size > 0),
-                        None)
+                    misplaced = _find_misplaced(basename, task.file_path)
                     if misplaced:
                         Path(task.file_path).parent.mkdir(parents=True, exist_ok=True)
                         misplaced.rename(task.file_path)
@@ -721,10 +718,7 @@ def run(goal: str, model: str = '', target_dir: str = '',
                                        companion):
                         # Retry may have written to wrong path — check again.
                         if not Path(task.file_path).exists():
-                            misplaced2 = next(
-                                (p2 for p2 in Path('.').rglob(basename)
-                                 if p2 != Path(task.file_path) and p2.stat().st_size > 0),
-                                None)
+                            misplaced2 = _find_misplaced(basename, task.file_path)
                             if misplaced2:
                                 Path(task.file_path).parent.mkdir(parents=True, exist_ok=True)
                                 misplaced2.rename(task.file_path)
@@ -1547,6 +1541,24 @@ def _repair_context(p: Plan, test_output: str = '') -> str:
     if not blocks:
         return ''
     return '## Current project files (read these before editing)\n' + '\n'.join(blocks) + '\n\n'
+
+
+def _find_misplaced(basename: str, intended_path: str) -> Optional[Path]:
+    """Locate a non-empty file with this basename written somewhere else.
+
+    Tolerates filesystem races: rglob walks directories that another process
+    (e.g. the dojo runner's work-dir cleanup) may delete mid-walk, and a
+    candidate may vanish between listing and stat. One session crashed with
+    an uncaught FileNotFoundError('src') from exactly this (2026-06-12 run
+    4, p9) — a missing file must mean "retry the writer", never a crash.
+    """
+    try:
+        return next(
+            (p2 for p2 in Path('.').rglob(basename)
+             if p2 != Path(intended_path) and p2.stat().st_size > 0),
+            None)
+    except OSError:
+        return None
 
 
 def _apply_write_reflexes(file_path: str, test_command: str = '') -> None:
