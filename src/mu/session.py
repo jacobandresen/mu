@@ -31,6 +31,26 @@ from mu.degeneration import guard_enabled, is_degenerate, note_refusal
 from mu.diagnose import distill_test_errors
 
 
+# ── repair trace (for reflex improvement) ─────────────────────────────────────
+# One record per repair iteration: the distilled error the model was pointed
+# at, the edits it made (capped diffs), and whether the next gate run passed.
+# Makes "which error classes burn repair iterations without a reflex" a query
+# over repair_trace.jsonl instead of log archaeology. Flushed by
+# AgentSession.finalize on every session — successful repairs are positive
+# examples for reflex design, not just failures.
+_REPAIR_TRACE: list[dict] = []
+
+
+def reset_repair_trace() -> None:
+    _REPAIR_TRACE.clear()
+
+
+def flush_repair_trace() -> list[dict]:
+    global _REPAIR_TRACE
+    out, _REPAIR_TRACE = _REPAIR_TRACE, []
+    return out
+
+
 def _msg_chars(m: dict) -> int:
     """Approximate prompt weight of one message in characters.
 
@@ -277,6 +297,8 @@ class Session:
             if reapply:
                 reapply()
             passed, test_out = run_test()
+            if _REPAIR_TRACE and 'passed_after' not in _REPAIR_TRACE[-1]:
+                _REPAIR_TRACE[-1]['passed_after'] = passed
             if passed:
                 if i > 0:
                     print(f"==> [mu-agent] Repair: tests pass after {i} edit(s).")
@@ -363,6 +385,14 @@ class Session:
 
             all_turns.append(current)
             last_diffs = iter_diffs
+            _REPAIR_TRACE.append({
+                'iter': i,
+                'focus': focus,
+                'test_head': test_out[:400],
+                'edited': edited,
+                'diffs': list(iter_diffs),
+                'stuck': stuck,
+            })
 
             if connection_dead:
                 print("==> [mu-agent] Repair: connection lost — aborting repair loop.")
@@ -375,4 +405,6 @@ class Session:
         if reapply:
             reapply()
         passed, _ = run_test()
+        if _REPAIR_TRACE and 'passed_after' not in _REPAIR_TRACE[-1]:
+            _REPAIR_TRACE[-1]['passed_after'] = passed
         return passed, max_iters

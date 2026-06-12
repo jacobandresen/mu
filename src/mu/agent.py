@@ -762,13 +762,13 @@ def run(goal: str, model: str = '', target_dir: str = '',
                         lint_tail = _tail_file(lint_log, 60)
                         det_fixed = (
                             (fix_multiline_single_quote(task.file_path, lint_head) or
-                             fix_missing_close_paren(task.file_path, lint_head) or
-                             fix_literal_newlines(task.file_path, lint_head) or
-                             fix_python_undefined_imports(task.file_path, lint_head) or
-                             fix_rust_duplicate_use(task.file_path) or
-                             fix_rust_println_missing_arg(task.file_path) or
-                             fix_rust_missing_trait_import(task.file_path, lint_tail) or
-                             fix_rust_unbalanced_braces(task.file_path, lint_tail)) and
+                             _fired(fix_missing_close_paren, task.file_path, lint_head) or
+                             _fired(fix_literal_newlines, task.file_path, lint_head) or
+                             _fired(fix_python_undefined_imports, task.file_path, lint_head) or
+                             _fired(fix_rust_duplicate_use, task.file_path) or
+                             _fired(fix_rust_println_missing_arg, task.file_path) or
+                             _fired(fix_rust_missing_trait_import, task.file_path, lint_tail) or
+                             _fired(fix_rust_unbalanced_braces, task.file_path, lint_tail)) and
                             _run_cmd(lint_cmd, lint_log)
                         )
                         if det_fixed:
@@ -1269,16 +1269,16 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
             if not Path(t.file_path).exists():
                 continue
             # Always un-escape literal \n in any source file before testing
-            fix_literal_newlines(t.file_path)
+            _fired(fix_literal_newlines, t.file_path)
             if is_build_file(t.file_path) and Path(t.file_path).name.lower() == 'makefile':
                 apply_makefile_reflexes(t.file_path)
-                fix_makefile_binary_name(t.file_path, p.test_command or '')
+                _fired(fix_makefile_binary_name, t.file_path, p.test_command or '')
             elif t.file_path.lower() == 'cargo.toml':
                 # Covered by the project-level Cargo.toml guard above.
                 pass
             elif t.file_path.endswith('.rs'):
                 if Path(test_log).exists():
-                    if fix_rust_missing_trait_import(t.file_path, _tail_file(test_log, 60)):
+                    if _fired(fix_rust_missing_trait_import, t.file_path, _tail_file(test_log, 60)):
                         log("Repair reapply: added missing trait import to %s.", t.file_path)
             elif t.file_path.endswith('.cs'):
                 test_out = _tail_file(test_log, 60) if Path(test_log).exists() else ''
@@ -1291,27 +1291,27 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
                 js_test_out = _tail_file(test_log, 60) if Path(test_log).exists() else ''
                 apply_js_repair_reflexes(t.file_path, js_test_out)
             if t.file_path.endswith('.py'):
-                fix_flask_test_route_decorators(t.file_path)
-                fix_flask_init_db_import(t.file_path)
-                fix_sqlite_missing_row_factory(t.file_path)
-                fix_sqlite_memory_multi_connect(t.file_path)
-                fix_sqlite_conn_scope(t.file_path)
-                fix_sqlite_class_missing_init_table(t.file_path)
-                fix_flask_post_missing_201(t.file_path)
+                _fired(fix_flask_test_route_decorators, t.file_path)
+                _fired(fix_flask_init_db_import, t.file_path)
+                _fired(fix_sqlite_missing_row_factory, t.file_path)
+                _fired(fix_sqlite_memory_multi_connect, t.file_path)
+                _fired(fix_sqlite_conn_scope, t.file_path)
+                _fired(fix_sqlite_class_missing_init_table, t.file_path)
+                _fired(fix_flask_post_missing_201, t.file_path)
                 # A test that uses app/db/a model from the implementation module
                 # without importing it passes the syntax-only lint gate and only
                 # fails at pytest runtime with NameError. The lint-phase resolver
                 # never sees it, so resolve it here from the test output.
                 if Path(test_log).exists():
-                    if fix_python_undefined_imports(t.file_path, _tail_file(test_log, 60)):
+                    if _fired(fix_python_undefined_imports, t.file_path, _tail_file(test_log, 60)):
                         log("Repair reapply: added missing import(s) to %s.", t.file_path)
         for t in p.tasks:  # trailing-dot in any .go file before go mod tidy
             if t.file_path.endswith('.go') and Path(t.file_path).exists():
-                fix_go_trailing_dot(t.file_path)
+                _fired(fix_go_trailing_dot, t.file_path)
         apply_go_reflexes()  # resolve Go module deps before each build attempt
-        if fix_csharp_xunit_packages(os.getcwd()):
+        if _fired(fix_csharp_xunit_packages, os.getcwd()):
             log("Repair reapply: added xunit packages to .csproj.")
-        if fix_csharp_package_tfm_mismatch(os.getcwd()):
+        if _fired(fix_csharp_package_tfm_mismatch, os.getcwd()):
             log("Repair reapply: aligned Microsoft.* package majors with the TFM.")
         # If any package.json exists but its node_modules is absent, run npm install.
         # The repair loop may rewrite package.json but never re-runs install.
@@ -1320,7 +1320,7 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
                 pkg_dir = Path(t.file_path).parent
                 # Strip Node builtins (e.g. an invented `"fs": "^14"`) first — npm
                 # install fails with ETARGET on any of them.
-                fix_package_json_builtin_deps(str(pkg_dir))
+                _fired(fix_package_json_builtin_deps, str(pkg_dir))
                 if not (pkg_dir / 'node_modules').exists():
                     subprocess.run(['npm', 'install'], cwd=str(pkg_dir),
                                    capture_output=True, timeout=120)
@@ -1332,7 +1332,7 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
         if req.exists():
             # Strip stdlib module names before installing — they are not on PyPI and
             # would cause the entire pip invocation to fail (blocking pytest install).
-            fix_requirements_stdlib_entries(str(req))
+            _fired(fix_requirements_stdlib_entries, str(req))
             venv_pip = Path('.venv/bin/pip')
             if not venv_pip.exists():
                 subprocess.run(['python3', '-m', 'venv', '.venv'],
@@ -1345,9 +1345,9 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
                 subprocess.run([str(venv_pip), 'install', 'pytest', 'spacy', '-q'],
                                capture_output=True, timeout=120)
         # Re-apply package.json bare-jest fix — repair model may rewrite scripts.test
-        if fix_jest_config_js(os.getcwd()):
+        if _fired(fix_jest_config_js, os.getcwd()):
             log("Re-applied: fixed jest.config.js syntax.")
-        if fix_package_json_bare_jest(os.getcwd()):
+        if _fired(fix_package_json_bare_jest, os.getcwd()):
             log("Re-applied: replaced bare jest with npx jest in package.json.")
         # Re-apply Jest/Vitest reflexes — the repair model may have rewritten
         # package.json or vite.config.ts, removing a testRegex or globals:true
@@ -1355,26 +1355,26 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
         # to check whether those fixes are still needed.
         if Path(test_log).exists():
             latest_out = _tail_file(test_log, 60)
-            if fix_jest_no_tests_found(latest_out, os.getcwd()):
+            if _fired(fix_jest_no_tests_found, latest_out, os.getcwd()):
                 log("Re-applied Jest testRegex (repair: No tests found).")
-            if fix_jest_esm(latest_out, os.getcwd()):
+            if _fired(fix_jest_esm, latest_out, os.getcwd()):
                 log("Re-applied NODE_OPTIONS=--experimental-vm-modules (repair: Jest ESM).")
-            if fix_vitest_watch_mode(os.getcwd()):
+            if _fired(fix_vitest_watch_mode, os.getcwd()):
                 log("Re-applied vitest run mode in package.json.")
-            if fix_vue_missing_package(os.getcwd()):
+            if _fired(fix_vue_missing_package, os.getcwd()):
                 log("Re-applied: added missing vue package to package.json.")
-            if fix_vitest_globals(os.getcwd(), latest_out):
+            if _fired(fix_vitest_globals, os.getcwd(), latest_out):
                 log("Re-applied Vitest globals:true (repair: ReferenceError).")
             for t in p.tasks:
                 if Path(t.file_path).exists() and Path(t.file_path).suffix.lower() in (
                     '.js', '.jsx', '.mjs', '.ts', '.tsx'
                 ):
-                    if fix_js_const_reassignment(t.file_path, latest_out):
+                    if _fired(fix_js_const_reassignment, t.file_path, latest_out):
                         log("Fixed %s: changed const to let (Assignment to constant variable).",
                             t.file_path)
             for t in p.tasks:
                 if Path(t.file_path).exists() and t.file_path.endswith('.py'):
-                    if fix_missing_flask_client_fixture(t.file_path, latest_out):
+                    if _fired(fix_missing_flask_client_fixture, t.file_path, latest_out):
                         log("Re-applied: added Flask client fixture to %s.", t.file_path)
 
     # Run the test once before pre-flight reflexes so the log exists and is current.
@@ -1386,50 +1386,50 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
     for t in p.tasks:
         if t.file_path.endswith('package.json') and Path(t.file_path).exists():
             pkg_dir = Path(t.file_path).parent
-            fix_package_json_builtin_deps(str(pkg_dir))  # strip builtins before install
+            _fired(fix_package_json_builtin_deps, str(pkg_dir))  # strip builtins before install
             if not (pkg_dir / 'node_modules').exists():
                 subprocess.run(['npm', 'install'], cwd=str(pkg_dir),
                                capture_output=True, timeout=120)
-    if fix_jest_config_js(os.getcwd()):
+    if _fired(fix_jest_config_js, os.getcwd()):
         log("Fixed jest.config.js: converted JSON to CommonJS or removed conflict.")
-    if fix_package_json_bare_jest(os.getcwd()):
+    if _fired(fix_package_json_bare_jest, os.getcwd()):
         log("Fixed package.json: replaced bare jest with npx jest (pre-flight).")
     # Strip any @app.route decorators and init_db imports from test files before first run
     for t in p.tasks:
         if Path(t.file_path).exists() and t.file_path.endswith('.py'):
-            if fix_flask_test_route_decorators(t.file_path):
+            if _fired(fix_flask_test_route_decorators, t.file_path):
                 log("Pre-flight: stripped @app.route decorators from %s.", t.file_path)
-            if fix_flask_init_db_import(t.file_path):
+            if _fired(fix_flask_init_db_import, t.file_path):
                 log("Pre-flight: removed init_db import from %s.", t.file_path)
     _run_cmd(test_cmd, test_log)
     initial_out = _tail_file(test_log, 60)
-    if fix_missing_pip_packages(initial_out, os.getcwd()):
+    if _fired(fix_missing_pip_packages, initial_out, os.getcwd()):
         log("Added missing pip packages to requirements before repair.")
     # Add missing Flask client fixture if tests use `client` but fixture not defined
     for t in p.tasks:
         if Path(t.file_path).exists() and t.file_path.endswith('.py'):
-            if fix_missing_flask_client_fixture(t.file_path, initial_out):
+            if _fired(fix_missing_flask_client_fixture, t.file_path, initial_out):
                 log("Added Flask client fixture to %s.", t.file_path)
-    if fix_jest_no_tests_found(initial_out, os.getcwd()):
+    if _fired(fix_jest_no_tests_found, initial_out, os.getcwd()):
         log("Broadened Jest testRegex in package.json (No tests found).")
-    if fix_jest_esm(initial_out, os.getcwd()):
+    if _fired(fix_jest_esm, initial_out, os.getcwd()):
         log("Added NODE_OPTIONS=--experimental-vm-modules for Jest ESM (pre-flight).")
-    if fix_vitest_watch_mode(os.getcwd()):
+    if _fired(fix_vitest_watch_mode, os.getcwd()):
         log("Changed vitest to vitest run in package.json.")
-    if fix_vue_missing_package(os.getcwd()):
+    if _fired(fix_vue_missing_package, os.getcwd()):
         log("Added missing vue package to package.json.")
-    if fix_vitest_globals(os.getcwd(), initial_out):
+    if _fired(fix_vitest_globals, os.getcwd(), initial_out):
         log("Enabled Vitest globals in vite.config.ts.")
     for t in p.tasks:
         if Path(t.file_path).exists():
-            if fix_js_extra_closing_brace(t.file_path, initial_out):
+            if _fired(fix_js_extra_closing_brace, t.file_path, initial_out):
                 log("Fixed %s: fixed unbalanced brace/paren.", t.file_path)
             if Path(t.file_path).suffix.lower() in ('.js', '.jsx', '.mjs', '.ts', '.tsx'):
-                if fix_js_const_reassignment(t.file_path, initial_out):
+                if _fired(fix_js_const_reassignment, t.file_path, initial_out):
                     log("Fixed %s: changed const to let (Assignment to constant variable).",
                         t.file_path)
             if t.file_path.endswith('.cs') and 'CS0246' in initial_out:
-                if fix_csharp_missing_using(t.file_path, initial_out):
+                if _fired(fix_csharp_missing_using, t.file_path, initial_out):
                     log("Fixed %s: added missing using directive(s).", t.file_path)
 
     return sess.repair_loop(model, goal, _REPAIR_MAX_ITERS, float(writer_timeout),
@@ -1571,6 +1571,19 @@ def _find_misplaced(basename: str, intended_path: str) -> Optional[Path]:
         return None
 
 
+# Reflex call-and-record wrapper (see mu.reflexes.core.noted): direct reflex
+# calls bypass run_reflexes, so without this their firings never reached
+# firings.jsonl and the KB was blind to most actual reflex activity.
+from mu.reflexes.core import noted as _fired
+
+
+def _read_quiet(path: str) -> str:
+    try:
+        return Path(path).read_text()
+    except (OSError, UnicodeDecodeError):
+        return ''
+
+
 def _apply_write_reflexes(file_path: str, test_command: str = '') -> None:
     """Run the per-language deterministic fix pass over one just-written file.
 
@@ -1579,12 +1592,26 @@ def _apply_write_reflexes(file_path: str, test_command: str = '') -> None:
     so a repair that introduced e.g. `Flask(__name__)` without the import
     shipped broken even though the import reflex existed (2 stalled p7
     sessions, 2026-06-12 run 3).
+
+    Records the pass's net effect on the file as a capped diff
+    (reflex_diffs.jsonl) — what the reflexes DID, not just who fired.
     """
-    if fix_tool_call_artifacts(file_path):
+    _before = _read_quiet(file_path)
+    try:
+        _apply_write_reflexes_inner(file_path, test_command)
+    finally:
+        _after = _read_quiet(file_path)
+        if _after != _before:
+            from mu.reflexes.core import note_reflex_diff
+            note_reflex_diff('write_pass', file_path, _before, _after)
+
+
+def _apply_write_reflexes_inner(file_path: str, test_command: str = '') -> None:
+    if _fired(fix_tool_call_artifacts, file_path):
         log("Fixed %s: stripped tool-call artifact lines.", file_path)
-    if fix_json_unclosed_brackets(file_path):
+    if _fired(fix_json_unclosed_brackets, file_path):
         log("Fixed %s: closed unclosed JSON brackets.", file_path)
-    if fix_literal_newlines(file_path):
+    if _fired(fix_literal_newlines, file_path):
         log("Fixed %s: replaced literal \\n with real newlines.", file_path)
 
     if file_path.endswith('.cs'):
@@ -1592,43 +1619,43 @@ def _apply_write_reflexes(file_path: str, test_command: str = '') -> None:
         log("Applied C# write reflexes to %s.", file_path)
 
     if file_path.endswith('.csproj'):
-        if fix_csharp_package_tfm_mismatch(str(Path(file_path).parent) or '.'):
+        if _fired(fix_csharp_package_tfm_mismatch, str(Path(file_path).parent) or '.'):
             log("Aligned Microsoft.* package majors with the TFM in %s.", file_path)
 
     if file_path.endswith('.py'):
-        if fix_flask_test_route_decorators(file_path):
+        if _fired(fix_flask_test_route_decorators, file_path):
             log("Fixed %s: stripped @app.route decorators from test file.", file_path)
-        if fix_flask_init_db_import(file_path):
+        if _fired(fix_flask_init_db_import, file_path):
             log("Fixed %s: removed init_db import (not defined in app.py).", file_path)
-        if fix_sqlite_missing_row_factory(file_path):
+        if _fired(fix_sqlite_missing_row_factory, file_path):
             log("Fixed %s: added row_factory = sqlite3.Row after connect.", file_path)
-        if fix_flask_post_missing_201(file_path):
+        if _fired(fix_flask_post_missing_201, file_path):
             log("Fixed %s: added 201 to POST route return.", file_path)
-        if fix_python_method_indent(file_path):
+        if _fired(fix_python_method_indent, file_path):
             log("Fixed %s: re-indented def after class decorator.", file_path)
-        if fix_python_missing_def(file_path):
+        if _fired(fix_python_missing_def, file_path):
             log("Fixed %s: inserted missing def after orphaned decorator.", file_path)
-        if fix_python_decorator_colon(file_path):
+        if _fired(fix_python_decorator_colon, file_path):
             log("Fixed %s: removed spurious colon from decorator.", file_path)
-        if fix_python_missing_project_imports(file_path):
+        if _fired(fix_python_missing_project_imports, file_path):
             log("Fixed %s: added missing project imports.", file_path)
-        if fix_python_missing_stdlib_imports(file_path):
+        if _fired(fix_python_missing_stdlib_imports, file_path):
             log("Fixed %s: added missing stdlib imports.", file_path)
-        if fix_test_import_module(file_path):
+        if _fired(fix_test_import_module, file_path):
             log("Fixed %s: corrected import module name.", file_path)
-        if fix_sqlite_path_unlink(file_path):
+        if _fired(fix_sqlite_path_unlink, file_path):
             log("Fixed %s: wrapped db_path.unlink() with Path().", file_path)
-        if fix_sqlite_test_isolation(file_path):
+        if _fired(fix_sqlite_test_isolation, file_path):
             log("Fixed %s: replaced SQLite file path with :memory:.", file_path)
-        if fix_sqlite_memory_multi_connect(file_path):
+        if _fired(fix_sqlite_memory_multi_connect, file_path):
             log("Fixed %s: consolidated :memory: SQLite connections.", file_path)
         fp = Path(file_path)
         if fp.stem.startswith('test_'):
             for sib in fp.parent.glob('*.py'):
                 if not sib.stem.startswith('test_') and sib.name != fp.name:
-                    if fix_sqlite_test_isolation(str(sib)):
+                    if _fired(fix_sqlite_test_isolation, str(sib)):
                         log("Fixed sibling %s: replaced SQLite file path with :memory:.", str(sib))
-                    if fix_sqlite_memory_multi_connect(str(sib)):
+                    if _fired(fix_sqlite_memory_multi_connect, str(sib)):
                         log("Fixed sibling %s: consolidated :memory: SQLite connections.", str(sib))
 
     ext_lower = Path(file_path).suffix.lower()
@@ -1638,7 +1665,7 @@ def _apply_write_reflexes(file_path: str, test_command: str = '') -> None:
         log("Applied JS/Vue write reflexes to %s.", file_path)
 
     if file_path.endswith('.go') or file_path.endswith('go.mod'):
-        if fix_go_trailing_dot(file_path):
+        if _fired(fix_go_trailing_dot, file_path):
             log("Reflex: removed dangling trailing '.' in %s.", file_path)
         if apply_go_reflexes():
             log("Resolved Go module dependencies (go mod tidy).")
@@ -1654,22 +1681,22 @@ def _apply_write_reflexes(file_path: str, test_command: str = '') -> None:
         log("Applied Rust source reflexes to %s.", file_path)
 
     if file_path.endswith('requirements.txt'):
-        if fix_requirements_path_entries(file_path):
+        if _fired(fix_requirements_path_entries, file_path):
             log("Fixed %s: removed path entries from requirements.", file_path)
-        if fix_requirements_stdlib_entries(file_path):
+        if _fired(fix_requirements_stdlib_entries, file_path):
             log("Fixed %s: removed stdlib entries from requirements.", file_path)
 
     if (is_build_file(file_path) and
             Path(file_path).name.lower() == 'makefile'):
         apply_makefile_reflexes(file_path)
-        fix_makefile_binary_name(file_path, test_command)
+        _fired(fix_makefile_binary_name, file_path, test_command)
         log("Applied Makefile reflexes to %s.", file_path)
 
     if Path(file_path).name.lower() == 'package.json':
         pkg_dir = str(Path(file_path).parent)
-        if fix_package_json_builtin_deps(pkg_dir):
+        if _fired(fix_package_json_builtin_deps, pkg_dir):
             log("Fixed %s: removed Node builtin(s) from dependencies.", file_path)
-        if fix_package_json_bare_jest(pkg_dir):
+        if _fired(fix_package_json_bare_jest, pkg_dir):
             log("Fixed %s: replaced bare jest with npx jest.", file_path)
 
 

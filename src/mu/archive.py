@@ -68,8 +68,14 @@ class AgentSession:
         self.model = model
         self.project_dir = os.getcwd()
         try:  # start a clean firing log for this episode (reflex KB)
-            from mu.reflexes.core import reset_firings
+            from mu.reflexes.core import reset_firings, reset_reflex_diffs
             reset_firings()
+            reset_reflex_diffs()
+        except Exception:
+            pass
+        try:  # start a clean repair trace for this episode
+            from mu.session import reset_repair_trace
+            reset_repair_trace()
         except Exception:
             pass
         try:  # start a clean degeneration-guard refusal count for this episode
@@ -169,6 +175,22 @@ class AgentSession:
             if firings:
                 (Path(self.archive_path) / 'firings.jsonl').write_text(
                     '\n'.join(json.dumps(e) for e in firings) + '\n', encoding='utf-8')
+        except Exception:
+            pass
+        try:  # what the reflex passes actually changed (capped diffs)
+            from mu.reflexes.core import get_reflex_diffs
+            diffs = get_reflex_diffs()
+            if diffs:
+                (Path(self.archive_path) / 'reflex_diffs.jsonl').write_text(
+                    '\n'.join(json.dumps(e) for e in diffs) + '\n', encoding='utf-8')
+        except Exception:
+            pass
+        try:  # per-iteration repair trace (focus → edits → gate outcome)
+            from mu.session import flush_repair_trace
+            trace = flush_repair_trace()
+            if trace:
+                (Path(self.archive_path) / 'repair_trace.jsonl').write_text(
+                    '\n'.join(json.dumps(e) for e in trace) + '\n', encoding='utf-8')
         except Exception:
             pass
         try:

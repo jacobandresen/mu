@@ -16,6 +16,9 @@ __all__ = [
     'fix_tool_call_artifacts',
     'fix_json_unclosed_brackets',
     'fix_literal_newlines',
+    'note_fired',
+    'note_reflex_diff',
+    'noted',
 ]
 
 
@@ -44,6 +47,55 @@ def get_firings() -> list[dict]:
 def note_fired(reflex_id: str, file: str = '', pass_index: int = 0) -> None:
     """Record that a reflex changed a file. Cheap no-op when unused."""
     _FIRINGS.append({'reflex_id': reflex_id, 'file': file, 'pass_index': pass_index})
+
+
+def noted(fn, *args) -> bool:
+    """Call a reflex and record its firing when it changed something.
+
+    The per-language apply_* chains (and agent call sites) invoke reflexes
+    directly, bypassing run_reflexes — without this their firings never
+    reached firings.jsonl and the reflex KB was blind to most actual reflex
+    activity. Never raises: a crashing reflex counts as not-fired so the
+    chain continues.
+    """
+    try:
+        changed = bool(fn(*args))
+    except Exception:
+        return False
+    if changed:
+        note_fired(getattr(fn, '__name__', str(fn)),
+                   str(args[0]) if args else '')
+    return changed
+
+
+# ── reflex diff recorder ──────────────────────────────────────────────────────
+# What a reflex pass actually CHANGED, as a capped unified diff. Firings say
+# who fired; diffs say what they did — a misfiring reflex (e.g. the 2026-06-12
+# duplicate-import re-add) shows up here directly instead of as downstream
+# lint noise. Flushed to reflex_diffs.jsonl at archive time, every session.
+_DIFFS: list[dict] = []
+_DIFF_CAP = 2000  # chars per recorded diff
+
+
+def reset_reflex_diffs() -> None:
+    _DIFFS.clear()
+
+
+def get_reflex_diffs() -> list[dict]:
+    return list(_DIFFS)
+
+
+def note_reflex_diff(context: str, file: str, before: str, after: str) -> None:
+    """Record the net change a reflex pass made to one file (capped diff)."""
+    if before == after:
+        return
+    import difflib
+    diff = ''.join(difflib.unified_diff(
+        before.splitlines(keepends=True), after.splitlines(keepends=True),
+        fromfile=f'a/{file}', tofile=f'b/{file}', n=2))
+    if len(diff) > _DIFF_CAP:
+        diff = diff[:_DIFF_CAP] + f'\n…[diff truncated, {len(diff)} chars total]'
+    _DIFFS.append({'context': context, 'file': file, 'diff': diff})
 
 
 def disabled_reflexes() -> set[str]:

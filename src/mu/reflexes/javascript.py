@@ -8,7 +8,7 @@ import json
 import re
 from pathlib import Path
 
-from mu.reflexes.core import _fix_duplicate_decls, fix_literal_newlines
+from mu.reflexes.core import _fix_duplicate_decls, fix_literal_newlines, noted
 
 
 __all__ = [
@@ -1133,24 +1133,24 @@ def apply_js_write_reflexes(file_path: str) -> None:
     ext = Path(file_path).suffix.lower()
     if ext not in _JS_EXTS and not file_path.lower().endswith('.vue'):
         return
-    fix_jest_fs_mock(file_path)
-    fix_vue_test_utils_import(file_path)
-    fix_vue_attr_quotes(file_path)
-    fix_js_duplicate_require(file_path)
-    fix_js_env_data_file(file_path)
-    fix_js_missing_requires(file_path)
-    fix_js_parent_to_sibling_import(file_path)
-    fix_js_program_parse_guard(file_path)
+    noted(fix_jest_fs_mock, file_path)
+    noted(fix_vue_test_utils_import, file_path)
+    noted(fix_vue_attr_quotes, file_path)
+    noted(fix_js_duplicate_require, file_path)
+    noted(fix_js_env_data_file, file_path)
+    noted(fix_js_missing_requires, file_path)
+    noted(fix_js_parent_to_sibling_import, file_path)
+    noted(fix_js_program_parse_guard, file_path)
 
 
 def apply_js_repair_reflexes(file_path: str, test_output: str = '') -> None:
     """Repair-phase JS/TS chain — preserves the order used in agent.py ~1341."""
     if Path(file_path).suffix.lower() not in _JS_EXTS:
         return
-    fix_js_duplicate_require(file_path)
-    fix_js_duplicate_const(file_path, test_output)
-    fix_js_same_scope_redeclaration(file_path, test_output)
-    fix_js_dot_bracket_access(file_path, test_output)
-    fix_js_env_data_file(file_path)
-    fix_js_missing_requires(file_path)
-    fix_literal_newlines(file_path)
+    noted(fix_js_duplicate_require, file_path)
+    noted(fix_js_duplicate_const, file_path, test_output)
+    noted(fix_js_same_scope_redeclaration, file_path, test_output)
+    noted(fix_js_dot_bracket_access, file_path, test_output)
+    noted(fix_js_env_data_file, file_path)
+    noted(fix_js_missing_requires, file_path)
+    noted(fix_literal_newlines, file_path)

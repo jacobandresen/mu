@@ -6,6 +6,8 @@ logic changes from the original.
 import re
 from pathlib import Path
 
+from mu.reflexes.core import noted
+
 
 __all__ = [
     'fix_csharp_verbatim_string_escape',
@@ -489,13 +491,13 @@ def apply_csharp_write_reflexes(file_path: str) -> None:
     """Write-phase C# chain — preserves the order used in agent.py ~748."""
     if not file_path.endswith('.cs'):
         return
-    fix_csharp_lambda_brace_confusion(file_path)
-    fix_csharp_keyword_prefix_artifacts(file_path)
-    fix_csharp_verbatim_string_escape(file_path)
-    fix_csharp_using_order(file_path)
-    fix_csharp_consecutive_duplicate_signatures(file_path)
-    fix_csharp_missing_braces(file_path)
-    fix_csharp_duplicate_classes(file_path)
+    noted(fix_csharp_lambda_brace_confusion, file_path)
+    noted(fix_csharp_keyword_prefix_artifacts, file_path)
+    noted(fix_csharp_verbatim_string_escape, file_path)
+    noted(fix_csharp_using_order, file_path)
+    noted(fix_csharp_consecutive_duplicate_signatures, file_path)
+    noted(fix_csharp_missing_braces, file_path)
+    noted(fix_csharp_duplicate_classes, file_path)
 
 
 def apply_csharp_repair_reflexes(file_path: str, test_output: str = '') -> bool:
@@ -503,11 +505,11 @@ def apply_csharp_repair_reflexes(file_path: str, test_output: str = '') -> bool:
     if not file_path.endswith('.cs'):
         return False
     changed = any([
-        fix_csharp_lambda_brace_confusion(file_path),
-        fix_csharp_keyword_prefix_artifacts(file_path),
-        fix_csharp_verbatim_string_escape(file_path),
-        fix_csharp_using_order(file_path),
-        fix_csharp_missing_braces(file_path),
-        fix_csharp_missing_using(file_path, test_output) if test_output else False,
+        noted(fix_csharp_lambda_brace_confusion, file_path),
+        noted(fix_csharp_keyword_prefix_artifacts, file_path),
+        noted(fix_csharp_verbatim_string_escape, file_path),
+        noted(fix_csharp_using_order, file_path),
+        noted(fix_csharp_missing_braces, file_path),
+        noted(fix_csharp_missing_using, file_path, test_output) if test_output else False,
     ])
     return changed
