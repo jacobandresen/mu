@@ -189,6 +189,16 @@ def log(msg: str, *args) -> None:
     if args:
         msg = msg % args
     print(f"==> [mu-agent] {msg}", flush=True)
+    # Tee into the session log dir so failures that never reach the test phase
+    # (planner HTTP errors, writer stalls) still leave a distillable record in
+    # the archive — 40 of 45 failures in one collection run archived empty
+    # logs/ and observe could only say "(no test log)".
+    try:
+        os.makedirs(LOG_DIR, exist_ok=True)
+        with open(os.path.join(LOG_DIR, 'agent.log'), 'a') as fh:
+            fh.write(msg + '\n')
+    except OSError:
+        pass
 
 
 def _log_backend(model: str) -> None:

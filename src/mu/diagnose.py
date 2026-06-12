@@ -159,6 +159,14 @@ _RULES: list[_Rule] = [
     _rule(r"npm error code (?P<code>EJSONPARSE|E\w+)",
           lambda m: f"npm error {m['code']}: package.json is malformed — fix JSON syntax"),
 
+    # ── LM Studio / harness (from the .mu/agent.log tee) ──
+    _rule(r"request \((?P<req>\d+) tokens\) exceeds the available context size \((?P<ctx>\d+) tokens\)",
+          lambda m: f"LM Studio: prompt ({m['req']} tokens) exceeds the loaded context ({m['ctx']}) — "
+                    f"model loaded with a smaller window than MU_NUM_CTX; reload it"),
+    _rule(r"Client error '(?P<code>4\d\d)[^']*' for url '[^']*chat/completions",
+          lambda m: f"LM Studio rejected a chat request with HTTP {m['code']} — see the server detail line",
+          weak=True),
+
     # ── make ──
     _rule(r"^(?:.*\bmake.*?:\s*)?\*\*\* (?P<msg>missing separator.*)$",
           lambda m: f"Makefile: {_clip(m['msg'], 80)} — recipe lines must start with a TAB",

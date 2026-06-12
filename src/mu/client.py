@@ -400,13 +400,33 @@ def load_model(model_id: str, _retry: bool = True) -> bool:
             )
             if already:
                 ident = getattr(already, 'identifier', model_id)
-                print(f"Model already loaded: {ident}")
-                # Unload any other models that snuck in alongside it.
-                _unload_others(client, handles, ident)
-                return True
-
-            # Unload all currently loaded models before loading the new one.
-            _unload_others(client, handles, '')
+                # A resident model may have been loaded with a smaller context
+                # window than we need (e.g. LM Studio's JIT default 4096, or a
+                # previous run with a lower MU_NUM_CTX). Trusting it means every
+                # request larger than that window is hard-rejected with HTTP 400
+                # mid-run (observed: 153 rejections in one 3h collection run).
+                # Verify the actual context before skipping the load.
+                actual = None
+                try:
+                    info = already.get_info()
+                    actual = (getattr(info, 'context_length', None)
+                              or getattr(info, 'contextLength', None))
+                except Exception:
+                    pass
+                if actual and actual < _NUM_CTX:
+                    print(f"Model already loaded: {ident} — but its context "
+                          f"{actual} < MU_NUM_CTX {_NUM_CTX}; reloading with "
+                          f"{load_context_size()}.")
+                    _unload_others(client, handles, '')  # incl. the undersized one
+                else:
+                    print(f"Model already loaded: {ident}"
+                          + (f" (context: {actual})" if actual else ''))
+                    # Unload any other models that snuck in alongside it.
+                    _unload_others(client, handles, ident)
+                    return True
+            else:
+                # Unload all currently loaded models before loading the new one.
+                _unload_others(client, handles, '')
 
         bar_len = 30
         progress_received = threading.Event()
@@ -610,7 +630,16 @@ def chat(model: str, messages: list[dict], tools: Optional[list[dict]],
         body['tool_choice'] = tool_choice
     r = httpx.post(f"{LMS_HOST}/v1/chat/completions", json=body,
                    timeout=max(timeout, 10.0))
-    r.raise_for_status()
+    try:
+        r.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        # Surface the server's reason ("request exceeds the available context
+        # size", "model not loaded", …) — the bare status line is undiagnosable
+        # and the body never reaches any log otherwise.
+        detail = (r.text or '').strip().replace('\n', ' ')[:300]
+        raise httpx.HTTPStatusError(
+            f"{e}\n  server detail: {detail}" if detail else str(e),
+            request=e.request, response=e.response) from None
     data = r.json()
     msg = data['choices'][0]['message']
     usage = data.get('usage', {})

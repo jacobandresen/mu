@@ -182,6 +182,10 @@ def _distill_session(session_dir: str) -> str:
     logs = sorted(glob.glob(os.path.join(session_dir, 'logs', 'tests*.log')) +
                   glob.glob(os.path.join(session_dir, 'logs', 'lint*.log')),
                   key=lambda p: os.path.getmtime(p), reverse=True)
+    # Lowest priority: the teed agent event log. Sessions that die before the
+    # test phase (planner HTTP errors, writer stalls) leave no tests*/lint*
+    # logs at all — agent.log is the only distillable record they have.
+    logs += sorted(glob.glob(os.path.join(session_dir, 'logs', 'agent*.log')))
     if not logs:
         return '(no test log)'
     blank_seen = False

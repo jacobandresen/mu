@@ -81,6 +81,13 @@ class AgentSession:
         self.archive_path = os.path.join(archive_dir, self.id)
         self.max_iter = max_iter
         self.log_dir = log_dir
+        # Truncate the teed agent event log so the archive holds only this
+        # session's events — work dirs are reused across runs outside the dojo.
+        try:
+            os.makedirs(log_dir, exist_ok=True)
+            open(os.path.join(log_dir, 'agent.log'), 'w').close()
+        except OSError:
+            pass
         self.repair_iters = 0  # accumulated by caller across all test-gate repair loops
         os.makedirs(self.archive_path, exist_ok=True)
         try:
