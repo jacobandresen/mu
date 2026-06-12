@@ -107,6 +107,57 @@ def flush_token_log() -> list[dict]:
     return out
 
 
+# ---------------------------------------------------------------------------
+# Per-session chat transcript
+# ---------------------------------------------------------------------------
+# One entry per chat() call: what the model was asked and what it replied,
+# truncated. The token log answers "how much"; this answers "what" — without
+# it a failed session's archive can show a bad file on disk but not the
+# response that produced it. Flushed by AgentSession.finalize.
+
+_transcript: list[dict] = []
+_TRANSCRIPT_TRUNC = 4000  # chars per captured field
+
+
+def _trunc(s: Optional[str], limit: int = _TRANSCRIPT_TRUNC) -> str:
+    s = s or ''
+    if len(s) <= limit:
+        return s
+    return s[:limit] + f'…[truncated, {len(s)} chars total]'
+
+
+def _record_transcript(messages: list[dict], msg: Optional[dict],
+                       error: str = '') -> None:
+    entry: dict = {
+        'phase': _chat_phase,
+        'task_file': _chat_task,
+        'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+        # The last message is the live instruction (the rest is mostly stable
+        # system/header content already visible in earlier entries).
+        'last_message': _trunc(str((messages or [{}])[-1].get('content', ''))),
+        'n_messages': len(messages or []),
+    }
+    if error:
+        entry['error'] = _trunc(error, 600)
+    if msg is not None:
+        entry['response'] = _trunc(str(msg.get('content') or ''))
+        calls = []
+        for tc in msg.get('tool_calls') or []:
+            fn = tc.get('function', {})
+            calls.append({'name': fn.get('name', ''),
+                          'arguments': _trunc(str(fn.get('arguments', '')))})
+        if calls:
+            entry['tool_calls'] = calls
+    _transcript.append(entry)
+
+
+def flush_transcript() -> list[dict]:
+    """Return and clear the accumulated chat transcript for this session."""
+    global _transcript
+    out, _transcript = _transcript, []
+    return out
+
+
 def is_running() -> bool:
     try:
         import httpx
@@ -642,9 +693,10 @@ def chat(model: str, messages: list[dict], tools: Optional[list[dict]],
         # size", "model not loaded", …) — the bare status line is undiagnosable
         # and the body never reaches any log otherwise.
         detail = (r.text or '').strip().replace('\n', ' ')[:300]
+        err_text = f"{e}\n  server detail: {detail}" if detail else str(e)
+        _record_transcript(messages, None, error=err_text)
         raise httpx.HTTPStatusError(
-            f"{e}\n  server detail: {detail}" if detail else str(e),
-            request=e.request, response=e.response) from None
+            err_text, request=e.request, response=e.response) from None
     data = r.json()
     msg = data['choices'][0]['message']
     usage = data.get('usage', {})
@@ -656,6 +708,7 @@ def chat(model: str, messages: list[dict], tools: Optional[list[dict]],
         'generated_tokens': stats.generated_tokens,
         'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
     })
+    _record_transcript(messages, msg)
     tool_calls = []
     for tc in msg.get('tool_calls') or []:
         fn = tc.get('function', {})

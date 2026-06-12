@@ -23,6 +23,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import traceback
 from pathlib import Path
 from typing import Optional
 
@@ -575,10 +576,12 @@ def run(goal: str, model: str = '', target_dir: str = '',
             err = _validate_existing_plan(plan_file)
             if err:
                 print(f"mu-agent: {err}", file=sys.stderr)
+                sess.fail_reason = f'existing plan invalid: {err}'
                 exit_code = 1
                 return exit_code
         else:
             if not _run_planning_phase(goal, model, planner_timeout, complexity, plan_file):
+                sess.fail_reason = 'planner produced no usable plan'
                 exit_code = 1
                 return exit_code
 
@@ -727,6 +730,7 @@ def run(goal: str, model: str = '', target_dir: str = '',
                                 log("Relocated (post-retry) %s → %s.", misplaced2, task.file_path)
                         if not Path(task.file_path).exists():
                             log("Iteration %d: %s not written after retry.", i, task.file_path)
+                            sess.fail_reason = f'writer produced no file for {task.file_path} after retry'
                             exit_code = 3
                             return exit_code
 
@@ -871,6 +875,7 @@ def run(goal: str, model: str = '', target_dir: str = '',
                                 log("Lint still failing after repair for %s.", task.file_path)
                                 record_failed_repair(f"lint repair for {task.file_path}",
                                                      _head_file(lint_log, 5), plan_file)
+                                sess.fail_reason = f'lint still failing after repair for {task.file_path}'
                                 exit_code = 3
                                 return exit_code
                             log("Lint passed after repair: %s", task.file_path)
@@ -903,6 +908,7 @@ def run(goal: str, model: str = '', target_dir: str = '',
                         log("Tests still failing after repair for %s.", task.file_path)
                         record_failed_repair(f"test repair after writing {task.file_path}",
                                              _tail_file(test_log, 5), plan_file)
+                        sess.fail_reason = f'tests still failing after repair for {task.file_path}'
                         exit_code = 3
                         return exit_code
 
@@ -931,6 +937,7 @@ def run(goal: str, model: str = '', target_dir: str = '',
                         return run_staged(goal, model, max_iter=max_iter)
                     log("Architect produced %d stage(s) — cannot escalate further.",
                         len(stages))
+                sess.fail_reason = f'final test gate failed: {err}'
                 exit_code = 3
                 return exit_code
             log("Goal complete.")
@@ -940,8 +947,20 @@ def run(goal: str, model: str = '', target_dir: str = '',
 
         print(f"mu-agent: warning: reached max iterations ({max_iter}) with tasks remaining",
               file=sys.stderr)
+        sess.fail_reason = f'reached max iterations ({max_iter}) with tasks remaining'
         exit_code = 2
         return exit_code
+    except (SystemExit, KeyboardInterrupt):
+        raise
+    except Exception:
+        # Without this, an uncaught exception reaches the finally with
+        # exit_code still 0 and the crashed session is archived as 'success',
+        # with the traceback lost to stderr.
+        tb = traceback.format_exc()
+        log("FATAL: uncaught exception — session failed.\n%s", tb)
+        sess.fail_reason = sess.fail_reason or f'uncaught exception: {tb.strip().splitlines()[-1]}'
+        exit_code = 1
+        raise
     finally:
         sess.finalize(exit_code, current_plan, plan_file)
 

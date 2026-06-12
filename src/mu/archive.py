@@ -89,6 +89,11 @@ class AgentSession:
         except OSError:
             pass
         self.repair_iters = 0  # accumulated by caller across all test-gate repair loops
+        # One-line machine-readable cause, set by the caller at the failure
+        # exit point (e.g. "tests failing after repair for app.py"). Persisted
+        # in meta.json so failure scans don't have to parse logs for the cause.
+        self.fail_reason = ''
+        self._finalized = False
         os.makedirs(self.archive_path, exist_ok=True)
         try:
             Path(os.path.join(self.archive_path, 'meta.json')).write_text(
@@ -100,6 +105,13 @@ class AgentSession:
 
     def finalize(self, exit_code: int, p: Optional[Plan],
                  plan_file: str = 'PLAN.md') -> None:
+        # Idempotent: the signal handler finalizes with 130 and then unwinds
+        # through run()'s finally, which would finalize again with the stale
+        # local exit_code (often 0) and overwrite the interrupted session's
+        # meta as 'success'. First write wins.
+        if self._finalized:
+            return
+        self._finalized = True
         os.makedirs(os.path.join(self.archive_path, 'logs'), exist_ok=True)
         if os.path.isdir(self.log_dir):
             _copy_dir(self.log_dir, os.path.join(self.archive_path, 'logs'))
@@ -134,6 +146,7 @@ class AgentSession:
         meta = {
             'session_id': self.id, 'goal': self.goal,
             'model': self.model,
+            'fail_reason': self.fail_reason,
             'project_dir': self.project_dir,
             'start_time': self.start_time.isoformat(),
             'end_time': end_time.isoformat(),
@@ -192,6 +205,83 @@ class AgentSession:
                     _render_token_usage_md(meta), encoding='utf-8')
         except Exception as e:
             print(f"==> [mu-agent] Warning: token log save failed: {e}", flush=True)
+        # Failures get the full forensic record: what the model was asked and
+        # replied (transcript) and what it actually left on disk (workspace).
+        # Successes don't need it, and the per-session cost would add up.
+        if outcome != 'success':
+            try:
+                from mu.client import flush_transcript
+                entries = flush_transcript()
+                if entries:
+                    (Path(self.archive_path) / 'transcript.jsonl').write_text(
+                        '\n'.join(json.dumps(e) for e in entries) + '\n',
+                        encoding='utf-8')
+            except Exception as e:
+                print(f"==> [mu-agent] Warning: transcript save failed: {e}", flush=True)
+            try:
+                _snapshot_workspace(self.project_dir,
+                                    os.path.join(self.archive_path, 'workspace'))
+            except Exception as e:
+                print(f"==> [mu-agent] Warning: workspace snapshot failed: {e}", flush=True)
+        else:
+            try:  # clear the buffer so the next session starts clean
+                from mu.client import flush_transcript
+                flush_transcript()
+            except Exception:
+                pass
+
+
+# Workspace snapshot limits: enough for any realistic dojo problem source
+# tree, small enough that a runaway artifact dir can't bloat the archive.
+_SNAP_FILE_CAP = 65536       # bytes kept per file (head)
+_SNAP_TOTAL_CAP = 2_000_000  # bytes across the whole snapshot
+_SNAP_SKIP_DIRS = {'.git', 'node_modules', '__pycache__', '.venv', 'venv',
+                   'target', 'bin', 'obj', 'dist', 'build', '.mu',
+                   'coverage', '.pytest_cache'}
+
+
+def _snapshot_workspace(project_dir: str, dst: str) -> None:
+    """Copy the (capped) source tree of a failed session into the archive.
+
+    A failed archive without the workspace can show *that* a test failed but
+    not the code that failed it. TREE.txt lists everything seen, including
+    files skipped by the caps, so the listing is complete even when the
+    contents aren't.
+    """
+    tree_lines: list[str] = []
+    used = 0
+    for root, dirs, files in os.walk(project_dir):
+        dirs[:] = sorted(d for d in dirs if d not in _SNAP_SKIP_DIRS)
+        for name in sorted(files):
+            sp = os.path.join(root, name)
+            rel = os.path.relpath(sp, project_dir)
+            try:
+                size = os.path.getsize(sp)
+            except OSError:
+                continue
+            note = ''
+            try:
+                with open(sp, 'rb') as fh:
+                    head = fh.read(_SNAP_FILE_CAP)
+                if b'\x00' in head[:1024]:
+                    note = 'binary, skipped'
+                elif used + len(head) > _SNAP_TOTAL_CAP:
+                    note = 'total cap reached, skipped'
+                else:
+                    dp = os.path.join(dst, rel)
+                    os.makedirs(os.path.dirname(dp), exist_ok=True)
+                    with open(dp, 'wb') as out:
+                        out.write(head)
+                    used += len(head)
+                    if size > _SNAP_FILE_CAP:
+                        note = f'truncated to {_SNAP_FILE_CAP}'
+            except OSError:
+                note = 'unreadable, skipped'
+            tree_lines.append(f'{size:>9}  {rel}' + (f'  [{note}]' if note else ''))
+    if tree_lines:
+        os.makedirs(dst, exist_ok=True)
+        Path(os.path.join(dst, 'TREE.txt')).write_text(
+            '\n'.join(tree_lines) + '\n', encoding='utf-8')
 
 
 def _render_token_usage_md(meta: dict) -> str:
