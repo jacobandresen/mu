@@ -48,3 +48,6 @@ Recurring failures observed in dojo runs. Updated as new patterns emerge and exi
 22. **Test state leaks across runs**
   - Tests sharing mutable storage accumulate state between invocations; require setup/teardown that isolates state per test.
 
+23. **Missing dependencies**
+  - Ensure all required packages are installed before running tests. Use `npm install` to add missing modules like 'vitest'.
+
