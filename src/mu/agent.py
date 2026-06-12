@@ -52,6 +52,7 @@ from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
                          apply_js_write_reflexes, apply_js_repair_reflexes,
                          apply_rust_source_reflexes,
                          fix_csharp_missing_using,
+                         fix_csharp_package_tfm_mismatch,
                          fix_csharp_xunit_packages,
                          fix_jest_config_js,
                          fix_jest_esm,
@@ -749,93 +750,7 @@ def run(goal: str, model: str = '', target_dir: str = '',
             except OSError:
                 pass
 
-            if fix_tool_call_artifacts(task.file_path):
-                log("Fixed %s: stripped tool-call artifact lines.", task.file_path)
-            if fix_json_unclosed_brackets(task.file_path):
-                log("Fixed %s: closed unclosed JSON brackets.", task.file_path)
-            if fix_literal_newlines(task.file_path):
-                log("Fixed %s: replaced literal \\n with real newlines.", task.file_path)
-
-            if task.file_path.endswith('.cs'):
-                apply_csharp_write_reflexes(task.file_path)
-                log("Applied C# write reflexes to %s.", task.file_path)
-
-            if task.file_path.endswith('.py'):
-                if fix_flask_test_route_decorators(task.file_path):
-                    log("Fixed %s: stripped @app.route decorators from test file.", task.file_path)
-                if fix_flask_init_db_import(task.file_path):
-                    log("Fixed %s: removed init_db import (not defined in app.py).", task.file_path)
-                if fix_sqlite_missing_row_factory(task.file_path):
-                    log("Fixed %s: added row_factory = sqlite3.Row after connect.", task.file_path)
-                if fix_flask_post_missing_201(task.file_path):
-                    log("Fixed %s: added 201 to POST route return.", task.file_path)
-                if fix_python_method_indent(task.file_path):
-                    log("Fixed %s: re-indented def after class decorator.", task.file_path)
-                if fix_python_missing_def(task.file_path):
-                    log("Fixed %s: inserted missing def after orphaned decorator.", task.file_path)
-                if fix_python_decorator_colon(task.file_path):
-                    log("Fixed %s: removed spurious colon from decorator.", task.file_path)
-                if fix_python_missing_project_imports(task.file_path):
-                    log("Fixed %s: added missing project imports.", task.file_path)
-                if fix_python_missing_stdlib_imports(task.file_path):
-                    log("Fixed %s: added missing stdlib imports.", task.file_path)
-                if fix_test_import_module(task.file_path):
-                    log("Fixed %s: corrected import module name.", task.file_path)
-                if fix_sqlite_path_unlink(task.file_path):
-                    log("Fixed %s: wrapped db_path.unlink() with Path().", task.file_path)
-                if fix_sqlite_test_isolation(task.file_path):
-                    log("Fixed %s: replaced SQLite file path with :memory:.", task.file_path)
-                if fix_sqlite_memory_multi_connect(task.file_path):
-                    log("Fixed %s: consolidated :memory: SQLite connections.", task.file_path)
-                fp = Path(task.file_path)
-                if fp.stem.startswith('test_'):
-                    for sib in fp.parent.glob('*.py'):
-                        if not sib.stem.startswith('test_') and sib.name != fp.name:
-                            if fix_sqlite_test_isolation(str(sib)):
-                                log("Fixed sibling %s: replaced SQLite file path with :memory:.", str(sib))
-                            if fix_sqlite_memory_multi_connect(str(sib)):
-                                log("Fixed sibling %s: consolidated :memory: SQLite connections.", str(sib))
-
-            ext_lower = Path(task.file_path).suffix.lower()
-            if ext_lower in ('.ts', '.tsx', '.js', '.jsx', '.mjs', '.vue') \
-                    or task.file_path.lower().endswith('.vue'):
-                apply_js_write_reflexes(task.file_path)
-                log("Applied JS/Vue write reflexes to %s.", task.file_path)
-
-            if task.file_path.endswith('.go') or task.file_path.endswith('go.mod'):
-                if fix_go_trailing_dot(task.file_path):
-                    log("Reflex: removed dangling trailing '.' in %s.", task.file_path)
-                if apply_go_reflexes():
-                    log("Resolved Go module dependencies (go mod tidy).")
-
-            if task.file_path.lower() == 'cargo.toml':
-                # Chain the Cargo.toml reflexes to a fixpoint: regenerate corrupted
-                # structure, then strip hallucinated bad-version dependencies.
-                run_reflexes([fix_rust_cargo_toml, fix_rust_cargo_bad_dependency],
-                             task.file_path)
-
-            if task.file_path.endswith('.rs'):
-                apply_rust_source_reflexes(task.file_path)
-                log("Applied Rust source reflexes to %s.", task.file_path)
-
-            if task.file_path.endswith('requirements.txt'):
-                if fix_requirements_path_entries(task.file_path):
-                    log("Fixed %s: removed path entries from requirements.", task.file_path)
-                if fix_requirements_stdlib_entries(task.file_path):
-                    log("Fixed %s: removed stdlib entries from requirements.", task.file_path)
-
-            if (is_build_file(task.file_path) and
-                    Path(task.file_path).name.lower() == 'makefile'):
-                apply_makefile_reflexes(task.file_path)
-                fix_makefile_binary_name(task.file_path, p.test_command or '')
-                log("Applied Makefile reflexes to %s.", task.file_path)
-
-            if Path(task.file_path).name.lower() == 'package.json':
-                pkg_dir = str(Path(task.file_path).parent)
-                if fix_package_json_builtin_deps(pkg_dir):
-                    log("Fixed %s: removed Node builtin(s) from dependencies.", task.file_path)
-                if fix_package_json_bare_jest(pkg_dir):
-                    log("Fixed %s: replaced bare jest with npx jest.", task.file_path)
+            _apply_write_reflexes(task.file_path, p.test_command or '')
 
             lint_cmd = _lint_command(task.file_path, p)
             if lint_cmd:
@@ -1301,6 +1216,10 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
         return _run_cmd(test_cmd, test_log), _extract_test_failures(test_log)
 
     def reapply() -> None:
+        # First, run the full write-reflex pass on whatever the previous
+        # repair turn modified — repair edits get the same deterministic
+        # fixes as initial writes (missing imports, artifacts, …).
+        _reflex_modified_files()
         # Remove stale .cs files that are NOT in this stage's plan.
         # The root .csproj picks up ALL .cs files recursively, so orphaned copies
         # from previous stages or the repair model cause CS0101/CS0260/CS0234.
@@ -1388,6 +1307,8 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
         apply_go_reflexes()  # resolve Go module deps before each build attempt
         if fix_csharp_xunit_packages(os.getcwd()):
             log("Repair reapply: added xunit packages to .csproj.")
+        if fix_csharp_package_tfm_mismatch(os.getcwd()):
+            log("Repair reapply: aligned Microsoft.* package majors with the TFM.")
         # If any package.json exists but its node_modules is absent, run npm install.
         # The repair loop may rewrite package.json but never re-runs install.
         for t in p.tasks:
@@ -1628,6 +1549,121 @@ def _repair_context(p: Plan, test_output: str = '') -> str:
     return '## Current project files (read these before editing)\n' + '\n'.join(blocks) + '\n\n'
 
 
+def _apply_write_reflexes(file_path: str, test_command: str = '') -> None:
+    """Run the per-language deterministic fix pass over one just-written file.
+
+    Applied after every file modification the model makes — the initial
+    writer AND each repair-loop edit. Repair edits used to skip this pass,
+    so a repair that introduced e.g. `Flask(__name__)` without the import
+    shipped broken even though the import reflex existed (2 stalled p7
+    sessions, 2026-06-12 run 3).
+    """
+    if fix_tool_call_artifacts(file_path):
+        log("Fixed %s: stripped tool-call artifact lines.", file_path)
+    if fix_json_unclosed_brackets(file_path):
+        log("Fixed %s: closed unclosed JSON brackets.", file_path)
+    if fix_literal_newlines(file_path):
+        log("Fixed %s: replaced literal \\n with real newlines.", file_path)
+
+    if file_path.endswith('.cs'):
+        apply_csharp_write_reflexes(file_path)
+        log("Applied C# write reflexes to %s.", file_path)
+
+    if file_path.endswith('.csproj'):
+        if fix_csharp_package_tfm_mismatch(str(Path(file_path).parent) or '.'):
+            log("Aligned Microsoft.* package majors with the TFM in %s.", file_path)
+
+    if file_path.endswith('.py'):
+        if fix_flask_test_route_decorators(file_path):
+            log("Fixed %s: stripped @app.route decorators from test file.", file_path)
+        if fix_flask_init_db_import(file_path):
+            log("Fixed %s: removed init_db import (not defined in app.py).", file_path)
+        if fix_sqlite_missing_row_factory(file_path):
+            log("Fixed %s: added row_factory = sqlite3.Row after connect.", file_path)
+        if fix_flask_post_missing_201(file_path):
+            log("Fixed %s: added 201 to POST route return.", file_path)
+        if fix_python_method_indent(file_path):
+            log("Fixed %s: re-indented def after class decorator.", file_path)
+        if fix_python_missing_def(file_path):
+            log("Fixed %s: inserted missing def after orphaned decorator.", file_path)
+        if fix_python_decorator_colon(file_path):
+            log("Fixed %s: removed spurious colon from decorator.", file_path)
+        if fix_python_missing_project_imports(file_path):
+            log("Fixed %s: added missing project imports.", file_path)
+        if fix_python_missing_stdlib_imports(file_path):
+            log("Fixed %s: added missing stdlib imports.", file_path)
+        if fix_test_import_module(file_path):
+            log("Fixed %s: corrected import module name.", file_path)
+        if fix_sqlite_path_unlink(file_path):
+            log("Fixed %s: wrapped db_path.unlink() with Path().", file_path)
+        if fix_sqlite_test_isolation(file_path):
+            log("Fixed %s: replaced SQLite file path with :memory:.", file_path)
+        if fix_sqlite_memory_multi_connect(file_path):
+            log("Fixed %s: consolidated :memory: SQLite connections.", file_path)
+        fp = Path(file_path)
+        if fp.stem.startswith('test_'):
+            for sib in fp.parent.glob('*.py'):
+                if not sib.stem.startswith('test_') and sib.name != fp.name:
+                    if fix_sqlite_test_isolation(str(sib)):
+                        log("Fixed sibling %s: replaced SQLite file path with :memory:.", str(sib))
+                    if fix_sqlite_memory_multi_connect(str(sib)):
+                        log("Fixed sibling %s: consolidated :memory: SQLite connections.", str(sib))
+
+    ext_lower = Path(file_path).suffix.lower()
+    if ext_lower in ('.ts', '.tsx', '.js', '.jsx', '.mjs', '.vue') \
+            or file_path.lower().endswith('.vue'):
+        apply_js_write_reflexes(file_path)
+        log("Applied JS/Vue write reflexes to %s.", file_path)
+
+    if file_path.endswith('.go') or file_path.endswith('go.mod'):
+        if fix_go_trailing_dot(file_path):
+            log("Reflex: removed dangling trailing '.' in %s.", file_path)
+        if apply_go_reflexes():
+            log("Resolved Go module dependencies (go mod tidy).")
+
+    if file_path.lower() == 'cargo.toml':
+        # Chain the Cargo.toml reflexes to a fixpoint: regenerate corrupted
+        # structure, then strip hallucinated bad-version dependencies.
+        run_reflexes([fix_rust_cargo_toml, fix_rust_cargo_bad_dependency],
+                     file_path)
+
+    if file_path.endswith('.rs'):
+        apply_rust_source_reflexes(file_path)
+        log("Applied Rust source reflexes to %s.", file_path)
+
+    if file_path.endswith('requirements.txt'):
+        if fix_requirements_path_entries(file_path):
+            log("Fixed %s: removed path entries from requirements.", file_path)
+        if fix_requirements_stdlib_entries(file_path):
+            log("Fixed %s: removed stdlib entries from requirements.", file_path)
+
+    if (is_build_file(file_path) and
+            Path(file_path).name.lower() == 'makefile'):
+        apply_makefile_reflexes(file_path)
+        fix_makefile_binary_name(file_path, test_command)
+        log("Applied Makefile reflexes to %s.", file_path)
+
+    if Path(file_path).name.lower() == 'package.json':
+        pkg_dir = str(Path(file_path).parent)
+        if fix_package_json_builtin_deps(pkg_dir):
+            log("Fixed %s: removed Node builtin(s) from dependencies.", file_path)
+        if fix_package_json_bare_jest(pkg_dir):
+            log("Fixed %s: replaced bare jest with npx jest.", file_path)
+
+
+def _reflex_modified_files() -> None:
+    """Apply the write-reflex pass to whatever the model just modified.
+
+    Wired into repair loops as (part of) the per-iteration ``reapply`` hook;
+    pulls the paths from tools.flush_modified() so it sees exactly the files
+    the last repair turn touched, relative to the project dir.
+    """
+    for f in tools.flush_modified():
+        rel = os.path.relpath(f) if os.path.isabs(f) else f
+        if Path(rel).exists():
+            _apply_write_reflexes(rel)
+
+
 def _run_repair_lint(model: str, lint_cmd: str, file_path: str, lint_log: str, lint_head: str,
                      writer_timeout: int, goal: str,
                      plan_file: str = 'PLAN.md') -> None:
@@ -1679,6 +1715,9 @@ def _run_repair_lint(model: str, lint_cmd: str, file_path: str, lint_log: str, l
         return _run_cmd(lint_cmd, lint_log), _head_file(lint_log, 60)
 
     def lint_reapply() -> None:
+        # Run the write-reflex pass on files the previous repair turn modified
+        # — repair edits get the same deterministic fixes as initial writes.
+        _reflex_modified_files()
         # Always regenerate Cargo.toml to the minimal grounded version before
         # each lint attempt. The repair model tends to add external crate deps
         # (e.g., `fibonacci = "0.1.1"`) that fail to compile. The fix_rust_cargo_toml

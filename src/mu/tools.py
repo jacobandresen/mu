@@ -158,6 +158,24 @@ def _is_generated_path(path: str) -> bool:
                for d in _GENERATED_DIRS)
 
 
+# Paths modified by the model through Write/Edit since the last flush. The
+# repair loop's reapply hook reads this to run the write-reflex pass on
+# exactly the files the last repair turn touched.
+_modified: list[str] = []
+
+
+def _note_modified(path: str) -> None:
+    if path not in _modified:
+        _modified.append(path)
+
+
+def flush_modified() -> list[str]:
+    """Return and clear the list of model-modified file paths."""
+    global _modified
+    out, _modified = _modified, []
+    return out
+
+
 def _write(path: str, content: str) -> str:
     if _is_generated_path(path):
         return f"refused: {path} is inside a generated directory — do not modify package manager files"
@@ -172,6 +190,7 @@ def _write(path: str, content: str) -> str:
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content)
+        _note_modified(path)
         return f"wrote {path} ({len(content)} bytes)"
     except Exception as e:
         return f"error writing file: {e}"
@@ -193,6 +212,7 @@ def _edit(path: str, old_str: str, new_str: str) -> str:
         return f"old_string not found in {path}"
     try:
         Path(path).write_text(data.replace(old_str, new_str, 1))
+        _note_modified(path)
         return f"edited {path}"
     except Exception as e:
         return f"error writing file: {e}"
