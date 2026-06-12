@@ -37,3 +37,6 @@ Recurring failures observed in dojo runs. Updated as new patterns emerge and exi
 18. **Mocking issues in Jest**
   - Mock functions must be defined before they are used in test cases; ensure mocks are declared and initialized properly.
 
+19. **Namespace pollution**
+  - Multiple definitions of the same type in different files can lead to compilation errors; ensure each type is defined only once per namespace.
+
