@@ -16,6 +16,7 @@ best-effort: a single failure must never abort a long multi-round run.
 
 import contextlib
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -147,6 +148,15 @@ def _pass_rate_summary(all_sessions: list[SessionMeta]) -> str:
 # --------------------------------------------------------------------------- #
 # Main loop
 # --------------------------------------------------------------------------- #
+def _signal_group(proc: subprocess.Popen, sig: int) -> None:
+    """Signal the round's whole process group; fall back to the child alone."""
+    try:
+        os.killpg(os.getpgid(proc.pid), sig)
+    except (ProcessLookupError, PermissionError, OSError):
+        with contextlib.suppress(OSError):
+            proc.send_signal(sig)
+
+
 def run() -> int:
     augment_path()
     os.environ['MU_ENRICH_LESSONS'] = '1'
@@ -175,21 +185,25 @@ def run() -> int:
 
         marker = sessions.now()
         with _best_effort('round'):
-            # SIGTERM first so an in-flight mu session can finalize its
-            # archive (outcome 'interrupted') instead of being SIGKILLed
-            # into an unfinalized exit_code=-1 tombstone — one censored
-            # session per timed-out round in the 2026-06-12 runs 3 and 4.
-            proc = subprocess.Popen([sys.executable, '-m', 'mu.dojo', 'run'])
+            # The round runs in its own process group: the agent is a
+            # *grand*child (run → mu agent), so signalling only the direct
+            # child orphans the agent — run 5 left a `mu agent` grinding on
+            # p10 for 10+ minutes after the collection window closed,
+            # leaving 4 unfinalized sessions. SIGTERM the whole group first
+            # so the in-flight mu session can finalize its archive (outcome
+            # 'interrupted'); SIGKILL the group only if it doesn't exit.
+            proc = subprocess.Popen([sys.executable, '-m', 'mu.dojo', 'run'],
+                                    start_new_session=True)
             try:
                 proc.wait(timeout=round_timeout)
             except subprocess.TimeoutExpired:
-                proc.terminate()
+                _signal_group(proc, signal.SIGTERM)
                 try:
                     proc.wait(timeout=30)
                     print(f"round {round_num}: exceeded {round_timeout}s — terminated",
                           file=sys.stderr)
                 except subprocess.TimeoutExpired:
-                    proc.kill()
+                    _signal_group(proc, signal.SIGKILL)
                     proc.wait()
                     print(f"round {round_num}: exceeded {round_timeout}s — killed",
                           file=sys.stderr)
