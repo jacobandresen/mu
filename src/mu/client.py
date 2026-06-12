@@ -521,10 +521,23 @@ def load_model(model_id: str, _retry: bool = True) -> bool:
         # default: the KV cache for the extra window can push a small-RAM
         # host into swap (see load_context_size).
         load_ctx = load_context_size()
+        config: dict = {"contextLength": load_ctx}
+        # Throughput knobs (opt-in via env): flash attention speeds up
+        # attention and reduces compute-buffer memory; q8_0 KV cache halves
+        # the KV footprint — both matter on a RAM-starved host where the
+        # model barely fits the GPU working set. KV quantization requires
+        # flash attention, so MU_LOAD_KV_QUANT implies it.
+        if os.environ.get("MU_LOAD_FLASH_ATTN") == "1":
+            config["flashAttention"] = True
+        kvq = os.environ.get("MU_LOAD_KV_QUANT", "")
+        if kvq:
+            config["flashAttention"] = True
+            config["llamaKCacheQuantizationType"] = kvq
+            config["llamaVCacheQuantizationType"] = kvq
         try:
             handle = _lms_client().llm.load_new_instance(
                 model_id, ttl=None, on_load_progress=_on_progress,
-                config={"contextLength": load_ctx},
+                config=config,
             )
         except TypeError:
             # Older SDK without a `config` kwarg — fall back to a plain load.
