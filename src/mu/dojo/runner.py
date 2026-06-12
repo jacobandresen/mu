@@ -21,6 +21,7 @@ import random
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from .. import fixtures
@@ -117,7 +118,16 @@ def run(problem_id: str = '') -> int:
     print("Warming up the model…")
     subprocess.run(mu_cmd() + ['model', 'warm'])
 
-    for pid in order:
+    # Thermal duty cycle: a problem is ~5 minutes of sustained inference, so
+    # idling MU_DOJO_COOLDOWN seconds between problems approximates an
+    # on/off cycle and keeps the machine's temperature down on long
+    # collection runs. 0 (default) disables.
+    cooldown = int(os.environ.get('MU_DOJO_COOLDOWN', '0') or 0)
+    for i, pid in enumerate(order):
+        if cooldown and i > 0:
+            print(f"Cooldown: idling {cooldown}s before the next problem "
+                  f"(MU_DOJO_COOLDOWN).", flush=True)
+            time.sleep(cooldown)
         run_problem(pid, by_id[pid])
 
     _cleanup()                   # runs in both modes, like sit.sh
