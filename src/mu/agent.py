@@ -562,6 +562,11 @@ def run(goal: str, model: str = '', target_dir: str = '',
     current_plan: Optional[Plan] = None
     exit_code = 0
     _architect_escalated = False  # cap: at most one architect escalation per session
+    # Stage runs must not escalate again: run_staged calls run() per stage and
+    # each new run() gets a fresh per-session escalation budget, so a stuck
+    # stage re-architected recursively — one p10 attempt fanned out into 10
+    # sessions and ate a whole practice round (2026-06-12 run 6).
+    may_escalate = _stage_depth == 0
 
     def _on_signal(sig, frame):
         print("\nInterrupted.", file=sys.stderr)
@@ -804,7 +809,7 @@ def run(goal: str, model: str = '', target_dir: str = '',
                                                       plan_file)
                     sess.repair_iters += max(iters, 0)
                     if not ok:
-                        if iters == REPAIR_ESCALATE and not _architect_escalated:
+                        if iters == REPAIR_ESCALATE and not _architect_escalated and may_escalate:
                             _architect_escalated = True
                             log("Repair stuck — escalating to architect mode.")
                             print("==> [mu-agent] Repair loop stalled. Escalating to architect.",
@@ -836,7 +841,7 @@ def run(goal: str, model: str = '', target_dir: str = '',
                                           plan_file)
             sess.repair_iters += max(iters, 0)
             if err:
-                if iters == REPAIR_ESCALATE and not _architect_escalated:
+                if iters == REPAIR_ESCALATE and not _architect_escalated and may_escalate:
                     _architect_escalated = True
                     log("Final gate stuck — escalating to architect mode.")
                     print("==> [mu-agent] Final gate stalled. Escalating to architect.",
@@ -860,6 +865,11 @@ def run(goal: str, model: str = '', target_dir: str = '',
         exit_code = 2
         return exit_code
     except (SystemExit, KeyboardInterrupt):
+        # A signal unwinding through nested run() frames (run_staged stages,
+        # architect escalation) must not let the finally record the stale
+        # exit_code=0: run 6 archived 9 phantom p10 'success' sessions whose
+        # end times all cluster at the SIGTERM instant.
+        exit_code = 130
         raise
     except Exception:
         # Without this, an uncaught exception reaches the finally with
@@ -2024,9 +2034,15 @@ def _run_architect_pass(goal: str, model: str, timeout: int) -> list[str]:
     return produced
 
 
+# >0 while executing inside run_staged stages; gates architect escalation
+# (see run(): may_escalate) so staged runs cannot re-architect recursively.
+_stage_depth = 0
+
+
 def run_staged(goal: str, model: str = '', target_dir: str = '',
                max_iter: int = 10) -> int:
     """Execute staged plan files sequentially with a hard backend→frontend gate."""
+    global _stage_depth
     if not model:
         model = os.environ.get('MU_AGENT_MODEL', '') or _select_model()
         if not model:
@@ -2046,7 +2062,11 @@ def run_staged(goal: str, model: str = '', target_dir: str = '',
         print(f"\n{'='*60}\n  Stage {i+1}/{len(active)}: {stage_name}\n{'='*60}\n",
               flush=True)
 
-        rc = run(goal, model, plan_file=plan_file, force=True, max_iter=max_iter)
+        _stage_depth += 1
+        try:
+            rc = run(goal, model, plan_file=plan_file, force=True, max_iter=max_iter)
+        finally:
+            _stage_depth -= 1
         if rc != 0:
             log("Stage '%s' failed (rc=%d) — halting staged execution.", stage_name, rc)
             return rc
