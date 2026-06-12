@@ -57,3 +57,6 @@ Recurring failures observed in dojo runs. Updated as new patterns emerge and exi
 25. **Missing usings**
   - Ensure all necessary namespaces are imported in C# files to avoid type resolution errors.
 
+26. **JSON parsing error in test files**
+  - Ensure JSON strings are correctly formatted and valid before parsing them in tests.
+
