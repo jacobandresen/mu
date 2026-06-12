@@ -98,6 +98,16 @@ _RULES: list[_Rule] = [
           lambda m: f"{m['file']}:{m['line']}: Go syntax error: {_clip(m['msg'])}"),
 
     # ── C# / MSBuild ──
+    # Actionable shapes first; the generic CS rule below only echoes the
+    # compiler text, which the repair model reads without acting on.
+    _rule(r"error CS0017: Program has more than one entry point",
+          lambda m: "CS0017: two Main entry points — exactly one file may define Main; "
+                    "remove the Main method from the test file (tests are run by xunit, "
+                    "they never need their own Main)"),
+    _rule(r"error CS8803:.*[Tt]op-level statements must precede",
+          lambda m: "CS8803: a file mixes top-level statements with type/namespace "
+                    "declarations — move the top-level statements into a Main method "
+                    "inside a class, or move them above every declaration"),
     _rule(r"error (?P<code>CS\d+):\s*(?P<msg>.+?)(?:\s*\[|$)",
           lambda m: f"{m['code']}: {_clip(m['msg'])}"),
     _rule(r"MSBUILD\s*:\s*error (?P<code>MSB\d+):\s*(?P<msg>.+?)(?:\s*\[|$)",
