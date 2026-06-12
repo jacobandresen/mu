@@ -51,3 +51,9 @@ Recurring failures observed in dojo runs. Updated as new patterns emerge and exi
 23. **Missing dependencies**
   - Ensure all required packages are installed before running tests. Use `npm install` to add missing modules like 'vitest'.
 
+24. **Duplicate class definitions**
+  - Ensure that classes are not defined more than once in the same namespace to avoid conflicts and errors like CS0102.
+
+25. **Missing usings**
+  - Ensure all necessary namespaces are imported in C# files to avoid type resolution errors.
+
