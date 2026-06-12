@@ -15,6 +15,7 @@ __all__ = [
     'fix_csharp_missing_using',
     'fix_csharp_missing_braces',
     'fix_csharp_xunit_packages',
+    'fix_csharp_package_tfm_mismatch',
     'fix_csharp_lambda_brace_confusion',
     'apply_csharp_write_reflexes',
     'apply_csharp_repair_reflexes',
@@ -334,12 +335,18 @@ def fix_csharp_xunit_packages(project_dir: str) -> bool:
             continue
 
         # Add the packages — insert before the first </ItemGroup> or before </Project>
+        # Mvc.Testing versions in lockstep with the runtime: its major MUST
+        # match the csproj TargetFramework major or restore fails with NU1202
+        # ("Package … 8.x is not compatible with net7.0") — 2 stalled
+        # p4 sessions per collection run before this followed the TFM.
+        tfm = re.search(r'<TargetFramework>\s*net(\d+)\.0', csproj_text)
+        mvc_major = tfm.group(1) if tfm else '8'
         new_packages = (
             '  <ItemGroup>\n'
             '    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />\n'
             '    <PackageReference Include="xunit" Version="2.*" />\n'
             '    <PackageReference Include="xunit.runner.visualstudio" Version="2.*" />\n'
-            '    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.*" />\n'
+            f'    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="{mvc_major}.*" />\n'
             '  </ItemGroup>\n'
         )
         if '</ItemGroup>' in csproj_text:
@@ -354,6 +361,45 @@ def fix_csharp_xunit_packages(project_dir: str) -> bool:
         csproj.write_text(new_text)
         print(f"==> [mu-agent] Reflex: added xunit packages to {csproj}")
         changed = True
+    return changed
+
+
+def fix_csharp_package_tfm_mismatch(project_dir: str) -> bool:
+    """Align runtime-versioned Microsoft.* package majors with the TFM.
+
+    Microsoft.AspNetCore.* and Microsoft.Extensions.* packages version in
+    lockstep with the runtime: referencing major N from a TargetFramework
+    below netN.0 fails restore with NU1202 ("not compatible"). The model
+    routinely mixes e.g. net7.0 with Version="8.*" (or "8.0.28"). Lower the
+    package major to the TFM major — general .NET versioning convention,
+    independent of any particular problem.
+    """
+    changed = False
+    for csproj in Path(project_dir).rglob('*.csproj'):
+        try:
+            text = csproj.read_text()
+        except OSError:
+            continue
+        tfm = re.search(r'<TargetFramework>\s*net(\d+)\.0', text)
+        if not tfm:
+            continue
+        tfm_major = int(tfm.group(1))
+
+        def _align(m: re.Match) -> str:
+            pkg_major = int(m.group('major'))
+            if pkg_major <= tfm_major:
+                return m.group(0)
+            return f'{m.group("head")}{tfm_major}.*{m.group("tail")}'
+
+        new_text = re.sub(
+            r'(?P<head><PackageReference\s+Include="Microsoft\.(?:AspNetCore|Extensions)\.[^"]*"\s+'
+            r'Version=")(?P<major>\d+)(?:\.[\d*][^"]*)?(?P<tail>")',
+            _align, text)
+        if new_text != text:
+            csproj.write_text(new_text)
+            print(f"==> [mu-agent] Reflex: aligned Microsoft.* package major(s) "
+                  f"with net{tfm_major}.0 in {csproj}")
+            changed = True
     return changed
 
 
