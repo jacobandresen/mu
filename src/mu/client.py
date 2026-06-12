@@ -373,9 +373,17 @@ def load_context_size() -> int:
     return _NUM_CTX
 
 
+# Tokens reserved for the completion inside the loaded window. The window
+# bounds prompt + generation TOGETHER: a prompt budgeted to the full window
+# leaves zero room to generate and the request 400s ("Context size has been
+# exceeded") — 36 occurrences in the 2026-06-12 run-5 collection, mostly
+# stage-planner and writer calls whose prompts approached the window.
+_GEN_RESERVE = 1536
+
+
 def max_prompt_tokens() -> int:
-    """Return the effective max prompt token budget (the per-request context)."""
-    return _NUM_CTX
+    """Effective max prompt budget: the loaded window minus generation room."""
+    return max(_NUM_CTX - _GEN_RESERVE, 1024)
 
 
 def _fuzzy_match_model(query: str, candidates: list[str]) -> str | None:
@@ -651,9 +659,56 @@ def _extract_text_tool_calls(content: str) -> list[dict]:
     return calls
 
 
+def _est_tokens(messages: list[dict]) -> int:
+    """Rough prompt size: 4 chars ≈ 1 token (the project-wide estimate),
+    counting content and tool-call arguments, +80 chars/message framing."""
+    total = 0
+    for m in messages:
+        total += len(str(m.get('content') or ''))
+        for tc in m.get('tool_calls') or []:
+            total += len(str(tc.get('function', {}).get('arguments') or ''))
+        total += 80
+    return total // 4
+
+
+def _shrink_oversized(messages: list[dict]) -> list[dict]:
+    """Last-resort guard: cut the middle of the largest message contents until
+    the estimated prompt fits the budget.
+
+    Callers are supposed to budget their own prompts (repair_loop does), but
+    writer/stage-planner prompts assembled from skills + reference files can
+    still approach the window; the server then hard-rejects with HTTP 400
+    and the whole call (and its retries) is wasted. Content-only edits keep
+    the tool-call pairing intact. Head and tail are kept — instructions lead,
+    the newest context trails.
+    """
+    budget = max_prompt_tokens()
+    if _est_tokens(messages) <= budget:
+        return messages
+    msgs = [dict(m) for m in messages]
+    for _ in range(8):
+        over_chars = (_est_tokens(msgs) - budget) * 4
+        if over_chars <= 0:
+            break
+        idx = max(range(len(msgs)),
+                  key=lambda i: len(str(msgs[i].get('content') or '')))
+        content = str(msgs[idx].get('content') or '')
+        if len(content) < 1200:
+            break  # nothing meaningfully shrinkable left
+        cut = min(over_chars + 200, len(content) - 800)
+        head = content[:(len(content) - cut) * 2 // 3]
+        tail = content[-((len(content) - cut) - len(head)):]
+        msgs[idx]['content'] = head + '\n…[trimmed to fit context]…\n' + tail
+    est = _est_tokens(msgs)
+    print(f"==> [mu-agent] chat: prompt trimmed to ~{est} tokens to fit the "
+          f"context window (budget {budget}).", flush=True)
+    return msgs
+
+
 def chat(model: str, messages: list[dict], tools: Optional[list[dict]],
          timeout: float, tool_choice: str = 'auto') -> tuple[dict, ChatStats]:
     import httpx
+    messages = _shrink_oversized(messages)
     body: dict = {
         'model': model,
         'messages': messages,
