@@ -305,16 +305,21 @@ def save_preferred_model(model_id: str) -> None:
 
 
 def load_context_size() -> int:
-    """Context window to load the model with: the per-request budget plus
-    headroom, so a prompt that grows past num_ctx (e.g. a long repair history)
-    still fits the loaded window instead of being rejected with HTTP 400.
+    """Context window to load the model with: exactly MU_NUM_CTX.
 
-    Overridable via MU_LOAD_CTX for models that need a specific ceiling.
+    MU_NUM_CTX is the machine-safety knob: it caps the KV-cache footprint the
+    user has validated for their RAM. Loading above it is not safe headroom —
+    a 7B loaded at MU_NUM_CTX+2048 (8048) on an 8GB M2 thrashed swap and hard-
+    rebooted the machine 20 minutes into a collection run. A prompt that grows
+    past the window now gets a clean HTTP 400 (surfaced with the server's
+    reason by chat()) instead of risking the host.
+
+    Overridable via MU_LOAD_CTX for machines with RAM to spare.
     """
     override = os.environ.get("MU_LOAD_CTX")
     if override and override.isdigit():
         return int(override)
-    return _NUM_CTX + 2048
+    return _NUM_CTX
 
 
 def max_prompt_tokens() -> int:
@@ -449,13 +454,13 @@ def load_model(model_id: str, _retry: bool = True) -> bool:
         print(f"Loading {model_id} …")
         spin = threading.Thread(target=_spinner, daemon=True)
         spin.start()
-        # Load with an explicit context window ≥ our per-request budget, plus
-        # headroom. Without this, LM Studio's JIT default (often 4096) caps the
-        # model below _NUM_CTX, so any prompt above the default is hard-rejected
-        # with HTTP 400 mid-run — invisible until the repair loop's accumulated
-        # history (the largest prompt) hits it. The headroom means a request at
-        # num_ctx never bumps the loaded ceiling even as that history grows; the
-        # 3B's small hybrid KV cache makes the extra room cheap on RAM.
+        # Load with an explicit context window of MU_NUM_CTX. Without this,
+        # LM Studio's JIT default (often 4096) caps the model below _NUM_CTX,
+        # so any prompt above the default is hard-rejected with HTTP 400
+        # mid-run — invisible until the repair loop's accumulated history
+        # (the largest prompt) hits it. Never load above MU_NUM_CTX by
+        # default: the KV cache for the extra window can push a small-RAM
+        # host into swap (see load_context_size).
         load_ctx = load_context_size()
         try:
             handle = _lms_client().llm.load_new_instance(
