@@ -93,6 +93,7 @@ _CATALOG: dict[str, list] = {
         makefile.fix_makefile_literal_tab_escape, makefile.fix_makefile_literal_newline_escape,
         makefile.fix_makefile_escaped_dollar, makefile.fix_makefile_backslash_artifact,
         csharp.fix_csharp_verbatim_string_escape, csharp.fix_csharp_keyword_prefix_artifacts,
+        csharp.fix_csharp_consecutive_duplicate_signatures,
         python.fix_multiline_single_quote, python.fix_python_decorator_colon,
         go.fix_go_trailing_dot],
     'build-rule-structure': [
@@ -198,6 +199,7 @@ _ANNOTATIONS: dict = {
     csharp.fix_csharp_missing_using:           {'artifact': 'cs'},
     csharp.fix_csharp_xunit_packages:          {'artifact': 'csproj', 'evidence': 'p10'},
     csharp.fix_csharp_package_tfm_mismatch:    {'artifact': 'csproj', 'evidence': 'p4'},
+    csharp.fix_csharp_consecutive_duplicate_signatures: {'artifact': 'cs', 'evidence': 'p4'},
     csharp.fix_csharp_lambda_brace_confusion:  {'artifact': 'cs', 'evidence': 'p10'},
     # ── go ────────────────────────────────────────────────────────────────────
     go.fix_go_missing_pkg_imports:             {'artifact': 'go'},
