@@ -16,10 +16,10 @@ Recurring failures observed in dojo runs. Updated as new patterns emerge and exi
 
 ### Group 2 — Full-stack orchestration / multi-file
 
-8. **C# / ASP.NET scaffolding** — `dotnet test` needs a Tests.csproj (auto-created by `ground_plan`); EF Core/SQLite/ASP.NET package refs absent from minimal SDK template. p10 remains model-limited (cascading CS errors, repair oscillates).
+8. **C# / ASP.NET scaffolding** — `dotnet test` needs a Tests.csproj (auto-created by `ground_plan`); EF Core/SQLite/ASP.NET package refs absent from minimal SDK template; occasional malformed `.csproj` XML (MSB4067); package majors above the TFM (NU1202, `fix_csharp_package_tfm_mismatch`). p10 remains model-limited (cascading CS errors, repair oscillates).
 9. **Vue / Vitest / Jest setup** — Jest `_test.js` naming → "No tests found"; missing `globals:true`; vitest watch-mode hang; missing `vue` peer dep; `tsc --noEmit` before `npm install`. Each covered by a named reflex.
 10. **Build-target inconsistency & misplaced files** — plans name entry-point targets the build file never defines; lean-retry writes files to wrong subdirs. Mitigated by relocation + stale-file cleanup.
-11. **Repair-context budget** — large skill stacks overflow the 6000-token context; Vitest ANSI codes inflate test output ~10×. Mitigated by lean repair system, skill trimming, `_strip_ansi`.
+11. **Repair-context budget** — the loaded window bounds prompt + generation together; large skill stacks and accumulated repair history overflow it (HTTP 400). Mitigated by lean repair system, `_strip_ansi`, the repair-loop unit budget (`_fit_prompt_budget`), a 1536-token generation reserve, and chat()-level prompt shrinking (`_shrink_oversized`).
 
 ### Group 3 — Model ceiling
 
@@ -32,31 +32,5 @@ Recurring failures observed in dojo runs. Updated as new patterns emerge and exi
 
 16. **Environment hygiene** — system-wide vs Homebrew Python (use venvs); server port already in use; empty session log → no distillable cause.
 
-17. **Syntax errors in test files** — JS: same-scope `const` re-declaration (10+ sessions; was mislabeled "Jest ESM" because the Jest banner shadowed the Babel SyntaxError detail — diagnose now demotes banner-level hints) and `.[0]` member access; both covered by `fix_js_same_scope_redeclaration` and `fix_js_dot_bracket_access`. C#: unmatched parentheses/semicolons in test files — generic, see item 1.
-
-18. **SKIP**
-
-19. **Redundant import statements**
-  - Redefinition of imports can lead to confusion and errors; ensure each import is used only once per file.
-
-20. **Stalled compilation**
-  - The developer may be waiting for an IDE to auto-complete code or a build system to detect changes before proceeding. Ensure that all necessary files are saved and the build system is properly configured to recognize changes.
-
-21. **XML syntax in project file**
-  - Project files should use XML syntax correctly; ensure all tags are properly closed and nested.
-
-22. **Test state leaks across runs**
-  - Tests sharing mutable storage accumulate state between invocations; require setup/teardown that isolates state per test.
-
-23. **Missing dependencies**
-  - Ensure all required packages are installed before running tests. Use `npm install` to add missing modules like 'vitest'.
-
-24. **Duplicate class definitions**
-  - Ensure that classes are not defined more than once in the same namespace to avoid conflicts and errors like CS0102.
-
-25. **Missing usings**
-  - Ensure all necessary namespaces are imported in C# files to avoid type resolution errors.
-
-26. **JSON parsing error in test files**
-  - Ensure JSON strings are correctly formatted and valid before parsing them in tests.
+17. **Syntax errors in test files** — JS: same-scope `const` re-declaration (10+ sessions; was mislabeled "Jest ESM" because the Jest banner shadowed the Babel SyntaxError detail — diagnose now demotes banner-level hints) and `.[0]` member access; both covered by `fix_js_same_scope_redeclaration` and `fix_js_dot_bracket_access`. C#: unmatched parentheses/semicolons in test files — generic, see item 1; stuttered duplicate method-signature openers covered by `fix_csharp_consecutive_duplicate_signatures`.
 
