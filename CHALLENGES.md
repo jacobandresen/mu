@@ -2,7 +2,7 @@
 
 Recurring failures observed in dojo runs. Updated as new patterns emerge and existing ones are resolved by reflexes or skills.
 
-Each item links to its detailed page in `docs/challenges/` — which problems exhibit it and the relevant reflexes. For a grouped, status-at-a-glance overview see [docs/challenges/README.md](docs/challenges/README.md). Per-problem pages live in [`docs/problems/`](docs/problems/).
+Each item links to its detailed page in `docs/challenges/` — which problems exhibit it and the relevant reflexes. For a grouped, status-at-a-glance overview see [docs/challenges/README.md](docs/challenges/README.md). Per-problem pages live in [`docs/problems/`](docs/problems/). For external tools that could address these classes (and reflexes-vs-tools trade-offs), see [TOOLS.md](TOOLS.md).
 
 ## Open
 
