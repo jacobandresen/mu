@@ -4,7 +4,7 @@ _‹ [All challenges](README.md)_
 
 - **ID:** `incorrect-test-assertions`
 - **Group:** Model ceiling
-- **Lessons KB:** item 15
+- **Open list:** [item 15](README.md#open)
 - **Status:** not reflex-recoverable
 
 ## What it is

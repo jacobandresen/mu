@@ -21,7 +21,7 @@ set.
 
 - **Stateful-backend lifecycle** — per-request `sqlite3.connect` against
   `:memory:` destroys the data each call; fixing it needs an architectural
-  rewrite beyond a 7B repair loop ([lessons](../challenges/lessons.md)
+  rewrite beyond a 7B repair loop (challenge [stateful-backend-lifecycle](../challenges/stateful-backend-lifecycle.md)
   item 13).
 - **Fixture plumbing** — tests take a `client` fixture that's never
   defined; autoflake then strips the "unused" imports, and a later repair

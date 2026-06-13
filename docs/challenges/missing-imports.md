@@ -4,7 +4,7 @@ _‹ [All challenges](README.md)_
 
 - **ID:** `missing-imports`
 - **Group:** Model ceiling
-- **Lessons KB:** item 14
+- **Open list:** [item 14](README.md#open)
 - **Status:** partly patched; still frequent
 
 ## What it is

@@ -110,13 +110,13 @@ def main() -> int:
                            help='LM Studio model ID (overrides MU_AGENT_MODEL)')
 
     reflect_p = sub.add_parser('reflect',
-                               help='Distill recent failed sessions into docs/challenges/lessons.md entries')
+                               help='Distill recent failed sessions into docs/challenges/README.md entries')
     reflect_p.add_argument('-n', '--limit', type=int, default=10,
                            help='Maximum failed sessions to process when no IDs given (default: 10)')
     reflect_p.add_argument('--model', default='',
                            help='LM Studio model ID (overrides MU_AGENT_MODEL)')
-    reflect_p.add_argument('--challenges', default='docs/challenges/lessons.md',
-                           help='Path to the challenge KB (default: docs/challenges/lessons.md)')
+    reflect_p.add_argument('--challenges', default='docs/challenges/README.md',
+                           help='Path to the challenge KB (default: docs/challenges/README.md)')
     reflect_p.add_argument('session_ids', nargs='*', metavar='SESSION_ID',
                            help='Specific session IDs to reflect on; '
                                 'overrides --limit when given')
@@ -815,13 +815,13 @@ def _cmd_token_report(args) -> int:
         elif top_phase == 'planner' and top_pct >= 30:
             recs.append(
                 f'**Planner phase uses {top_pct}% of tokens** — '
-                'the planning prompt may be oversized; trim skills or docs/challenges/lessons.md.')
+                'the planning prompt may be oversized; trim skills or docs/challenges/README.md.')
 
     first_try_pct = 100 * first_try // n if n else 0
     if first_try_pct < 30:
         recs.append(
             f'**First-try pass rate is low ({first_try_pct}%)** — '
-            'most sessions need repair iterations; review docs/challenges/lessons.md for recurring patterns '
+            'most sessions need repair iterations; review docs/challenges/README.md for recurring patterns '
             'and add reflexes or skill guidance.')
     elif first_try_pct >= 70:
         recs.append(

@@ -4,7 +4,7 @@ _‹ [All challenges](README.md)_
 
 - **ID:** `makefile-escape-artifacts`
 - **Group:** Degenerate / malformed generation
-- **Lessons KB:** item 5
+- **Open list:** [item 5](README.md#open)
 - **Status:** covered by the makefile reflex family
 
 ## What it is

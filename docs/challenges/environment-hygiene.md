@@ -4,7 +4,7 @@ _‹ [All challenges](README.md)_
 
 - **ID:** `environment-hygiene`
 - **Group:** Harness / environment
-- **Lessons KB:** item 16
+- **Open list:** [item 16](README.md#open)
 - **Status:** reflex + skill
 
 ## What it is

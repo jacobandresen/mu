@@ -4,7 +4,7 @@ _‹ [All challenges](README.md)_
 
 - **ID:** `repair-context-budget`
 - **Group:** Full-stack orchestration / multi-file
-- **Lessons KB:** item 11
+- **Open list:** [item 11](README.md#open)
 - **Status:** mitigated by budget + reserve + shrink
 
 ## What it is

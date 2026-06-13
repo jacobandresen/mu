@@ -37,7 +37,7 @@ mu agent "write a Flask REST API with SQLite and pytest tests" --dir myproject
 | `mu model` / `mu model load <id>` | Browse / load LM Studio models |
 | `mu check` | Verify dependencies and that LM Studio is reachable |
 | `mu setup` | Interactively install missing toolchains |
-| `mu reflect` | Distil recent failed sessions into docs/challenges/lessons.md |
+| `mu reflect` | Distil recent failed sessions into docs/challenges/README.md |
 | `mu token-report` | Summarise token usage across sessions into token_usage.md |
 | `mu kb` | Build/show the reflex knowledge base — reflex catalog + per-model profiles |
 | `mu theme` | Pick and apply a base16 colour scheme |

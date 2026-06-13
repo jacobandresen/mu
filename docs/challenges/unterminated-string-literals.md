@@ -4,7 +4,7 @@ _‹ [All challenges](README.md)_
 
 - **ID:** `unterminated-string-literals`
 - **Group:** Degenerate / malformed generation
-- **Lessons KB:** item 2
+- **Open list:** [item 2](README.md#open)
 - **Status:** covered by reflexes; still model-frequent
 
 ## What it is

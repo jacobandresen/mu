@@ -4,7 +4,7 @@ _‹ [All challenges](README.md)_
 
 - **ID:** `generic-syntax-errors`
 - **Group:** Degenerate / malformed generation
-- **Lessons KB:** item 1
+- **Open list:** [item 1](README.md#open)
 - **Status:** partial — per-language reflexes cover common shapes; residue is model quality
 
 ## What it is

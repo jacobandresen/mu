@@ -4,7 +4,7 @@ _‹ [All challenges](README.md)_
 
 - **ID:** `c-forward-declarations`
 - **Group:** Degenerate / malformed generation
-- **Lessons KB:** item 7
+- **Open list:** [item 7](README.md#open)
 - **Status:** no scan reflex yet — diagnose names it
 
 ## What it is

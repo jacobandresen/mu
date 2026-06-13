@@ -5,11 +5,11 @@ after each dojo round. It walks ``~/.mu/sessions/``, finds non-success sessions
 (episodes where the critic's outcome ≠ 'success') that haven't been reflected
 on yet, and asks the model to distill one *generic* lesson per session — or SKIP
 if the failure isn't generalizable. Surviving lessons are appended to
-``docs/challenges/lessons.md`` (the mutable knowledge base) under ``## Open``, which the
+``docs/challenges/README.md`` (the mutable knowledge base) under ``## Open``, which the
 planner reads on the next run via the ``_load_challenges_for_planner`` path.
 
 This closes the feedback loop: critic (archive outcome) → learner (reflect) →
-knowledge base (docs/challenges/lessons.md) → planner (next run's performance element).
+knowledge base (docs/challenges/README.md) → planner (next run's performance element).
 
 Honesty guards:
   * the prompt demands a *generic* failure mode and forbids problem-specific
@@ -128,7 +128,7 @@ def _is_duplicate(title: str, existing: list[str]) -> bool:
 
 # Reject heuristics for "this is actually problem-specific" entries.
 # Each is a clear, narrow signal — false positives here just lose a lesson,
-# false negatives let problem-specific guidance pollute docs/challenges/lessons.md.
+# false negatives let problem-specific guidance pollute docs/challenges/README.md.
 _REJECT_YOUR = re.compile(r'\byour\b', re.IGNORECASE)
 _REJECT_NAMED_TOOL = re.compile(
     r'\b(?:Flask|Django|FastAPI|Gin|SDL2?|pytest|dotnet|cargo|clang|gcc|'
@@ -233,7 +233,7 @@ def _append_challenge(challenges_path: str, entry: str) -> bool:
 
 
 def reflect(model: str = '', limit: int = 10,
-            challenges_path: str = 'docs/challenges/lessons.md',
+            challenges_path: str = 'docs/challenges/README.md',
             session_ids: Optional[list[str]] = None) -> int:
     """Distill generic lessons from failed sessions.
 

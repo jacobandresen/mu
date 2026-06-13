@@ -4,7 +4,7 @@ _‹ [All challenges](README.md)_
 
 - **ID:** `build-target-inconsistency`
 - **Group:** Full-stack orchestration / multi-file
-- **Lessons KB:** item 10
+- **Open list:** [item 10](README.md#open)
 - **Status:** mitigated by relocation + cleanup
 
 ## What it is

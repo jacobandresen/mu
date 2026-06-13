@@ -4,7 +4,7 @@ _‹ [All challenges](README.md)_
 
 - **ID:** `stateful-backend-lifecycle`
 - **Group:** Model ceiling
-- **Lessons KB:** item 13
+- **Open list:** [item 13](README.md#open)
 - **Status:** not reflex-recoverable
 
 ## What it is
