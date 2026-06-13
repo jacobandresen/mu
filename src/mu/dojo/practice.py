@@ -110,14 +110,15 @@ def _autocommit(round_num: int) -> None:
         if Path('token_usage.md').is_file() and (not _git_tracked('token_usage.md') or _git_dirty('token_usage.md')):
             subprocess.run(['git', 'add', 'token_usage.md'])
             files.append('token_usage.md')
-        if Path('README.md').is_file() and _git_dirty('README.md'):
-            files.append('README.md')
+        index = 'docs/problems/README.md'
+        if Path(index).is_file() and _git_dirty(index):
+            files.append(index)
         if not files:
             return
         ver = _mu_version()
         subprocess.run(['git', 'commit', '-o', *files, '-m',
-                        f"dojo round {round_num}: update README.md, docs/challenges/lessons.md, "
-                        f"token_usage.md (mu {ver})"],
+                        f"dojo round {round_num}: update problem index, "
+                        f"docs/challenges/lessons.md, token_usage.md (mu {ver})"],
                        stdout=subprocess.DEVNULL)
 
 
