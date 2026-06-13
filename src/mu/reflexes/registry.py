@@ -265,7 +265,10 @@ def _record(fn, error_class: str) -> ReflexRecord:
     is_scan_file = (trigger == 'scan' and scope == 'file')
     return ReflexRecord(
         id=fn.__name__,
-        toolchain=fn.__module__.rsplit('.', 1)[-1],
+        # Toolchain = the package under mu.reflexes, whether the reflex lives in
+        # a single module (mu.reflexes.core) or a per-reflex file inside a
+        # toolchain package (mu.reflexes.go.fix_go_trailing_dot -> "go").
+        toolchain=fn.__module__.split('mu.reflexes.', 1)[-1].split('.', 1)[0],
         error_class=error_class,
         trigger=trigger,
         scope=scope,
