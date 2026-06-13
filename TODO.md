@@ -8,23 +8,26 @@ qwen2.5-coder-7b).
 
 ## Open — ranked by impact
 
-1. **p10 full-stack (0/12 — the open problem).** Multi-project C#/Vue. Dominant run-7
-   errors: CS0101 duplicate types across files (×14), MSB1003 no project/solution at the
-   test dir (×8), CS0053 inconsistent accessibility on EF types (×8). Mix of scaffolding
-   (staged-plan type dedup; ensure `dotnet test` sees a csproj/solution) and model ceiling
-   (cascading errors, repair oscillates). Biggest single gap in the set.
-2. **p8 jest globals (8/19).** `describe/test is not a function` (×14) — tests run under
-   plain `node`, not `npx jest`. Round 7 shipped only a diagnose *hint*; if run 9 still
-   shows it unresolved, promote to a deterministic reflex that rewrites the Makefile /
-   package.json test target to `npx jest`.
-3. **p7 Makefile `test` target (9/15).** `no rule to make target 'test'` (×7) — the
-   dominant p7 bucket. A Makefile reflex could synthesize a `test` target from the plan's
-   test command when absent.
-4. **p2 SQLAlchemy ORM setup (9/15).** `Todo has no attribute '__table__'`,
-   `declarative_base` undefined — declarative-base wiring done wrong. Candidate: a
-   python-writer skill rule, or a reflex for the standard declarative-base shape.
-5. **p9 component/test contract (12/13).** Assertion mismatches (component renders heading
-   + button, not the todo text). Mostly model quality — low priority, accept variance.
+1. **p10 full-stack (0/12 — the open problem).** Multi-project C#/Vue —
+   challenge [csharp-aspnet-scaffolding](docs/challenges/csharp-aspnet-scaffolding.md).
+   Dominant run-7 errors: CS0101 duplicate types across files (×14), MSB1003 no
+   project/solution at the test dir (×8), CS0053 inconsistent accessibility on EF types
+   (×8). Mix of scaffolding (staged-plan type dedup; ensure `dotnet test` sees a
+   csproj/solution) and model ceiling (cascading errors, repair oscillates). Biggest gap.
+2. **p8 jest globals (8/19)** — challenge [vue-vitest-jest-setup](docs/challenges/vue-vitest-jest-setup.md).
+   `describe/test is not a function` (×14) — tests run under plain `node`, not `npx jest`.
+   Round 7 shipped only a diagnose *hint*; if run 9 still shows it unresolved, promote to a
+   deterministic reflex that rewrites the Makefile / package.json test target to `npx jest`.
+3. **p7 Makefile `test` target (9/15)** — challenge [build-target-inconsistency](docs/challenges/build-target-inconsistency.md).
+   `no rule to make target 'test'` (×7), the dominant p7 bucket. A Makefile reflex could
+   synthesize a `test` target from the plan's test command when absent.
+4. **p2 SQLAlchemy ORM setup (9/15)** — challenge [missing-imports](docs/challenges/missing-imports.md).
+   `Todo has no attribute '__table__'`, `declarative_base` undefined — declarative-base
+   wiring done wrong. Candidate: a python-writer skill rule, or a reflex for the standard
+   declarative-base shape.
+5. **p9 component/test contract (12/13)** — challenge [incorrect-test-assertions](docs/challenges/incorrect-test-assertions.md).
+   Assertion mismatches (component renders heading + button, not the todo text). Mostly
+   model quality — low priority, accept variance.
 
 ---
 

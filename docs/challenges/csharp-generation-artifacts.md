@@ -1,0 +1,26 @@
+# C# generation artifacts
+
+- **ID:** `csharp-generation-artifacts`
+- **Group:** Degenerate / malformed generation
+- **CHALLENGES.md:** item 4
+- **Status:** each shape covered by a named reflex
+
+## What it is
+
+C#-specific malformations: top-level statements before a namespace (CS1529), verbatim-string `\"` escaping (CS1056), stray keyword prefixes like `tnamespace` (CS1513), lambda chains closed with `{){` (CS1026), and the same method-signature opener stuttered several times before the body.
+
+## Problems affected
+
+- [p4-fibonacci](../problems/p4-fibonacci.md) — stuttered `public void TestX() {` openers (run-4 dominant bucket)
+- [p10-dotnet-vue-blog](../problems/p10-dotnet-vue-blog.md) — mixed artifacts in generated controllers/tests
+
+## Relevant reflexes & mechanisms
+
+- `fix_csharp_lambda_brace_confusion` — replaces `{){` with `))`
+- `fix_csharp_keyword_prefix_artifacts` — strips a stray char fused to a keyword
+- `fix_csharp_verbatim_string_escape` — drops the `@` so `\"` is valid
+- `fix_csharp_consecutive_duplicate_signatures` — collapses stuttered duplicate signature openers
+
+## Residual / notes
+
+Stuttered openers with real bodies between (CS0111) are left for the compiler — deleting code is not a reflex's call.

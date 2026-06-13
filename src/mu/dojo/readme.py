@@ -51,7 +51,7 @@ def render_block(round_sessions: list[SessionMeta],
                  root: Path = Path('.')) -> str:
     """The replacement block (markers included) for this round's sessions.
 
-    One row per catalog problem — each linked to its page in docs/ — with
+    One row per catalog problem — each linked to its page in docs/problems/ — with
     the measured result of the last round, or '—' for problems the round
     didn't reach (e.g. toolchain not installed, round terminated early).
     """
@@ -67,7 +67,7 @@ def render_block(round_sessions: list[SessionMeta],
     stamp = iso_now()
     model = os.environ.get('MU_AGENT_MODEL') or 'recommended'
     rows = [
-        f"| [{pid}](docs/{pid}.md) | "
+        f"| [{pid}](docs/problems/{pid}.md) | "
         f"{_result(by_pid[pid]) if pid in by_pid else '— (not run)'} |"
         for pid in pids
     ]
