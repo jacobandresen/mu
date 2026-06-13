@@ -18,7 +18,7 @@ before anything compiles.
 
 - **Blocking test command** — plans write `./server` as the test command,
   which starts the HTTP server and hangs the gate forever; it must be
-  `go test ./...` ([lessons](../challenges/lessons.md) item 10).
+  `go test ./...` (challenge [build-target-inconsistency](../challenges/build-target-inconsistency.md)).
 - **Module hygiene** — missing `go.mod`, unresolved Gin dependency.
 - **Truncated generation** — a dangling `.Run()` with no receiver
   (`syntax error: unexpected .`), seen in the 2026-06-12 runs 3–4.

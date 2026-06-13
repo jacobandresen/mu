@@ -18,7 +18,7 @@ Makefile generation, build gate) is usually what broke.
 
 - **Makefile escape artifacts** — recipe lines need a literal TAB; weak
   models emit literal `\n`/`\t` escapes or space-indented recipes
-  ([lessons](../challenges/lessons.md) item 5).
+  (challenge [makefile-escape-artifacts](../challenges/makefile-escape-artifacts.md)).
 - **Build-target inconsistency** — the plan names a binary the Makefile
   never builds, or vice versa (item 10).
 

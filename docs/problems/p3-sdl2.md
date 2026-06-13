@@ -19,7 +19,7 @@ hanging.
 
 - **Build flags** — models hardcode `-lSDL2` or invent include paths
   instead of using `sdl2-config`, which only works by accident on some
-  machines ([lessons](../challenges/lessons.md) items 5, 10).
+  machines (challenges [makefile-escape-artifacts](../challenges/makefile-escape-artifacts.md), [build-target-inconsistency](../challenges/build-target-inconsistency.md)).
 - **C declaration discipline** — `call to undeclared function`, nested
   function definitions (item 7).
 - **Blocking run** — an SDL event loop that waits for input hangs the test

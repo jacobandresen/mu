@@ -27,7 +27,7 @@ separate stages, each spawning its own session.
 
 - **Multi-project ceiling** — cascading CS errors across `Program.cs`,
   the test project, and shared types; repair oscillates between them
-  ([lessons](../challenges/lessons.md) item 8). The strongest residual
+  (challenge [csharp-aspnet-scaffolding](../challenges/csharp-aspnet-scaffolding.md)). The strongest residual
   model-limited problem in the set.
 - **Scaffolding completeness** — Tests.csproj (auto-created by
   `ground_plan`), EF Core/SQLite/ASP.NET package references, occasional

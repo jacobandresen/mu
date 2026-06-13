@@ -46,8 +46,9 @@ Three observations frame the rest of this report:
 The two mechanisms are not rivals so much as instruments suited to different error
 classes. The automatic-program-repair literature frames the same tension as
 *generate-and-validate* repair (cheap, pattern-driven, prone to overfitting) versus
-*semantics-driven* repair (sound, heavier, tool-backed) — see Monperrus (2018) and
-Le Goues et al. (2012).
+*semantics-driven* repair (sound, heavier, tool-backed) — see
+[Monperrus (2018)](https://arxiv.org/abs/1807.00515) and
+[Le Goues et al. (2012)](https://doi.org/10.1109/TSE.2011.104).
 
 | Dimension | Reflexes (mu's regex/AST fixers) | Tools (formatters, type checkers, AST engines, LSP) |
 |---|---|---|
@@ -194,7 +195,8 @@ server per language.
 [incorrect-test-assertions](docs/challenges/incorrect-test-assertions.md) are **model
 ceiling**: they require *intent*, not transformation. No formatter, type checker, or AST
 engine reconstructs what the program was meant to do. These remain prompt/skill/model
-problems — consistent with the self-debugging results of Chen et al. (2023), where the
+problems — consistent with the self-debugging results of
+[Chen et al. (2023)](https://arxiv.org/abs/2304.05128), where the
 model, not a tool, supplies the semantic fix.
 
 ---
@@ -211,7 +213,8 @@ For the record, marked ✓/◐ above:
 - **Compilers / test runners** — `clang`, `cargo`, `dotnet`, `go`, `node`, `pytest`,
   `jest`, `vitest` as the test gate; `sdl2-config` for p3.
 
-mu is thus already a tool-using agent in the ReAct sense (Yao et al., 2023); the proposals
+mu is thus already a tool-using agent in the ReAct sense
+([Yao et al., 2023](https://arxiv.org/abs/2210.03629)); the proposals
 below extend the *set* and the *insertion points*, they do not introduce the paradigm.
 
 ---
@@ -257,42 +260,50 @@ fix a general class, and is the dependency justified by the breadth it buys?*
 
 ## 7. Further reading
 
+All references are online and linked. Verify a specific page before relying on it —
+URLs were correct as of the 2026-01 knowledge cutoff.
+
 **Automatic program repair (the reflex-vs-semantic-repair framing).**
-- M. Monperrus, *Automatic Software Repair: a Bibliography*, ACM Computing Surveys 51(1),
-  2018 — the standard map of the field; read §on generate-and-validate vs semantics-driven.
-- C. Le Goues et al., *GenProg: A Generic Method for Automatic Software Repair*, IEEE TSE,
-  2012 — the canonical generate-and-validate system and its overfitting critique.
+- Monperrus, *Automatic Software Repair: a Bibliography*, ACM Computing Surveys 2018 —
+  [arxiv.org/abs/1807.00515](https://arxiv.org/abs/1807.00515). The field's map;
+  read on generate-and-validate vs semantics-driven repair.
+- Le Goues et al., *GenProg: A Generic Method for Automatic Software Repair*, IEEE TSE
+  2012 — [doi.org/10.1109/TSE.2011.104](https://doi.org/10.1109/TSE.2011.104). The
+  canonical generate-and-validate system and its overfitting critique.
 
 **LLM agents using tools and compilers (mu's paradigm).**
-- S. Yao et al., *ReAct: Synergizing Reasoning and Acting in Language Models*,
-  arXiv:2210.03629 — interleaving reasoning with tool calls.
-- T. Schick et al., *Toolformer*, arXiv:2302.04761 — models learning when to call a tool.
-- J. Yang et al., *SWE-agent: Agent–Computer Interfaces…*, arXiv:2405.15793 — why the
-  *interface* to tools/gates dominates agent performance; directly relevant to mu's gates.
-- X. Chen et al., *Teaching Large Language Models to Self-Debug*, arXiv:2304.05128 — the
-  compiler/test log as repair feedback (mu's `diagnose` is this idea, distilled).
+- Yao et al., *ReAct: Synergizing Reasoning and Acting in Language Models* —
+  [arxiv.org/abs/2210.03629](https://arxiv.org/abs/2210.03629). Interleaving reasoning
+  with tool calls.
+- Schick et al., *Toolformer* —
+  [arxiv.org/abs/2302.04761](https://arxiv.org/abs/2302.04761). Models learning when to
+  call a tool.
+- Yang et al., *SWE-agent: Agent–Computer Interfaces…* —
+  [arxiv.org/abs/2405.15793](https://arxiv.org/abs/2405.15793). Why the *interface* to
+  tools/gates dominates agent performance; directly relevant to mu's gates.
+- Chen et al., *Teaching Large Language Models to Self-Debug* —
+  [arxiv.org/abs/2304.05128](https://arxiv.org/abs/2304.05128). The compiler/test log as
+  repair feedback (mu's `diagnose` is this idea, distilled).
 
 **Structural transformation (the AST-rewrite substrate).**
-- R. van Tonder & C. Le Goues, *Lightweight Multi-Language Syntax Transformation…*,
-  PLDI 2019 — the theory behind `comby` (<https://comby.dev>).
-- `libcst` <https://libcst.readthedocs.io>; `jscodeshift`
-  <https://github.com/facebook/jscodeshift>; `ts-morph` <https://ts-morph.com>;
-  `OpenRewrite` <https://docs.openrewrite.org>.
+- van Tonder & Le Goues, *Lightweight Multi-Language Syntax Transformation…*, PLDI 2019 —
+  [doi.org/10.1145/3314221.3314589](https://doi.org/10.1145/3314221.3314589); tool at
+  [comby.dev](https://comby.dev).
+- [libcst](https://libcst.readthedocs.io) ·
+  [jscodeshift](https://github.com/facebook/jscodeshift) ·
+  [ts-morph](https://ts-morph.com) · [OpenRewrite](https://docs.openrewrite.org).
 
 **Linters, formatters, type checkers (the oracle/transform tools).**
-- `ruff` <https://docs.astral.sh/ruff>; `pyflakes`/`autoflake` (mu's current gate);
-  `black` <https://black.readthedocs.io>; `mypy` <https://mypy-lang.org>;
-  `pyright` <https://microsoft.github.io/pyright>.
-- `gofmt` <https://pkg.go.dev/cmd/gofmt>; `go vet`; `clippy`
-  <https://doc.rust-lang.org/clippy>; `rustfmt` <https://github.com/rust-lang/rustfmt>.
-- `eslint` <https://eslint.org>; `prettier` <https://prettier.io>; TypeScript
-  <https://www.typescriptlang.org>; Roslyn analyzers
-  <https://learn.microsoft.com/dotnet/fundamentals/code-analysis/overview>.
+- [ruff](https://docs.astral.sh/ruff) · [pyflakes](https://github.com/PyCQA/pyflakes) ·
+  [autoflake](https://github.com/PyCQA/autoflake) · [black](https://black.readthedocs.io) ·
+  [mypy](https://mypy-lang.org) · [pyright](https://microsoft.github.io/pyright).
+- [gofmt](https://pkg.go.dev/cmd/gofmt) · [go vet](https://pkg.go.dev/cmd/vet) ·
+  [clippy](https://doc.rust-lang.org/clippy) ·
+  [rustfmt](https://github.com/rust-lang/rustfmt).
+- [eslint](https://eslint.org) · [prettier](https://prettier.io) ·
+  [TypeScript](https://www.typescriptlang.org) ·
+  [Roslyn analyzers](https://learn.microsoft.com/dotnet/fundamentals/code-analysis/overview).
 
 **Protocols.**
-- Language Server Protocol <https://microsoft.github.io/language-server-protocol> — the
+- [Language Server Protocol](https://microsoft.github.io/language-server-protocol) — the
   spec behind the §6.3 proposal; *code actions* and `WorkspaceEdit` are the relevant parts.
-
-> Citations are to stable, canonical sources; arXiv identifiers are given where a paper is
-> the primary reference. URLs were correct as of the 2026-01 knowledge cutoff — verify
-> before relying on a specific page.
