@@ -40,3 +40,21 @@ Recurring failures observed in dojo runs. Updated as new patterns emerge and exi
 19. **Namespace pollution**
   - Multiple definitions of the same type in different files can lead to compilation errors; ensure each type is defined only once per namespace.
 
+20. **Incomplete planning**
+  - Plans often lack key terms or details that could lead to missing functionality in the final implementation. Ensure all required features are clearly stated and accounted for in the plan.
+
+21. **Syntax errors in C#**
+  - Syntax errors can cause the compiler to fail and require careful attention to matching parentheses, braces, and semicolons. Always ensure that all opening symbols have corresponding closing symbols and that statements are properly terminated.
+
+22. **Missing using directives**
+  - Ensure all necessary namespaces are imported in C# files to avoid errors like CS0246 when the compiler cannot find a type or namespace.
+
+23. **Test state leaks across runs**
+  - Tests sharing mutable storage accumulate state between invocations; require setup/teardown that isolates state per test.
+
+24. **JSON parsing error**
+  - Ensure JSON data is correctly formatted and valid before attempting to parse it with `JSON.parse()`.
+
+25. **Jest not defined in test files**
+  - Ensure Jest is imported at the top of each test file using `require('jest')` or `import jest from 'jest'`.
+
