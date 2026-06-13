@@ -26,7 +26,7 @@ from typing import Callable, Optional
 from mu.reflexes import fix_requirements_path_entries
 
 from mu import tools
-from mu.client import chat_or_retry, max_prompt_tokens
+from mu.client import chat_or_retry, max_prompt_tokens, message_chars
 from mu.degeneration import guard_enabled, is_degenerate, note_refusal
 from mu.diagnose import distill_test_errors
 
@@ -51,19 +51,6 @@ def flush_repair_trace() -> list[dict]:
     return out
 
 
-def _msg_chars(m: dict) -> int:
-    """Approximate prompt weight of one message in characters.
-
-    Counts content plus tool-call arguments — an assistant turn that Writes a
-    whole file carries the file in its arguments, which is usually the
-    heaviest part of a repair unit. +80 covers role/JSON framing.
-    """
-    n = len(str(m.get('content') or ''))
-    for tc in m.get('tool_calls') or []:
-        n += len(str(tc.get('function', {}).get('arguments') or ''))
-    return n + 80
-
-
 def _fit_prompt_budget(system_msg: dict, all_turns: list[list[dict]],
                        user_msg: dict) -> list[dict]:
     """Assemble the repair prompt without exceeding the model's context.
@@ -78,11 +65,11 @@ def _fit_prompt_budget(system_msg: dict, all_turns: list[list[dict]],
     2026-06-12 run-4 collection).
     """
     budget = max_prompt_tokens() * 4 * 9 // 10  # chars, with 10% safety margin
-    fixed = _msg_chars(system_msg) + _msg_chars(user_msg)
+    fixed = message_chars(system_msg) + message_chars(user_msg)
     units = list(all_turns[-_REPAIR_HISTORY_WINDOW:])
-    while units and fixed + sum(_msg_chars(m) for u in units for m in u) > budget:
+    while units and fixed + sum(message_chars(m) for u in units for m in u) > budget:
         units.pop(0)
-    overshoot = fixed + sum(_msg_chars(m) for u in units for m in u) - budget
+    overshoot = fixed + sum(message_chars(m) for u in units for m in u) - budget
     if overshoot > 0:
         content = str(user_msg.get('content') or '')
         keep = max(len(content) - overshoot, 1500)

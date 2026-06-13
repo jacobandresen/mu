@@ -5,7 +5,8 @@ history units, each embedding ~8KB of file context plus test output plus
 whole files inside Write tool-call arguments, overflow a 6000-token window.
 """
 
-from mu.session import _fit_prompt_budget, _msg_chars
+from mu.client import message_chars
+from mu.session import _fit_prompt_budget
 from mu.client import max_prompt_tokens
 
 SYS = {'role': 'system', 'content': 'x' * 2000}
@@ -21,7 +22,7 @@ def _unit(size: int) -> list[dict]:
 
 
 def _total(msgs: list[dict]) -> int:
-    return sum(_msg_chars(m) for m in msgs)
+    return sum(message_chars(m) for m in msgs)
 
 
 def test_oldest_units_dropped_first():
@@ -55,4 +56,4 @@ def test_giant_user_message_trimmed():
 def test_tool_call_arguments_counted():
     m = {'role': 'assistant', 'content': None,
          'tool_calls': [{'function': {'name': 'Write', 'arguments': 'a' * 5000}}]}
-    assert _msg_chars(m) > 5000
+    assert message_chars(m) > 5000

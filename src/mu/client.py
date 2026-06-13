@@ -672,16 +672,23 @@ def _extract_text_tool_calls(content: str) -> list[dict]:
     return calls
 
 
+def message_chars(m: dict) -> int:
+    """Approximate prompt weight of one chat message, in characters.
+
+    Counts content plus tool-call arguments — an assistant turn that Writes a
+    whole file carries the file in its arguments, usually the heaviest part of
+    a repair unit. +80 covers the role/JSON framing. The single owner of this
+    estimate; session.py's repair-budget trimming calls it too.
+    """
+    n = len(str(m.get('content') or ''))
+    for tc in m.get('tool_calls') or []:
+        n += len(str(tc.get('function', {}).get('arguments') or ''))
+    return n + 80
+
+
 def _est_tokens(messages: list[dict]) -> int:
-    """Rough prompt size: 4 chars ≈ 1 token (the project-wide estimate),
-    counting content and tool-call arguments, +80 chars/message framing."""
-    total = 0
-    for m in messages:
-        total += len(str(m.get('content') or ''))
-        for tc in m.get('tool_calls') or []:
-            total += len(str(tc.get('function', {}).get('arguments') or ''))
-        total += 80
-    return total // 4
+    """Rough prompt size in tokens: total message chars at 4 chars ≈ 1 token."""
+    return sum(message_chars(m) for m in messages) // 4
 
 
 def _shrink_oversized(messages: list[dict]) -> list[dict]:

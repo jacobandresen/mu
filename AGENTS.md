@@ -109,10 +109,11 @@ skills/               skill prompts loaded by the planner at runtime
 
 ## 5. Dojo run config
 
-- Use the most capable model that fits in VRAM. Recommended: `qwen/qwen2.5-coder-7b-instruct` (8 GB), `mistralai/devstral-small-2507` (16 GB), or `mistralai/devstral-small-2-24b-instruct-2512` (32 GB).
-- `MU_AGENT_MODEL` overrides auto-detection; default is the first model loaded in LM Studio.
-- `num_ctx` default is 6000. Do not set above 8192 on M2 8 GB — causes swap and ~6× slowdown.
-- Open challenges tracked in [CHALLENGES.md](CHALLENGES.md).
+Model recommendation, the `MU_NUM_CTX` sweet spots, and the per-model
+profile scheme live in [docs/MODELS.md](docs/MODELS.md) — the single owner;
+don't restate them here. The one rule worth repeating at the point of work:
+**do not load above `MU_NUM_CTX` on an 8 GB machine** (a 7B at 8048 swap-crashed
+the host). Open challenges: [CHALLENGES.md](CHALLENGES.md).
 
 ---
 
@@ -152,20 +153,6 @@ Keep commits atomic. mu drives LM Studio via its OpenAI-compatible API (`client.
 
 ## 7. Starting LM Studio
 
-mu talks to LM Studio's OpenAI-compatible server. Start it headlessly with the
-`lms` CLI (the command-line LM Studio):
-
-```sh
-lms server start                 # start the local server on http://localhost:1234
-lms load ibm/granite-4.1-3b      # load a model (the dojo's primary)
-lms ps                           # confirm what's loaded
-```
-
-Then run mu as normal:
-
-```sh
-mu check          # confirms LM Studio is reachable
-mu agent "..."    # uses the loaded model
-```
-
-Override the host with `MU_LMSTUDIO_HOST` if the server runs elsewhere.
+Starting the server (`lms server start`), loading a model, and `mu check` are
+in the [README quick start](README.md#quick-start). Override the host with
+`MU_LMSTUDIO_HOST` if the server runs elsewhere.

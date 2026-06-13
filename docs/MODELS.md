@@ -16,23 +16,12 @@ is **SWE-bench Verified** (real GitHub issues, tool use + multi-file) — not Hu
 
 ## Integration
 
-mu connects to **LM Studio at `localhost:1234`** via its OpenAI-compatible API (`src/mu/client.py`).
-Override the host with `MU_LMSTUDIO_HOST`.
+mu connects to **LM Studio at `localhost:1234`** via its OpenAI-compatible API
+(`src/mu/client.py`); override the host with `MU_LMSTUDIO_HOST`. Starting the
+server and loading a model is covered in the [README quick start](../README.md#quick-start).
 
-To use a model with mu:
-
-1. Load it in LM Studio (Models tab → load)
-2. Start the local server (LM Studio → Developer → Start Server)
-3. Run:
-   ```
-   mu agent --model <model-id> "your goal"
-   ```
-   Or set the env var permanently:
-   ```
-   export MU_AGENT_MODEL=qwen/qwen2.5-coder-7b-instruct
-   ```
-
-If `--model` and `MU_AGENT_MODEL` are both unset, mu uses the first model loaded in LM Studio.
+**Model selection precedence:** `mu agent --model <id>` > `MU_AGENT_MODEL` env
+var > the first model loaded in LM Studio.
 
 ---
 
@@ -42,7 +31,7 @@ On 8 GB unified memory, CPU + GPU share the pool — headroom is tight (a loaded
 
 - **Context window.** The knob that matters most. `mu dojo run` defaults to `MU_NUM_CTX=8192`, the measured sweet spot for the dojo's `granite-4.1-3b` (~2 GB). Bigger is *not* better: granite scores 3/10 at 8192 but only 1/10 at 16384, where it keeps calling tools but loses coherence in the multi-turn repair loop. A 7B (~4.5 GB) wants less — about 6000; at 8192 it starts swapping (2.6–6× slower) and 16384 isn't viable.
 
-  `client.load_model` adds 2048 tokens of headroom on top of `MU_NUM_CTX`. Without that headroom, LM Studio's 4096-token JIT default silently caps the model and any prompt over 4096 is rejected with HTTP 400 mid-run. Override with `MU_NUM_CTX` (or `MU_LOAD_CTX`).
+  `client.load_model` loads the model at exactly `MU_NUM_CTX` and verifies the resident context, reloading if LM Studio's 4096-token JIT default capped it lower (otherwise prompts above 4096 are rejected with HTTP 400 mid-run). It does *not* pad above `MU_NUM_CTX`: a 7B loaded at 8048 swap-crashed the host. `MU_LOAD_CTX` overrides the loaded window for machines with RAM to spare.
 - **Temperature.** Hardcoded to `0.1` (`client.py`) — low enough for stable structured output, but not a flat `0`, which can send some models into repetition loops.
 - **GPU layers.** Leave at the maximum (all on GPU). CPU offload is a 5–10× slowdown.
 - **Quantization.** `Q4_K_M` is the sweet spot for 8 GB — it fits with room for the KV cache and still produces correct code. `Q8_0` won't fit alongside a useful context.
