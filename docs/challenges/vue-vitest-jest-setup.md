@@ -1,5 +1,7 @@
 # Vue / Vitest / Jest setup
 
+_‹ [All challenges](README.md)_
+
 - **ID:** `vue-vitest-jest-setup`
 - **Group:** Full-stack orchestration / multi-file
 - **CHALLENGES.md:** item 9

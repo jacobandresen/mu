@@ -1,5 +1,7 @@
 # Missing imports
 
+_‹ [All challenges](README.md)_
+
 - **ID:** `missing-imports`
 - **Group:** Model ceiling
 - **CHALLENGES.md:** item 14

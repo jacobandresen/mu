@@ -1,5 +1,7 @@
 # Generic syntax errors
 
+_‹ [All challenges](README.md)_
+
 - **ID:** `generic-syntax-errors`
 - **Group:** Degenerate / malformed generation
 - **CHALLENGES.md:** item 1

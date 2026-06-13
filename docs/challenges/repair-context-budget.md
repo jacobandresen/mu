@@ -1,5 +1,7 @@
 # Repair-context budget
 
+_‹ [All challenges](README.md)_
+
 - **ID:** `repair-context-budget`
 - **Group:** Full-stack orchestration / multi-file
 - **CHALLENGES.md:** item 11

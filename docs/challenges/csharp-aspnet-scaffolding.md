@@ -1,5 +1,7 @@
 # C# / ASP.NET scaffolding
 
+_‹ [All challenges](README.md)_
+
 - **ID:** `csharp-aspnet-scaffolding`
 - **Group:** Full-stack orchestration / multi-file
 - **CHALLENGES.md:** item 8

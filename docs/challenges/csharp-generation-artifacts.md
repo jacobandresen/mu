@@ -1,5 +1,7 @@
 # C# generation artifacts
 
+_‹ [All challenges](README.md)_
+
 - **ID:** `csharp-generation-artifacts`
 - **Group:** Degenerate / malformed generation
 - **CHALLENGES.md:** item 4

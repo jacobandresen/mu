@@ -1,5 +1,7 @@
 # C forward declarations / nested definitions
 
+_‹ [All challenges](README.md)_
+
 - **ID:** `c-forward-declarations`
 - **Group:** Degenerate / malformed generation
 - **CHALLENGES.md:** item 7

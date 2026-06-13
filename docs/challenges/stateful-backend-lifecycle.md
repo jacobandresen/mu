@@ -1,5 +1,7 @@
 # Stateful-backend lifecycle rewrites
 
+_‹ [All challenges](README.md)_
+
 - **ID:** `stateful-backend-lifecycle`
 - **Group:** Model ceiling
 - **CHALLENGES.md:** item 13

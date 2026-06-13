@@ -1,5 +1,7 @@
 # Unterminated string literals
 
+_‹ [All challenges](README.md)_
+
 - **ID:** `unterminated-string-literals`
 - **Group:** Degenerate / malformed generation
 - **CHALLENGES.md:** item 2

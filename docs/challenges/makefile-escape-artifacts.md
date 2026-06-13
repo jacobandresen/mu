@@ -1,5 +1,7 @@
 # Makefile escape artifacts
 
+_‹ [All challenges](README.md)_
+
 - **ID:** `makefile-escape-artifacts`
 - **Group:** Degenerate / malformed generation
 - **CHALLENGES.md:** item 5

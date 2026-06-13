@@ -1,5 +1,7 @@
 # Degenerate repetition
 
+_‹ [All challenges](README.md)_
+
 - **ID:** `degenerate-repetition`
 - **Group:** Degenerate / malformed generation
 - **CHALLENGES.md:** item 6

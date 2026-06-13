@@ -1,5 +1,7 @@
 # Test isolation design
 
+_‹ [All challenges](README.md)_
+
 - **ID:** `test-isolation-design`
 - **Group:** Model ceiling
 - **CHALLENGES.md:** item 12

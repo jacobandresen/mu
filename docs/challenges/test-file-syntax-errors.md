@@ -1,5 +1,7 @@
 # Syntax errors in test files
 
+_‹ [All challenges](README.md)_
+
 - **ID:** `test-file-syntax-errors`
 - **Group:** Harness / environment
 - **CHALLENGES.md:** item 17

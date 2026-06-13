@@ -1,5 +1,7 @@
 # Spurious / unused imports
 
+_‹ [All challenges](README.md)_
+
 - **ID:** `spurious-unused-imports`
 - **Group:** Degenerate / malformed generation
 - **CHALLENGES.md:** item 3

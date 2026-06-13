@@ -1,5 +1,7 @@
 # Environment hygiene
 
+_‹ [All challenges](README.md)_
+
 - **ID:** `environment-hygiene`
 - **Group:** Harness / environment
 - **CHALLENGES.md:** item 16

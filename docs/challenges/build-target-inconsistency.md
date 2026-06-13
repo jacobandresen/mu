@@ -1,5 +1,7 @@
 # Build-target inconsistency & misplaced files
 
+_‹ [All challenges](README.md)_
+
 - **ID:** `build-target-inconsistency`
 - **Group:** Full-stack orchestration / multi-file
 - **CHALLENGES.md:** item 10
