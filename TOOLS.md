@@ -227,6 +227,8 @@ Ranked by leverage against the current open problems (see [TODO.md](TODO.md)).
    fixture/minimization mechanism in `dojo` — a template is a generated fixture. Directly
    attacks CS0017/MSB1003/NU1202 and the Vitest-config class by never emitting them.
    *Risk:* must stay general (scaffold *any* xunit/vite project, not p4/p10 specifically).
+   *Detailed end-to-end plan (offline-first; online scaffolding opt-in):*
+   [docs/plans/scaffolding.md](docs/plans/scaffolding.md).
 
 2. **Type-checker-as-oracle into `diagnose` (broad, low-risk).**
    Run `tsc --noEmit` / `mypy` / parse Roslyn diagnostics and feed the structured result

@@ -14,6 +14,9 @@ qwen2.5-coder-7b).
    project/solution at the test dir (×8), CS0053 inconsistent accessibility on EF types
    (×8). Mix of scaffolding (staged-plan type dedup; ensure `dotnet test` sees a
    csproj/solution) and model ceiling (cascading errors, repair oscillates). Biggest gap.
+   **Lead proposal:** template scaffolding at ground time — plan
+   [docs/plans/scaffolding.md](docs/plans/scaffolding.md) (offline-first; `dotnet new`
+   offline, Vite online-opt-in with vendored fallback).
 2. **p8 jest globals (8/19)** — challenge [vue-vitest-jest-setup](docs/challenges/vue-vitest-jest-setup.md).
    `describe/test is not a function` (×14) — tests run under plain `node`, not `npx jest`.
    Round 7 shipped only a diagnose *hint*; if run 9 still shows it unresolved, promote to a
