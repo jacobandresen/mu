@@ -97,6 +97,23 @@ _RULES: list[_Rule] = [
     _rule(r"^(?P<file>\S+?\.go):(?P<line>\d+):\d+:\s*syntax error:\s*(?P<msg>.+)$",
           lambda m: f"{m['file']}:{m['line']}: Go syntax error: {_clip(m['msg'])}"),
 
+    # ── Python lint (top no-FOCUS shapes of the 2026-06-13 run-7 traces) ──
+    _rule(r"(?P<file>\S+?\.py):(?P<line>\d+):\d+:\s*expected an indented block "
+          r"after (?:function|class) definition on line (?P<def>\d+)",
+          lambda m: f"{m['file']}: the body after the definition on line {m['def']} is not "
+                    f"indented — indent every statement from line {m['line']} one level"),
+    _rule(r"error: could not find `Cargo\.toml`",
+          lambda m: "Cargo.toml is missing — create a minimal manifest "
+                    "([package] name/version/edition) in the project root"),
+    # Jest globals used outside the jest runner: the test was invoked with
+    # `node file.test.js` (or jest config is broken) — 14 unresolved repair
+    # iterations in run 7.
+    _rule(r"(?:ReferenceError: jest is not defined|"
+          r"TypeError: (?:describe|test|it) is not a function)",
+          lambda m: "Jest globals are unavailable — the tests are being run with plain "
+                    "`node`, not jest; the test command must be `npx jest` (fix the "
+                    "Makefile/package.json test target, not the test file)"),
+
     # ── C# / MSBuild ──
     # Actionable shapes first; the generic CS rule below only echoes the
     # compiler text, which the repair model reads without acting on.

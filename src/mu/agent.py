@@ -762,6 +762,7 @@ def run(goal: str, model: str = '', target_dir: str = '',
                         lint_tail = _tail_file(lint_log, 60)
                         det_fixed = (
                             (fix_multiline_single_quote(task.file_path, lint_head) or
+                             _fired(fix_python_unindented_body, task.file_path, lint_head) or
                              _fired(fix_missing_close_paren, task.file_path, lint_head) or
                              _fired(fix_literal_newlines, task.file_path, lint_head) or
                              _fired(fix_python_undefined_imports, task.file_path, lint_head) or
@@ -1264,6 +1265,23 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
         if Path('Cargo.toml').exists():
             run_reflexes([fix_rust_cargo_toml, fix_rust_cargo_bad_dependency],
                          'Cargo.toml')
+        elif 'cargo' in (p.test_command or ''):
+            # Manifest missing entirely (never written, or cleaned away):
+            # cargo can't run at all — 11 repair iterations burned on
+            # "could not find Cargo.toml" in the 2026-06-13 run 7. Write the
+            # same minimal grounded manifest the lint reapply uses.
+            proj = Path(os.getcwd()).name or 'app'
+            main_rs = next(
+                (str(f) for f in Path('.').rglob('main.rs')
+                 if 'target' not in str(f) and '.cargo' not in str(f)), None)
+            bin_section = (f'\n[[bin]]\nname = "{proj}"\npath = "{main_rs}"\n'
+                           if main_rs and not main_rs.startswith('src/') else '')
+            Path('Cargo.toml').write_text(
+                '[package]\n'
+                f'name = "{proj}"\n'
+                'version = "0.1.0"\n'
+                'edition = "2021"\n' + bin_section)
+            log("Repair reapply: created missing Cargo.toml (minimal grounded manifest).")
 
         for t in p.tasks:
             if not Path(t.file_path).exists():
@@ -1311,6 +1329,8 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
         apply_go_reflexes()  # resolve Go module deps before each build attempt
         if _fired(fix_csharp_xunit_packages, os.getcwd()):
             log("Repair reapply: added xunit packages to .csproj.")
+        if _fired(fix_csharp_test_program_conflict, os.getcwd()):
+            log("Repair reapply: disabled test SDK auto entry point (CS0017).")
         if _fired(fix_csharp_package_tfm_mismatch, os.getcwd()):
             log("Repair reapply: aligned Microsoft.* package majors with the TFM.")
         # If any package.json exists but its node_modules is absent, run npm install.
