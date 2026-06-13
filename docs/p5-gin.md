@@ -31,3 +31,18 @@ before anything compiles.
   before each build attempt; `fix_go_trailing_dot` — removes dangling
   trailing `.` artifacts; `fix_go_missing_pkg_imports`,
   `fix_go_unused_imports`.
+
+## Last measured
+
+_Run 7 — 2026-06-12, 8 h collection, qwen2.5-coder-7b-instruct (ctx 6000)._
+
+| Metric | Value |
+|---|---|
+| Pass rate | 11/12 |
+| Median tokens / run | 6,897 prompt · 334 generated |
+| Median repair iters | 0 |
+| Heaviest phase | writer |
+
+**Dominant errors this run:**
+- `./main.go: syntax error: unexpected ., expected }` (×3) — a dangling `.Run()` with no receiver (truncated generation); `fix_go_trailing_dot` covers the simple case.
+- Outcomes: final test gate failed (×1).

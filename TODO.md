@@ -1,11 +1,42 @@
 # TODO — ranked by impact
 
-Evidence base: `mu observe` + `mu kb` combination report (n≈1025 sessions, qwen2.5),
-CHALLENGES.md. Refreshed 2026-06-11.
+Evidence base: per-problem run-7 data (`docs/p*.md` "Last measured"), repair-trace
+mining, `mu kb` combination report. Refreshed 2026-06-13 (after run 7, 8 h / 12 rounds,
+qwen2.5-coder-7b).
+
+---
+
+## Open — ranked by impact
+
+1. **p10 full-stack (0/12 — the open problem).** Multi-project C#/Vue. Dominant run-7
+   errors: CS0101 duplicate types across files (×14), MSB1003 no project/solution at the
+   test dir (×8), CS0053 inconsistent accessibility on EF types (×8). Mix of scaffolding
+   (staged-plan type dedup; ensure `dotnet test` sees a csproj/solution) and model ceiling
+   (cascading errors, repair oscillates). Biggest single gap in the set.
+2. **p8 jest globals (8/19).** `describe/test is not a function` (×14) — tests run under
+   plain `node`, not `npx jest`. Round 7 shipped only a diagnose *hint*; if run 9 still
+   shows it unresolved, promote to a deterministic reflex that rewrites the Makefile /
+   package.json test target to `npx jest`.
+3. **p7 Makefile `test` target (9/15).** `no rule to make target 'test'` (×7) — the
+   dominant p7 bucket. A Makefile reflex could synthesize a `test` target from the plan's
+   test command when absent.
+4. **p2 SQLAlchemy ORM setup (9/15).** `Todo has no attribute '__table__'`,
+   `declarative_base` undefined — declarative-base wiring done wrong. Candidate: a
+   python-writer skill rule, or a reflex for the standard declarative-base shape.
+5. **p9 component/test contract (12/13).** Assertion mismatches (component renders heading
+   + button, not the todo text). Mostly model quality — low priority, accept variance.
 
 ---
 
 ## Done (recent)
+
+- **Round 7 (2026-06-13), telemetry-driven.** `fix_csharp_test_program_conflict` (CS0017
+  test-SDK second `Main`); `fix_python_unindented_body` (lint-driven, ast-rollback);
+  test-gate creates a missing `Cargo.toml`; jest-globals diagnose hint. Reflex telemetry:
+  complete `firings.jsonl` (`core.noted` wraps all direct call sites), `reflex_diffs.jsonl`,
+  `repair_trace.jsonl`. **Crash fix:** round-7 reflexes were wired into `agent.py` but not
+  imported → NameError crashed every problem's repair loop (wasted run 8); fixed + AST guard
+  (`test_agent_reflex_imports`) + launcher preflight (test suite + live smoke before any 8 h run).
 
 - **`fix_inline_recipe` ablation (2026-06-11, TODO #1) — KEEP.** 3 seeds × 5 runs on
   p7-flask, baseline vs `--disable fix_inline_recipe`, 245 post-oscillation-fix sessions in

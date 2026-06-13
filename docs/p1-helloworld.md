@@ -30,3 +30,17 @@ Makefile generation, build gate) is usually what broke.
   plan's test command.
 - `fix_literal_newlines`, `fix_tool_call_artifacts` — generic write-phase
   cleanup.
+
+## Last measured
+
+_Run 7 — 2026-06-12, 8 h collection, qwen2.5-coder-7b-instruct (ctx 6000)._
+
+| Metric | Value |
+|---|---|
+| Pass rate | 12/12 |
+| Median tokens / run | 4,570 prompt · 224 generated |
+| Median repair iters | 0 |
+| Heaviest phase | writer |
+
+**Dominant errors this run:**
+- None — passed every run.

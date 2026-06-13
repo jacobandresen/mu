@@ -38,3 +38,19 @@ failures are configuration, not application logic.
   logic).
 - `fix_js_extra_closing_brace`, `fix_js_const_reassignment`,
   `fix_js_same_scope_redeclaration`.
+
+## Last measured
+
+_Run 7 — 2026-06-12, 8 h collection, qwen2.5-coder-7b-instruct (ctx 6000)._
+
+| Metric | Value |
+|---|---|
+| Pass rate | 12/13 |
+| Median tokens / run | 26,673 prompt · 1,150 generated |
+| Median repair iters | 4 |
+| Heaviest phase | writer |
+
+**Dominant errors this run:**
+- **Component/test contract mismatch** — `assertion failed: expected 'Todo ListAdd…' to contain <item>` (×6) — the component renders only heading + button, not the todo text.
+- `Vitest: test suite has 0 tests` (×4) — globals/config not picked up.
+- Outcomes: lint still failing after repair (×1).

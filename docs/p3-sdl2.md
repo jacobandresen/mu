@@ -32,3 +32,17 @@ hanging.
   valid recipe.
 - Plan normalization rewrites blocking `./binary` test commands into
   non-blocking checks.
+
+## Last measured
+
+_Run 7 — 2026-06-12, 8 h collection, qwen2.5-coder-7b-instruct (ctx 6000)._
+
+| Metric | Value |
+|---|---|
+| Pass rate | 12/12 |
+| Median tokens / run | 8,177 prompt · 575 generated |
+| Median repair iters | 0 |
+| Heaviest phase | writer |
+
+**Dominant errors this run:**
+- None — passed every run.

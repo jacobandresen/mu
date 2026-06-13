@@ -31,3 +31,17 @@ the whole build before any Rust is compiled.
   the lint-repair hook resets `Cargo.toml` to a minimal grounded manifest.
 - `apply_rust_source_reflexes`, `fix_rust_missing_trait_import`,
   `fix_rust_unbalanced_braces`.
+
+## Last measured
+
+_Run 7 — 2026-06-12, 8 h collection, qwen2.5-coder-7b-instruct (ctx 6000)._
+
+| Metric | Value |
+|---|---|
+| Pass rate | 11/11 |
+| Median tokens / run | 3,864 prompt · 254 generated |
+| Median repair iters | 1 |
+| Heaviest phase | repair |
+
+**Dominant errors this run:**
+- None — passed every run (median 1 repair iter, usually a Cargo.toml regen).

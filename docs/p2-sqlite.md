@@ -33,3 +33,19 @@ handling and test isolation matter, not just syntax.
 - `fix_python_missing_stdlib_imports` (name-binding aware since
   2026-06-12), `fix_python_missing_project_imports`,
   `fix_test_import_module`.
+
+## Last measured
+
+_Run 7 — 2026-06-12, 8 h collection, qwen2.5-coder-7b-instruct (ctx 6000)._
+
+| Metric | Value |
+|---|---|
+| Pass rate | 9/15 |
+| Median tokens / run | 16,894 prompt · 1,092 generated |
+| Median repair iters | 6 |
+| Heaviest phase | repair |
+
+**Dominant errors this run:**
+- SQLAlchemy ORM misuse — `type object 'Todo' has no attribute '__table__'`, `undefined name 'declarative_base'` (×3, ×2): model mixes declarative-base setup incorrectly.
+- `'TodoManager' object has no attribute '_conn'` (×2) — connection attribute set on a different path than it's read.
+- Outcomes: tests still failing after repair (×5), lint still failing after repair (×1).

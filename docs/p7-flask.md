@@ -38,3 +38,19 @@ set.
 - `fix_python_missing_stdlib_imports` (covers `from flask import …`
   binding since 2026-06-12), `fix_missing_pip_packages`, the SQLite
   isolation family shared with [p2](p2-sqlite.md).
+
+## Last measured
+
+_Run 7 — 2026-06-12, 8 h collection, qwen2.5-coder-7b-instruct (ctx 6000)._
+
+| Metric | Value |
+|---|---|
+| Pass rate | 9/15 |
+| Median tokens / run | 12,792 prompt · 856 generated |
+| Median repair iters | 1 |
+| Heaviest phase | repair |
+
+**Dominant errors this run:**
+- **`Makefile: no rule to make target 'test'`** (×7) — the generated Makefile lacks the `test` target the test command invokes; the dominant bucket.
+- `ModuleNotFoundError: 'flask'` (×3) — flask absent from the pip install / requirements.
+- Outcomes: tests still failing after repair (×3), lint still failing (×2), interrupted (×1).

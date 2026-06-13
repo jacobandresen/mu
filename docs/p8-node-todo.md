@@ -38,3 +38,18 @@ mismatch between the two.
   `fix_js_env_data_file` (per-test data-file isolation).
 - Diagnose FOCUS hints: Jest spy-on-missing-export (strong), runtime
   `TypeError: X is not a function` (weak).
+
+## Last measured
+
+_Run 7 — 2026-06-12, 8 h collection, qwen2.5-coder-7b-instruct (ctx 6000)._
+
+| Metric | Value |
+|---|---|
+| Pass rate | 8/19 |
+| Median tokens / run | 28,372 prompt · 1,687 generated |
+| Median repair iters | 6 |
+| Heaviest phase | repair |
+
+**Dominant errors this run:**
+- **Jest globals undefined** — `describe/test is not a function`, `jest is not defined` (×14) — tests run under plain `node`, not `npx jest`. Round 7 added a diagnose hint pointing at the test command, not the test file.
+- Outcomes: final test gate failed (×9), tests still failing after repair (×2).

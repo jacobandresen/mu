@@ -44,3 +44,20 @@ separate stages, each spawning its own session.
 - The test-gate reapply hook deletes orphaned `.cs` duplicates that the
   root csproj would otherwise compile twice.
 - The Vue/Vitest family of [p9](p9-vue-todo.md) for the frontend stage.
+
+## Last measured
+
+_Run 7 — 2026-06-12, 8 h collection, qwen2.5-coder-7b-instruct (ctx 6000)._
+
+| Metric | Value |
+|---|---|
+| Pass rate | 0/12 |
+| Median tokens / run | 32,914 prompt · 1,597 generated |
+| Median repair iters | 6 |
+| Heaviest phase | writer |
+
+**Dominant errors this run:**
+- **CS0101: duplicate definition in global namespace** (×14) — the multi-project layout duplicates types (`AppDb`, controllers) across files.
+- **MSB1003: no project/solution file** (×8) — `dotnet test` run from a directory with no csproj.
+- `CS0053: inconsistent accessibility` (×8) — public API exposing a less-accessible EF type.
+- Outcomes: final test gate failed (×7), tests still failing after repair (×5). **0/12 — the open problem.**
