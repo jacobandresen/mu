@@ -21,7 +21,7 @@ restore, and the interplay between a `Main` entry point and a test host.
   (CS8803/CS1022). Diagnose emits actionable FOCUS hints for both.
 - **Stuttered generation** — the same method-signature opener emitted 3–4
   times with orphaned `[Fact]` attributes between (dominant bucket of the
-  2026-06-12 run-4 collection; [CHALLENGES.md](../../CHALLENGES.md) items 4, 17).
+  2026-06-12 run-4 collection; [lessons](../challenges/lessons.md) items 4, 17).
 - **Package/TFM mismatch** — `Microsoft.AspNetCore.Mvc.Testing 8.*`
   injected into a `net7.0` project fails restore with NU1202.
 

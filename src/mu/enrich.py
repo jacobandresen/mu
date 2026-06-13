@@ -2,11 +2,11 @@
 
 In AIMA terms this is the **learning element's retrieval arm** — it reads the
 episodic memory (``~/.mu/sessions/``) and the mutable knowledge base
-(``CHALLENGES.md``) and surfaces lessons that are semantically relevant to the
+(``docs/challenges/lessons.md``) and surfaces lessons that are semantically relevant to the
 current goal. This is an ASK operation on the knowledge base, in contrast to
 ``reflect`` which TELLs it.
 
-The retriever uses sentence-transformers to embed CHALLENGES.md entries plus a
+The retriever uses sentence-transformers to embed docs/challenges/lessons.md entries plus a
 per-session goal index, and returns lessons whose semantic neighbourhood in the
 archive contains enough prior failures to corroborate them.
 
@@ -71,8 +71,8 @@ def _embed(texts: list[str]):
         return None
 
 
-def open_challenges(challenges_path: str = 'CHALLENGES.md') -> list[str]:
-    """Parse the Open section of CHALLENGES.md into one string per entry."""
+def open_challenges(challenges_path: str = 'docs/challenges/lessons.md') -> list[str]:
+    """Parse the Open section of docs/challenges/lessons.md into one string per entry."""
     try:
         text = Path(challenges_path).read_text(encoding='utf-8')
     except OSError:
@@ -177,7 +177,7 @@ def _bump_log(lesson_ids: list[str]) -> None:
 
 
 def lessons_for(goal: str, k: int = 3,
-                challenges_path: str = 'CHALLENGES.md') -> list[str]:
+                challenges_path: str = 'docs/challenges/lessons.md') -> list[str]:
     """Return up to k lessons semantically relevant to the goal.
 
     Returns [] when embeddings are unavailable, when no challenges exist,

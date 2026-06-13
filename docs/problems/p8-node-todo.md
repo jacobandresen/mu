@@ -24,7 +24,7 @@ mismatch between the two.
   class). `Cannot spy the X property because it is not a function`
   dominated the 2026-06-12 run-3 failures; the FOCUS hint now directs the
   repair at the module's exports, not the test
-  ([CHALLENGES.md](../../CHALLENGES.md) items 12, 15).
+  ([lessons](../challenges/lessons.md) items 12, 15).
 - **Jest configuration** — `_test.js` naming that matches no testRegex,
   ESM `import` in a CommonJS project, bare `jest` not on PATH (item 9).
 - **Test isolation** — tests sharing the JSON data file accumulate state

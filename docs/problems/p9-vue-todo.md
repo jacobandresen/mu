@@ -23,7 +23,7 @@ failures are configuration, not application logic.
 - **Vitest/Vite configuration** — watch-mode hang (`vitest` vs
   `vitest run`), missing `globals: true`, missing `vue` peer dependency,
   type-checking before `npm install`
-  ([CHALLENGES.md](../../CHALLENGES.md) item 9).
+  ([lessons](../challenges/lessons.md) item 9).
 - **Component/test contract mismatch** — the test asserts rendered todo
   text but the component renders only the heading and button (the
   recurring `expected 'Todo ListAddAdd' to contain 'Buy milk'`

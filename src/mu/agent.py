@@ -11,7 +11,7 @@ four learning-agent components into the plan → write → repair → archive lo
   action against the fixed performance standard (tests exit 0) and drives the
   repair loop.
 * **Learning element** (``reflect``, ``enrich``) — distills the critic's
-  feedback across episodes into the knowledge base (``CHALLENGES.md``).
+  feedback across episodes into the knowledge base (``docs/challenges/lessons.md``).
 
 ``run()`` is the main entry point; ``plan()`` is the planner-only subcommand.
 """
@@ -2656,9 +2656,9 @@ def _lint_critique_pass(plan_path: str, goal: str, model: str,
 
 
 def _load_challenges_for_planner() -> str:
-    """Return the Open section of project CHALLENGES.md, or '' if unavailable."""
+    """Return the Open section of project docs/challenges/lessons.md, or '' if unavailable."""
     try:
-        text = Path('CHALLENGES.md').read_text(encoding='utf-8')
+        text = Path('docs/challenges/lessons.md').read_text(encoding='utf-8')
     except OSError:
         return ''
     if '## Open' not in text:

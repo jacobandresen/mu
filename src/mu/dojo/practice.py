@@ -1,7 +1,7 @@
 """Run repeated dojo rounds and learn from each one. (Port of practice.sh.)
 
 Each round runs the full problem set (``python -m mu.dojo run``), then reflects
-failures into CHALLENGES.md via ``mu reflect``. The per-problem pass-rate table
+failures into docs/challenges/lessons.md via ``mu reflect``. The per-problem pass-rate table
 (printed at the end) shows which problems fail chronically — those are reflex
 candidates. TODO.md tracks the improvement backlog.
 
@@ -105,8 +105,8 @@ def _autocommit(round_num: int) -> None:
         return
     with _best_effort('autocommit'):
         files = []
-        if Path('CHALLENGES.md').is_file() and _git_dirty('CHALLENGES.md'):
-            files.append('CHALLENGES.md')
+        if Path('docs/challenges/lessons.md').is_file() and _git_dirty('docs/challenges/lessons.md'):
+            files.append('docs/challenges/lessons.md')
         if Path('token_usage.md').is_file() and (not _git_tracked('token_usage.md') or _git_dirty('token_usage.md')):
             subprocess.run(['git', 'add', 'token_usage.md'])
             files.append('token_usage.md')
@@ -116,7 +116,7 @@ def _autocommit(round_num: int) -> None:
             return
         ver = _mu_version()
         subprocess.run(['git', 'commit', '-o', *files, '-m',
-                        f"dojo round {round_num}: update README.md, CHALLENGES.md, "
+                        f"dojo round {round_num}: update README.md, docs/challenges/lessons.md, "
                         f"token_usage.md (mu {ver})"],
                        stdout=subprocess.DEVNULL)
 

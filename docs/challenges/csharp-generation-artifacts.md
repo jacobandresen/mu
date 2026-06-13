@@ -4,7 +4,7 @@ _‹ [All challenges](README.md)_
 
 - **ID:** `csharp-generation-artifacts`
 - **Group:** Degenerate / malformed generation
-- **CHALLENGES.md:** item 4
+- **Lessons KB:** item 4
 - **Status:** each shape covered by a named reflex
 
 ## What it is

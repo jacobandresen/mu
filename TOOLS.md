@@ -1,7 +1,7 @@
 # Tools for the dojo challenges — a report
 
 _A survey of external program-analysis and program-transformation tools that could
-address the failure classes in [CHALLENGES.md](CHALLENGES.md), and a discussion of
+address the failure classes in [challenges](docs/challenges/README.md), and a discussion of
 when a **tool** is the right instrument versus a hand-written **reflex**. This is a
 design study — nothing here is implemented; the intent is to map the option space._
 

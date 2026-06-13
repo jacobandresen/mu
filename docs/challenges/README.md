@@ -1,6 +1,6 @@
 # Challenges — overview
 
-One page per recurring failure class mu meets in the dojo. Each lists the problems that exhibit it and the reflexes/mechanisms that address it. Grouped as in [CHALLENGES.md](../../CHALLENGES.md); **Status** is how well the harness handles it today.
+One page per recurring failure class mu meets in the dojo. Each lists the problems that exhibit it and the reflexes/mechanisms that address it. Grouped as in [lessons.md](lessons.md); **Status** is how well the harness handles it today.
 
 _Status legend: **covered** = a reflex resolves it deterministically · **partial** = handled for common shapes, residue remains · **mitigated** = bounded by a mechanism, not eliminated · **model-ceiling** = beyond the weak model, no reflex can reach · **open** = no fixer yet._
 

@@ -233,7 +233,7 @@ tier adds nothing over the offline+vendored path (then don't ship the network de
 - [ ] `mu check` scaffold-readiness; `mu setup` optional pre-warm + Vite vendored fallback under `dojo/scaffolds/`.
 - [ ] Phase 3 treatment measurements (offline; online for p9).
 - [ ] Phase 4 analysis (Beta-Binomial Δ + CIs); KEEP/DROP decision per pre-registered criteria.
-- [ ] Update docs: TOOLS.md (mark `dotnet new`/`cargo new` ✓, `create-vite` per outcome), affected `docs/problems/*` and `docs/challenges/csharp-aspnet-scaffolding.md` status, CHALLENGES.md, TODO.md.
+- [ ] Update docs: TOOLS.md (mark `dotnet new`/`cargo new` ✓, `create-vite` per outcome), affected `docs/problems/*` and `docs/challenges/csharp-aspnet-scaffolding.md` status, docs/challenges/lessons.md, TODO.md.
 
 ## 9. Done criteria
 

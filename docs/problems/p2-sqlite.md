@@ -19,7 +19,7 @@ handling and test isolation matter, not just syntax.
 
 - **SQLite test isolation** — tests sharing one on-disk database leak rows
   between tests; `:memory:` databases opened per-operation destroy data
-  each call ([CHALLENGES.md](../../CHALLENGES.md) items 12, 13).
+  each call ([lessons](../challenges/lessons.md) items 12, 13).
 - **Missing/duplicated imports** — the module under test or `sqlite3`
   itself not imported; in 2026-06-12 runs a reflex bug re-added imports
   already bound by `from flask import …`-style lines, stalling every

@@ -74,7 +74,7 @@ def _build_parser() -> argparse.ArgumentParser:
     pr.add_argument('--no-reflect', action='store_true', default=_env_flag('SKIP_REFLECT'),
                     help='skip the post-round reflect step')
     pr.add_argument('--autocommit', action='store_true', default=False,
-                    help='commit README/CHALLENGES/token_usage after each round')
+                    help='commit README/lessons/token_usage after each round')
     pr.add_argument('--no-preflight', action='store_true', default=_env_flag('SKIP_PREFLIGHT'),
                     help='skip the LM Studio reachability check')
 

@@ -181,7 +181,7 @@ def _write(path: str, content: str) -> str:
         return f"refused: {path} is inside a generated directory — do not modify package manager files"
     if guard_enabled() and is_degenerate(content):
         # The model fell into a repetition loop; writing this would corrupt the
-        # file from the first token. Refuse so the writer resamples (CHALLENGES.md #1).
+        # file from the first token. Refuse so the writer resamples (docs/challenges/degenerate-repetition.md).
         note_refusal()
         print(f"==> [mu-agent] Degeneration guard: refused corrupt write to {path}")
         return (f"refused: the content for {path} is a repetition loop (degenerate "

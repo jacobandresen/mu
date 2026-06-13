@@ -29,10 +29,10 @@ mu is a learning agent with four components:
 |---|---|
 | **Performance element** | planner (`_run_planner`) + writer loop (`Session.run`) |
 | **Critic** | test gate + `Session.repair_loop`; standard = "test command exits 0" |
-| **Learning element** | `reflect.py` → `CHALLENGES.md`; `enrich.py` retrieves at plan time |
+| **Learning element** | `reflect.py` → `docs/challenges/lessons.md`; `enrich.py` retrieves at plan time |
 | **Problem generator** | the dojo (`mu dojo run` / `mu dojo practice`) |
 
-**Feedback path:** `AgentSession.finalize` writes the outcome → `reflect` distills failures into `CHALLENGES.md` → `enrich` retrieves lessons → `_run_planner` injects them into the next goal's system prompt.
+**Feedback path:** `AgentSession.finalize` writes the outcome → `reflect` distills failures into `docs/challenges/lessons.md` → `enrich` retrieves lessons → `_run_planner` injects them into the next goal's system prompt.
 
 `Session.repair_loop` is in-episode correction only — it reacts to test output within a single run and does not update the agent's knowledge base.
 
@@ -92,7 +92,7 @@ src/mu/diagnose.py    repair-loop sensor: distils a test/lint log to a FOCUS hin
 src/mu/tools.py       actuators (Write/Edit) + percepts (Read)
 src/mu/client.py      LM Studio HTTP client
 src/mu/archive.py     session tombstones + Utility record
-src/mu/reflect.py     offline learner: distills failures into CHALLENGES.md
+src/mu/reflect.py     offline learner: distills failures into docs/challenges/lessons.md
 src/mu/enrich.py      retrieval: fetches relevant challenges at plan time
 src/mu/lint.py        pre-execution plan critic (used by improve-plan + MU_LINT_PLAN)
 src/mu/__main__.py    CLI and all commands
@@ -113,7 +113,7 @@ Model recommendation, the `MU_NUM_CTX` sweet spots, and the per-model
 profile scheme live in [docs/MODELS.md](docs/MODELS.md) — the single owner;
 don't restate them here. The one rule worth repeating at the point of work:
 **do not load above `MU_NUM_CTX` on an 8 GB machine** (a 7B at 8048 swap-crashed
-the host). Open challenges: [CHALLENGES.md](CHALLENGES.md).
+the host). Open challenges: [challenges](docs/challenges/README.md).
 
 ---
 

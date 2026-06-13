@@ -228,7 +228,7 @@ class Session:
                     code, ok = tools.extract_code_block(msg['content'], watch_file)
                     if ok and code and guard_enabled() and is_degenerate(code):
                         # Repetition loop in the extracted block — don't commit a
-                        # corrupt file; fall through to resample (CHALLENGES.md #1).
+                        # corrupt file; fall through to resample (docs/challenges/degenerate-repetition.md).
                         note_refusal()
                         print("==> [mu-agent] Degeneration guard: discarded a "
                               "repetition-loop code block; resampling.")

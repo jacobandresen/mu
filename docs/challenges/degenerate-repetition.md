@@ -4,7 +4,7 @@ _‹ [All challenges](README.md)_
 
 - **ID:** `degenerate-repetition`
 - **Group:** Degenerate / malformed generation
-- **CHALLENGES.md:** item 6
+- **Lessons KB:** item 6
 - **Status:** NOT reflex-recoverable — sampler + guard only
 
 ## What it is

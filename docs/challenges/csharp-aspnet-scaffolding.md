@@ -4,7 +4,7 @@ _‹ [All challenges](README.md)_
 
 - **ID:** `csharp-aspnet-scaffolding`
 - **Group:** Full-stack orchestration / multi-file
-- **CHALLENGES.md:** item 8
+- **Lessons KB:** item 8
 - **Status:** partial — many reflexes; p10 still 0-pass
 
 ## What it is

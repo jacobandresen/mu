@@ -19,7 +19,7 @@ the whole build before any Rust is compiled.
 - **Hallucinated manifest dependencies** — the model (especially in
   repair) adds `fibonacci = "0.1.1"`-style dependencies that are valid
   TOML but unresolvable, failing every build
-  ([CHALLENGES.md](../../CHALLENGES.md) item 3).
+  ([lessons](../challenges/lessons.md) item 3).
 - **Unmatched braces / unused `use`** — generic Rust syntax issues
   (items 1, 3).
 

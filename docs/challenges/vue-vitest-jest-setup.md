@@ -4,7 +4,7 @@ _‹ [All challenges](README.md)_
 
 - **ID:** `vue-vitest-jest-setup`
 - **Group:** Full-stack orchestration / multi-file
-- **CHALLENGES.md:** item 9
+- **Lessons KB:** item 9
 - **Status:** each shape covered by a reflex or hint
 
 ## What it is

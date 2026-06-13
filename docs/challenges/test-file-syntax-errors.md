@@ -4,7 +4,7 @@ _‹ [All challenges](README.md)_
 
 - **ID:** `test-file-syntax-errors`
 - **Group:** Harness / environment
-- **CHALLENGES.md:** item 17
+- **Lessons KB:** item 17
 - **Status:** JS + C# shapes covered by reflexes
 
 ## What it is

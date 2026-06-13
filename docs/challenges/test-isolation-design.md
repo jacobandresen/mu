@@ -4,7 +4,7 @@ _‹ [All challenges](README.md)_
 
 - **ID:** `test-isolation-design`
 - **Group:** Model ceiling
-- **CHALLENGES.md:** item 12
+- **Lessons KB:** item 12
 - **Status:** partial — reflex enables it when the model writes hooks
 
 ## What it is

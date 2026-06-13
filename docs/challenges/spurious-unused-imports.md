@@ -4,7 +4,7 @@ _‹ [All challenges](README.md)_
 
 - **ID:** `spurious-unused-imports`
 - **Group:** Degenerate / malformed generation
-- **CHALLENGES.md:** item 3
+- **Lessons KB:** item 3
 - **Status:** covered by reflexes
 
 ## What it is

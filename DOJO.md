@@ -41,7 +41,7 @@ Inspect failures in `~/.mu/sessions/<id>/logs/`; the `diagnose` sensor (`src/mu/
 `mu dojo practice` is how mu is trained: run the set with a weak model, find the general classes of mistake it makes, encode a reflex (or normalizer) that fixes the class. Each round:
 
 1. Runs the full set via `mu dojo run`.
-2. Reflects the round's failures into `CHALLENGES.md` (`mu reflect`), each tagged with its distilled root cause (the diagnose sensor).
+2. Reflects the round's failures into `docs/challenges/lessons.md` (`mu reflect`), each tagged with its distilled root cause (the diagnose sensor).
 3. Rewrites the `DOJO-RESULTS` block in `README.md` with that round's PASS/FAIL (last round only — it overwrites).
 4. Prints a per-problem pass-rate table, worst-first.
 
@@ -55,7 +55,7 @@ Read the table and the causes: a problem failing every round with the **same** c
 - **Skills** (`skills/<name>/SKILL.md`) — prompt fragments injected at plan time. Prefer a skill when a better instruction would prevent the mistake.
 - **Agent logic** (`src/mu/agent.py`) — orchestration, timeouts, where reflexes chain into the gates. Touch this last.
 
-Open challenges tracked in [CHALLENGES.md](CHALLENGES.md).
+Open challenges tracked in [challenges](docs/challenges/README.md).
 
 ## Model / tuning
 
@@ -102,7 +102,7 @@ Recorded phases: `planner`, `writer`, `repair`, `lint-repair`, `architect`, `sta
 **Reduction levers** (prompt management only — no change to the model, dojo, or reflexes):
 
 - **Prompt-cache layout** (`MU_PROMPT_CACHE=1`) — put stable content (skills, rules, challenges, example) in the *system* message so LM Studio's KV cache (`cache_prompt`) reuses the prefix across writer calls; only DIR/GOAL stay volatile.
-- **Selective challenge retrieval** (`MU_ENRICH_LESSONS=1`, `enrich.py`) — send only the retrieved relevant lessons instead of the whole Open section of `CHALLENGES.md`.
+- **Selective challenge retrieval** (`MU_ENRICH_LESSONS=1`, `enrich.py`) — send only the retrieved relevant lessons instead of the whole Open section of `docs/challenges/lessons.md`.
 - *Planned:* narrow the repair context to the file(s) just changed (turns 1+), prune repair history to a sliding window, and send only the source-under-test to a test-file writer task.
 
 ## Problem-space minimization

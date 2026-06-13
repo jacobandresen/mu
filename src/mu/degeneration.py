@@ -1,6 +1,6 @@
 """Degeneration guard: detect a writer that fell into a token-repetition loop.
 
-The dominant failure mode for small local models (see CHALLENGES.md #1) is
+The dominant failure mode for small local models (see docs/challenges/degenerate-repetition.md) is
 *degeneration*: at near-greedy temperature the model gets stuck emitting the same
 short fragment forever — ``print(f"{task[print(f"{task[…`` — and the file it
 writes is corrupt from the first token. A reflex cannot repair this (you cannot
