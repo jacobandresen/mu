@@ -24,11 +24,11 @@ Makefile generation, build gate) is usually what broke.
 
 ## Related reflexes
 
-- The Makefile reflex family: `apply_makefile_reflexes` (tab/indent/escape
+- The Makefile reflex family: [`apply_makefile_reflexes`](../../src/mu/reflexes/makefile/apply_makefile_reflexes.py) (tab/indent/escape
   normalizers, orphan top-level commands, missing test target),
-  `fix_makefile_binary_name` — aligns the recipe's output binary with the
+  [`fix_makefile_binary_name`](../../src/mu/reflexes/makefile/fix_makefile_binary_name.py) — aligns the recipe's output binary with the
   plan's test command.
-- `fix_literal_newlines`, `fix_tool_call_artifacts` — generic write-phase
+- [`fix_literal_newlines`](../../src/mu/reflexes/core.py), [`fix_tool_call_artifacts`](../../src/mu/reflexes/core.py) — generic write-phase
   cleanup.
 
 ## Last measured

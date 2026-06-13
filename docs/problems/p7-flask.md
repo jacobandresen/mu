@@ -32,11 +32,11 @@ set.
 
 ## Related reflexes
 
-- `fix_missing_flask_client_fixture` — injects the pytest `client`
-  fixture when tests use it undefined; `fix_flask_post_missing_201`,
-  `fix_flask_test_route_decorators`, `fix_flask_init_db_import`.
-- `fix_python_missing_stdlib_imports` (covers `from flask import …`
-  binding since 2026-06-12), `fix_missing_pip_packages`, the SQLite
+- [`fix_missing_flask_client_fixture`](../../src/mu/reflexes/python/fix_missing_flask_client_fixture.py) — injects the pytest `client`
+  fixture when tests use it undefined; [`fix_flask_post_missing_201`](../../src/mu/reflexes/python/fix_flask_post_missing_201.py),
+  [`fix_flask_test_route_decorators`](../../src/mu/reflexes/python/fix_flask_test_route_decorators.py), [`fix_flask_init_db_import`](../../src/mu/reflexes/python/fix_flask_init_db_import.py).
+- [`fix_python_missing_stdlib_imports`](../../src/mu/reflexes/python/fix_python_missing_stdlib_imports.py) (covers `from flask import …`
+  binding since 2026-06-12), [`fix_missing_pip_packages`](../../src/mu/reflexes/python/fix_missing_pip_packages.py), the SQLite
   isolation family shared with [p2](p2-sqlite.md).
 
 ## Last measured

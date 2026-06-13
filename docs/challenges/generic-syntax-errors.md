@@ -19,11 +19,11 @@ Plain syntax mistakes a weak model makes across languages: Python indentation/co
 
 ## Relevant reflexes & mechanisms
 
-- `fix_python_unindented_body` — indents a def/class body left at column 0 (ast-rollback)
-- `fix_python_method_indent` — re-indents a `def` after a class-level decorator
-- `fix_go_trailing_dot` — removes a dangling trailing `.`
-- `fix_rust_unbalanced_braces` — rebalances Rust braces
-- `fix_csharp_missing_braces` — closes unbalanced C# braces
+- [`fix_python_unindented_body`](../../src/mu/reflexes/python/fix_python_unindented_body.py) — indents a def/class body left at column 0 (ast-rollback)
+- [`fix_python_method_indent`](../../src/mu/reflexes/python/fix_python_method_indent.py) — re-indents a `def` after a class-level decorator
+- [`fix_go_trailing_dot`](../../src/mu/reflexes/go/fix_go_trailing_dot.py) — removes a dangling trailing `.`
+- [`fix_rust_unbalanced_braces`](../../src/mu/reflexes/rust/fix_rust_unbalanced_braces.py) — rebalances Rust braces
+- [`fix_csharp_missing_braces`](../../src/mu/reflexes/csharp/fix_csharp_missing_braces.py) — closes unbalanced C# braces
 
 ## Residual / notes
 

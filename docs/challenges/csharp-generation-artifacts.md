@@ -18,10 +18,10 @@ C#-specific malformations: top-level statements before a namespace (CS1529), ver
 
 ## Relevant reflexes & mechanisms
 
-- `fix_csharp_lambda_brace_confusion` — replaces `{){` with `))`
-- `fix_csharp_keyword_prefix_artifacts` — strips a stray char fused to a keyword
-- `fix_csharp_verbatim_string_escape` — drops the `@` so `\"` is valid
-- `fix_csharp_consecutive_duplicate_signatures` — collapses stuttered duplicate signature openers
+- [`fix_csharp_lambda_brace_confusion`](../../src/mu/reflexes/csharp/fix_csharp_lambda_brace_confusion.py) — replaces `{){` with `))`
+- [`fix_csharp_keyword_prefix_artifacts`](../../src/mu/reflexes/csharp/fix_csharp_keyword_prefix_artifacts.py) — strips a stray char fused to a keyword
+- [`fix_csharp_verbatim_string_escape`](../../src/mu/reflexes/csharp/fix_csharp_verbatim_string_escape.py) — drops the `@` so `\"` is valid
+- [`fix_csharp_consecutive_duplicate_signatures`](../../src/mu/reflexes/csharp/fix_csharp_consecutive_duplicate_signatures.py) — collapses stuttered duplicate signature openers
 
 ## Residual / notes
 

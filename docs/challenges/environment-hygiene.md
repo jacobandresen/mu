@@ -19,7 +19,7 @@ Environment rather than code: system-wide vs Homebrew Python (use a venv), a ser
 ## Relevant reflexes & mechanisms
 
 - `python-env skill` — venv isolation, pytest version rules, stateless tests
-- `fix_missing_venv_rule` — adds a venv setup rule to the Makefile
+- [`fix_missing_venv_rule`](../../src/mu/reflexes/makefile/fix_missing_venv_rule.py) — adds a venv setup rule to the Makefile
 - `agent.log tee` — empty-log sessions now archive a real cause signature (2026-06-12)
 
 ## Residual / notes

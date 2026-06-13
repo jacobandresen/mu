@@ -32,10 +32,10 @@ mismatch between the two.
 
 ## Related reflexes
 
-- `fix_package_json_bare_jest` (`npx jest`), `fix_jest_no_tests_found`,
-  `fix_jest_esm`, `fix_jest_config_js`, `fix_package_json_builtin_deps`.
-- `fix_js_same_scope_redeclaration`, `fix_js_dot_bracket_access`,
-  `fix_js_env_data_file` (per-test data-file isolation).
+- [`fix_package_json_bare_jest`](../../src/mu/reflexes/javascript/fix_package_json_bare_jest.py) (`npx jest`), [`fix_jest_no_tests_found`](../../src/mu/reflexes/javascript/fix_jest_no_tests_found.py),
+  [`fix_jest_esm`](../../src/mu/reflexes/javascript/fix_jest_esm.py), [`fix_jest_config_js`](../../src/mu/reflexes/javascript/fix_jest_config_js.py), [`fix_package_json_builtin_deps`](../../src/mu/reflexes/javascript/fix_package_json_builtin_deps.py).
+- [`fix_js_same_scope_redeclaration`](../../src/mu/reflexes/javascript/fix_js_same_scope_redeclaration.py), [`fix_js_dot_bracket_access`](../../src/mu/reflexes/javascript/fix_js_dot_bracket_access.py),
+  [`fix_js_env_data_file`](../../src/mu/reflexes/javascript/fix_js_env_data_file.py) (per-test data-file isolation).
 - Diagnose FOCUS hints: Jest spy-on-missing-export (strong), runtime
   `TypeError: X is not a function` (weak).
 

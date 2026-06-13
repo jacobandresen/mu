@@ -27,15 +27,15 @@ restore, and the interplay between a `Main` entry point and a test host.
 
 ## Related reflexes
 
-- `fix_csharp_consecutive_duplicate_signatures` — collapses stuttered
+- [`fix_csharp_consecutive_duplicate_signatures`](../../src/mu/reflexes/csharp/fix_csharp_consecutive_duplicate_signatures.py) — collapses stuttered
   signature openers.
-- `fix_csharp_xunit_packages` — adds the xunit package set to a csproj
+- [`fix_csharp_xunit_packages`](../../src/mu/reflexes/csharp/fix_csharp_xunit_packages.py) — adds the xunit package set to a csproj
   hosting test files (version now follows the TFM);
-  `fix_csharp_package_tfm_mismatch` — aligns `Microsoft.*` package majors
+  [`fix_csharp_package_tfm_mismatch`](../../src/mu/reflexes/csharp/fix_csharp_package_tfm_mismatch.py) — aligns `Microsoft.*` package majors
   with the TargetFramework.
-- `fix_csharp_missing_braces`, `fix_csharp_duplicate_classes`,
-  `fix_csharp_missing_using`, `fix_csharp_keyword_prefix_artifacts`,
-  `fix_csharp_verbatim_string_escape`.
+- [`fix_csharp_missing_braces`](../../src/mu/reflexes/csharp/fix_csharp_missing_braces.py), [`fix_csharp_duplicate_classes`](../../src/mu/reflexes/csharp/fix_csharp_duplicate_classes.py),
+  [`fix_csharp_missing_using`](../../src/mu/reflexes/csharp/fix_csharp_missing_using.py), [`fix_csharp_keyword_prefix_artifacts`](../../src/mu/reflexes/csharp/fix_csharp_keyword_prefix_artifacts.py),
+  [`fix_csharp_verbatim_string_escape`](../../src/mu/reflexes/csharp/fix_csharp_verbatim_string_escape.py).
 
 ## Last measured
 
@@ -49,6 +49,6 @@ _Run 7 — 2026-06-12, 8 h collection, qwen2.5-coder-7b-instruct (ctx 6000)._
 | Heaviest phase | repair |
 
 **Dominant errors this run:**
-- **CS0017: two Main entry points** (×19 across iterations) — the test SDK auto-generates a second `Main`. The FOCUS hint never resolved it; round 7 added `fix_csharp_test_program_conflict` (GenerateProgramFile=false).
+- **CS0017: two Main entry points** (×19 across iterations) — the test SDK auto-generates a second `Main`. The FOCUS hint never resolved it; round 7 added [`fix_csharp_test_program_conflict`](../../src/mu/reflexes/csharp/fix_csharp_test_program_conflict.py) (GenerateProgramFile=false).
 - `CS1519: Invalid token 'for' in a member declaration` (×3) — malformed method body.
 - Outcomes: final test gate failed (×6).

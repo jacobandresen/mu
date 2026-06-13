@@ -167,7 +167,7 @@ which the report flags as a common misconception.
 | Tool | In mu? | Challenges it could address |
 |---|---|---|
 | `pyflakes` | ✓ (lint gate) | [spurious-unused-imports](docs/challenges/spurious-unused-imports.md), [missing-imports](docs/challenges/missing-imports.md) |
-| `autoflake` | ✓ (`py_autofix`) | [spurious-unused-imports](docs/challenges/spurious-unused-imports.md) |
+| `autoflake` | ✓ ([`py_autofix`](src/mu/reflexes/python/py_autofix.py)) | [spurious-unused-imports](docs/challenges/spurious-unused-imports.md) |
 | `ast.parse` (CPython) | ✓ (Python syntax check + rollback) | [generic-syntax-errors](docs/challenges/generic-syntax-errors.md) |
 | `ruff` (Rust-based Python linter/fixer) | — | [spurious-unused-imports](docs/challenges/spurious-unused-imports.md), [generic-syntax-errors](docs/challenges/generic-syntax-errors.md) |
 | `mypy` / `pyright` | — | [missing-imports](docs/challenges/missing-imports.md), [incorrect-test-assertions](docs/challenges/incorrect-test-assertions.md) (type-level) |
@@ -209,7 +209,7 @@ For the record, marked ✓/◐ above:
 - **`autoflake`** — `py_autofix`, removes unused imports/variables.
 - **`ast.parse`** — Python syntax check with edit rollback in the repair loop.
 - **`gofmt -e`** — Go syntax oracle in `_syntax_check`.
-- **`go mod tidy`** — `apply_go_reflexes`, resolves Go module dependencies at the gate.
+- **`go mod tidy`** — [`apply_go_reflexes`](src/mu/reflexes/go/apply_go_reflexes.py), resolves Go module dependencies at the gate.
 - **Compilers / test runners** — `clang`, `cargo`, `dotnet`, `go`, `node`, `pytest`,
   `jest`, `vitest` as the test gate; `sdl2-config` for p3.
 
@@ -250,7 +250,7 @@ Ranked by leverage against the current open problems (see [TODO.md](TODO.md)).
 4. **AST-rewrite substrate for the riskiest reflexes (`comby`/`libcst`).**
    Re-express the structural fixers that regex does brittlely — duplicate-class removal,
    unindented-body repair — as grammar-aware rewrites. *How:* port one reflex (e.g.
-   `fix_csharp_duplicate_classes`) to `comby` and A/B its precision; adopt only if it
+   [`fix_csharp_duplicate_classes`](src/mu/reflexes/csharp/fix_csharp_duplicate_classes.py)) to `comby` and A/B its precision; adopt only if it
    reduces misfires without new dependencies the target host can't carry.
 
 Each proposal is gated by the same question the honesty rule poses of reflexes: *does it

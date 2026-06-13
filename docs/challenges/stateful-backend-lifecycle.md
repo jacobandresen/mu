@@ -18,8 +18,8 @@ A Flask app opens `sqlite3.connect(':memory:')` per request, so each operation g
 
 ## Relevant reflexes & mechanisms
 
-- `fix_sqlite_conn_scope` — narrows obvious connection-scope mistakes
-- `fix_sqlite_class_missing_init_table` — adds a missing table init
+- [`fix_sqlite_conn_scope`](../../src/mu/reflexes/python/fix_sqlite_conn_scope.py) — narrows obvious connection-scope mistakes
+- [`fix_sqlite_class_missing_init_table`](../../src/mu/reflexes/python/fix_sqlite_class_missing_init_table.py) — adds a missing table init
 
 ## Residual / notes
 

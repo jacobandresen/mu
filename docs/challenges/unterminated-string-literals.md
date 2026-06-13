@@ -17,8 +17,8 @@ The model leaves a string open: Python triple-quoted SQL strings never closed, G
 
 ## Relevant reflexes & mechanisms
 
-- `fix_multiline_single_quote` — converts a multi-line single-quoted SQL string to a triple-quoted one
-- `fix_missing_close_paren` — closes a missing `)` after a triple-quoted `execute(` call
+- [`fix_multiline_single_quote`](../../src/mu/reflexes/python/fix_multiline_single_quote.py) — converts a multi-line single-quoted SQL string to a triple-quoted one
+- [`fix_missing_close_paren`](../../src/mu/reflexes/python/fix_missing_close_paren.py) — closes a missing `)` after a triple-quoted `execute(` call
 
 ## Residual / notes
 

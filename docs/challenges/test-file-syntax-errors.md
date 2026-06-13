@@ -18,9 +18,9 @@ Syntax errors specifically in the generated test file: JS same-scope `const` re-
 
 ## Relevant reflexes & mechanisms
 
-- `fix_js_same_scope_redeclaration` — converts a re-declaration to assignment, promotes the first to `let`
-- `fix_js_dot_bracket_access` — deletes the stray dot in `).[0]`
-- `fix_csharp_consecutive_duplicate_signatures` — collapses stuttered C# test-method openers
+- [`fix_js_same_scope_redeclaration`](../../src/mu/reflexes/javascript/fix_js_same_scope_redeclaration.py) — converts a re-declaration to assignment, promotes the first to `let`
+- [`fix_js_dot_bracket_access`](../../src/mu/reflexes/javascript/fix_js_dot_bracket_access.py) — deletes the stray dot in `).[0]`
+- [`fix_csharp_consecutive_duplicate_signatures`](../../src/mu/reflexes/csharp/fix_csharp_consecutive_duplicate_signatures.py) — collapses stuttered C# test-method openers
 
 ## Residual / notes
 

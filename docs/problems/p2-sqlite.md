@@ -27,12 +27,12 @@ handling and test isolation matter, not just syntax.
 
 ## Related reflexes
 
-- `fix_sqlite_test_isolation` — replaces a shared file path with
-  `:memory:`; `fix_sqlite_memory_multi_connect` — consolidates per-call
-  connections; `fix_sqlite_missing_row_factory`, `fix_sqlite_path_unlink`.
-- `fix_python_missing_stdlib_imports` (name-binding aware since
-  2026-06-12), `fix_python_missing_project_imports`,
-  `fix_test_import_module`.
+- [`fix_sqlite_test_isolation`](../../src/mu/reflexes/python/fix_sqlite_test_isolation.py) — replaces a shared file path with
+  `:memory:`; [`fix_sqlite_memory_multi_connect`](../../src/mu/reflexes/python/fix_sqlite_memory_multi_connect.py) — consolidates per-call
+  connections; [`fix_sqlite_missing_row_factory`](../../src/mu/reflexes/python/fix_sqlite_missing_row_factory.py), [`fix_sqlite_path_unlink`](../../src/mu/reflexes/python/fix_sqlite_path_unlink.py).
+- [`fix_python_missing_stdlib_imports`](../../src/mu/reflexes/python/fix_python_missing_stdlib_imports.py) (name-binding aware since
+  2026-06-12), [`fix_python_missing_project_imports`](../../src/mu/reflexes/python/fix_python_missing_project_imports.py),
+  [`fix_test_import_module`](../../src/mu/reflexes/python/fix_test_import_module.py).
 
 ## Last measured
 

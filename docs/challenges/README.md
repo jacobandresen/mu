@@ -53,7 +53,7 @@ external-tool options in [TOOLS.md](../../TOOLS.md).
 
 ### Group 1 — Degenerate / malformed generation
 
-1. **[Generic syntax errors](generic-syntax-errors.md)** — Python indentation/colons, C#/Rust unmatched braces, Go composite-literal missing commas, JS syntax, missing semicolons. Unindented def/class bodies covered by `fix_python_unindented_body`; most other residual cases are model quality.
+1. **[Generic syntax errors](generic-syntax-errors.md)** — Python indentation/colons, C#/Rust unmatched braces, Go composite-literal missing commas, JS syntax, missing semicolons. Unindented def/class bodies covered by [`fix_python_unindented_body`](../../src/mu/reflexes/python/fix_python_unindented_body.py); most other residual cases are model quality.
 2. **[Unterminated string literals](unterminated-string-literals.md)** — Python triple-quoted strings left open, Go strings missing closing quote. Covered by reflexes; still model-frequent.
 3. **[Spurious / unused imports](spurious-unused-imports.md)** — `import __name__`/`import self` in Python; unused Rust `use` causing build failures. Cleaned by reflexes.
 4. **[C# generation artifacts](csharp-generation-artifacts.md)** — top-level statements before namespace (CS1529); verbatim string `\"` escaping (CS1056); stray keyword prefixes like `tnamespace` (CS1513); lambda chains closed with `{){` (CS1026); stuttered duplicate signature openers. Each covered by a named reflex.
@@ -70,7 +70,7 @@ external-tool options in [TOOLS.md](../../TOOLS.md).
 
 ### Group 3 — Model ceiling
 
-12. **[Test isolation design](test-isolation-design.md)** — model omits `beforeEach/afterEach`; shared state leaks across tests. `fix_js_env_data_file` enables isolation when the model writes the hooks; ~50% pass.
+12. **[Test isolation design](test-isolation-design.md)** — model omits `beforeEach/afterEach`; shared state leaks across tests. [`fix_js_env_data_file`](../../src/mu/reflexes/javascript/fix_js_env_data_file.py) enables isolation when the model writes the hooks; ~50% pass.
 13. **[Stateful-backend lifecycle rewrites](stateful-backend-lifecycle.md)** — Flask per-operation `sqlite3.connect` vs `:memory:` destroys data each call. Needs architectural rewrite beyond the 7B repair loop.
 14. **[Missing imports](missing-imports.md)** — Python omits the import of the module under test (`NameError`); `ModuleNotFoundError` on `app`/`main`; missing C# `using`. Partly patched; still frequent.
 15. **[Incorrect test assertions](incorrect-test-assertions.md)** — wrong values, undeclared mock data, `KeyError` on JSON response, endpoint not defined, bad CLI args. Test-design quality; not reflex-recoverable.
@@ -78,11 +78,14 @@ external-tool options in [TOOLS.md](../../TOOLS.md).
 ### Group 4 — Harness / environment
 
 16. **[Environment hygiene](environment-hygiene.md)** — system-wide vs Homebrew Python (use venvs); server port already in use; empty session log → no distillable cause.
-17. **[Syntax errors in test files](test-file-syntax-errors.md)** — JS same-scope `const` re-declaration (was mislabeled "Jest ESM") and `.[0]` member access (`fix_js_same_scope_redeclaration`, `fix_js_dot_bracket_access`); C# stuttered method-signature openers (`fix_csharp_consecutive_duplicate_signatures`).
+17. **[Syntax errors in test files](test-file-syntax-errors.md)** — JS same-scope `const` re-declaration (was mislabeled "Jest ESM") and `.[0]` member access ([`fix_js_same_scope_redeclaration`](../../src/mu/reflexes/javascript/fix_js_same_scope_redeclaration.py), [`fix_js_dot_bracket_access`](../../src/mu/reflexes/javascript/fix_js_dot_bracket_access.py)); C# stuttered method-signature openers ([`fix_csharp_consecutive_duplicate_signatures`](../../src/mu/reflexes/csharp/fix_csharp_consecutive_duplicate_signatures.py)).
 
 18. **Test state leaks across runs**
   - Tests sharing mutable storage accumulate state between invocations; require setup/teardown that isolates state per test.
 
 19. **Duplicate type definitions**
   - Ensure that types are not defined more than once in the same namespace to avoid conflicts and build errors.
+
+20. **Stuck in a loop of repeated actions**
+  - Repeatedly resolving module dependencies and applying reflexes can lead to a stuck state if the underlying issue is not addressed. Ensure that each action moves progress forward rather than repeating previous steps.
 

@@ -18,10 +18,10 @@ Multi-project .NET needs scaffolding a minimal SDK template lacks: a test csproj
 
 ## Relevant reflexes & mechanisms
 
-- `fix_csharp_xunit_packages` — adds the xunit package set, version following the TFM
-- `fix_csharp_package_tfm_mismatch` — aligns `Microsoft.*` package majors with the TargetFramework (NU1202)
-- `fix_csharp_test_program_conflict` — sets `GenerateProgramFile=false` when an Exe also references the test SDK (CS0017)
-- `fix_dotnet_test_cwd` — points `dotnet test` at a dir that has a csproj (MSB1003)
+- [`fix_csharp_xunit_packages`](../../src/mu/reflexes/csharp/fix_csharp_xunit_packages.py) — adds the xunit package set, version following the TFM
+- [`fix_csharp_package_tfm_mismatch`](../../src/mu/reflexes/csharp/fix_csharp_package_tfm_mismatch.py) — aligns `Microsoft.*` package majors with the TargetFramework (NU1202)
+- [`fix_csharp_test_program_conflict`](../../src/mu/reflexes/csharp/fix_csharp_test_program_conflict.py) — sets `GenerateProgramFile=false` when an Exe also references the test SDK (CS0017)
+- [`fix_dotnet_test_cwd`](../../src/mu/reflexes/makefile/fix_dotnet_test_cwd.py) — points `dotnet test` at a dir that has a csproj (MSB1003)
 - `run_staged orphan cleanup` — deletes stale duplicate `.cs` across stages (CS0101)
 
 ## Residual / notes

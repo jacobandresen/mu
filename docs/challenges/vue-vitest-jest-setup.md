@@ -19,11 +19,11 @@ JS/TS test-tooling configuration: Jest `_test.js` naming → 'No tests found'; m
 
 ## Relevant reflexes & mechanisms
 
-- `fix_package_json_bare_jest` — rewrites a bare `jest` to `npx jest`
-- `fix_jest_no_tests_found` — broadens the testRegex
-- `fix_vitest_watch_mode` — `vitest` → `vitest run`
-- `fix_vitest_globals` — enables Vitest globals in vite.config.ts
-- `fix_vue_missing_package` — adds the missing `vue` dependency
+- [`fix_package_json_bare_jest`](../../src/mu/reflexes/javascript/fix_package_json_bare_jest.py) — rewrites a bare `jest` to `npx jest`
+- [`fix_jest_no_tests_found`](../../src/mu/reflexes/javascript/fix_jest_no_tests_found.py) — broadens the testRegex
+- [`fix_vitest_watch_mode`](../../src/mu/reflexes/javascript/fix_vitest_watch_mode.py) — `vitest` → `vitest run`
+- [`fix_vitest_globals`](../../src/mu/reflexes/javascript/fix_vitest_globals.py) — enables Vitest globals in vite.config.ts
+- [`fix_vue_missing_package`](../../src/mu/reflexes/javascript/fix_vue_missing_package.py) — adds the missing `vue` dependency
 
 ## Residual / notes
 

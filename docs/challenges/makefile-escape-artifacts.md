@@ -19,9 +19,9 @@ Recipe lines need a literal TAB; the lean retry path emits literal `\n`, `\t`, `
 
 ## Relevant reflexes & mechanisms
 
-- `apply_makefile_reflexes` — tab/indent/escape normalizers, orphan top-level commands, missing test target
-- `fix_makefile_literal_tab_escape` — real TAB for a literal `\t`
-- `fix_makefile_binary_name` — aligns the recipe's output binary with the plan's test command
+- [`apply_makefile_reflexes`](../../src/mu/reflexes/makefile/apply_makefile_reflexes.py) — tab/indent/escape normalizers, orphan top-level commands, missing test target
+- [`fix_makefile_literal_tab_escape`](../../src/mu/reflexes/makefile/fix_makefile_literal_tab_escape.py) — real TAB for a literal `\t`
+- [`fix_makefile_binary_name`](../../src/mu/reflexes/makefile/fix_makefile_binary_name.py) — aligns the recipe's output binary with the plan's test command
 
 ## Residual / notes
 

@@ -19,9 +19,9 @@ The model omits `beforeEach/afterEach`, so shared state (a JSON data file, a SQL
 
 ## Relevant reflexes & mechanisms
 
-- `fix_js_env_data_file` — points the data file at a per-test path when the model wrote the isolation hooks
-- `fix_sqlite_test_isolation` — replaces a shared file path with `:memory:`
-- `fix_sqlite_memory_multi_connect` — consolidates per-call `:memory:` connections
+- [`fix_js_env_data_file`](../../src/mu/reflexes/javascript/fix_js_env_data_file.py) — points the data file at a per-test path when the model wrote the isolation hooks
+- [`fix_sqlite_test_isolation`](../../src/mu/reflexes/python/fix_sqlite_test_isolation.py) — replaces a shared file path with `:memory:`
+- [`fix_sqlite_memory_multi_connect`](../../src/mu/reflexes/python/fix_sqlite_memory_multi_connect.py) — consolidates per-call `:memory:` connections
 
 ## Residual / notes
 

@@ -19,10 +19,10 @@ The model uses a symbol it never imported: Python omits the import of the module
 
 ## Relevant reflexes & mechanisms
 
-- `fix_python_missing_stdlib_imports` — adds a missing stdlib/framework import (name-binding aware)
-- `fix_python_missing_project_imports` — imports a sibling project module
-- `fix_csharp_missing_using` — adds a `using` for a CS0246 type found in a sibling file
-- `fix_missing_pip_packages` — adds a missing package to requirements
+- [`fix_python_missing_stdlib_imports`](../../src/mu/reflexes/python/fix_python_missing_stdlib_imports.py) — adds a missing stdlib/framework import (name-binding aware)
+- [`fix_python_missing_project_imports`](../../src/mu/reflexes/python/fix_python_missing_project_imports.py) — imports a sibling project module
+- [`fix_csharp_missing_using`](../../src/mu/reflexes/csharp/fix_csharp_missing_using.py) — adds a `using` for a CS0246 type found in a sibling file
+- [`fix_missing_pip_packages`](../../src/mu/reflexes/python/fix_missing_pip_packages.py) — adds a missing package to requirements
 
 ## Residual / notes
 

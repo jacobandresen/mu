@@ -18,9 +18,9 @@ Imports that don't belong: `import __name__`/`import self` in Python, unused Rus
 
 ## Relevant reflexes & mechanisms
 
-- `fix_rust_duplicate_use` — drops a duplicate Rust `use`
-- `py_autofix` — autoflake removes unused Python imports
-- `fix_python_missing_stdlib_imports` — name-binding-aware: won't re-add a name already bound by `from mod import name`
+- [`fix_rust_duplicate_use`](../../src/mu/reflexes/rust/fix_rust_duplicate_use.py) — drops a duplicate Rust `use`
+- [`py_autofix`](../../src/mu/reflexes/python/py_autofix.py) — autoflake removes unused Python imports
+- [`fix_python_missing_stdlib_imports`](../../src/mu/reflexes/python/fix_python_missing_stdlib_imports.py) — name-binding-aware: won't re-add a name already bound by `from mod import name`
 
 ## Residual / notes
 

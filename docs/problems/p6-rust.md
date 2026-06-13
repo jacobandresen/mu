@@ -25,12 +25,12 @@ the whole build before any Rust is compiled.
 
 ## Related reflexes
 
-- `fix_rust_cargo_toml` — regenerates corrupted manifest structure;
-  `fix_rust_cargo_bad_dependency` — strips unresolvable dependencies. The
+- [`fix_rust_cargo_toml`](../../src/mu/reflexes/rust/fix_rust_cargo_toml.py) — regenerates corrupted manifest structure;
+  [`fix_rust_cargo_bad_dependency`](../../src/mu/reflexes/rust/fix_rust_cargo_bad_dependency.py) — strips unresolvable dependencies. The
   test-gate reapply hook force-runs this chain before every attempt, and
   the lint-repair hook resets `Cargo.toml` to a minimal grounded manifest.
-- `apply_rust_source_reflexes`, `fix_rust_missing_trait_import`,
-  `fix_rust_unbalanced_braces`.
+- [`apply_rust_source_reflexes`](../../src/mu/reflexes/rust/apply_rust_source_reflexes.py), [`fix_rust_missing_trait_import`](../../src/mu/reflexes/rust/fix_rust_missing_trait_import.py),
+  [`fix_rust_unbalanced_braces`](../../src/mu/reflexes/rust/fix_rust_unbalanced_braces.py).
 
 ## Last measured
 

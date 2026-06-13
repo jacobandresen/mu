@@ -27,8 +27,8 @@ hanging.
 
 ## Related reflexes
 
-- The Makefile reflex family (`apply_makefile_reflexes`,
-  `fix_makefile_binary_name`) keeps the `sdl2-config` invocation in a
+- The Makefile reflex family ([`apply_makefile_reflexes`](../../src/mu/reflexes/makefile/apply_makefile_reflexes.py),
+  [`fix_makefile_binary_name`](../../src/mu/reflexes/makefile/fix_makefile_binary_name.py)) keeps the `sdl2-config` invocation in a
   valid recipe.
 - Plan normalization rewrites blocking `./binary` test commands into
   non-blocking checks.

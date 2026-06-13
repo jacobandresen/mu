@@ -19,7 +19,7 @@ The plan names an entry-point/target the build file never defines (or vice versa
 
 ## Relevant reflexes & mechanisms
 
-- `fix_makefile_binary_name` — aligns the Makefile's output binary with the test command
+- [`fix_makefile_binary_name`](../../src/mu/reflexes/makefile/fix_makefile_binary_name.py) — aligns the Makefile's output binary with the test command
 - `misplaced-file relocation` — moves a file the writer put in the wrong subdir to its planned path
 - `stale-`.cs` cleanup` — removes orphaned duplicates before the build
 

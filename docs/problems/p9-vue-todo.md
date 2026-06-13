@@ -33,11 +33,11 @@ failures are configuration, not application logic.
 
 ## Related reflexes
 
-- `fix_vitest_watch_mode` (`vitest run`), `fix_vitest_globals`,
-  `fix_vue_missing_package`, `fix_jest_no_tests_found` (shared regex
+- [`fix_vitest_watch_mode`](../../src/mu/reflexes/javascript/fix_vitest_watch_mode.py) (`vitest run`), [`fix_vitest_globals`](../../src/mu/reflexes/javascript/fix_vitest_globals.py),
+  [`fix_vue_missing_package`](../../src/mu/reflexes/javascript/fix_vue_missing_package.py), [`fix_jest_no_tests_found`](../../src/mu/reflexes/javascript/fix_jest_no_tests_found.py) (shared regex
   logic).
-- `fix_js_extra_closing_brace`, `fix_js_const_reassignment`,
-  `fix_js_same_scope_redeclaration`.
+- [`fix_js_extra_closing_brace`](../../src/mu/reflexes/javascript/fix_js_extra_closing_brace.py), [`fix_js_const_reassignment`](../../src/mu/reflexes/javascript/fix_js_const_reassignment.py),
+  [`fix_js_same_scope_redeclaration`](../../src/mu/reflexes/javascript/fix_js_same_scope_redeclaration.py).
 
 ## Last measured
 

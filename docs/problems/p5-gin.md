@@ -27,10 +27,10 @@ before anything compiles.
 
 - Plan normalization rewrites the blocking `./binary` test command to a
   non-blocking check (`go test ./...`).
-- `apply_go_reflexes` — runs `go mod tidy` to resolve module dependencies
-  before each build attempt; `fix_go_trailing_dot` — removes dangling
-  trailing `.` artifacts; `fix_go_missing_pkg_imports`,
-  `fix_go_unused_imports`.
+- [`apply_go_reflexes`](../../src/mu/reflexes/go/apply_go_reflexes.py) — runs `go mod tidy` to resolve module dependencies
+  before each build attempt; [`fix_go_trailing_dot`](../../src/mu/reflexes/go/fix_go_trailing_dot.py) — removes dangling
+  trailing `.` artifacts; [`fix_go_missing_pkg_imports`](../../src/mu/reflexes/go/fix_go_missing_pkg_imports.py),
+  [`fix_go_unused_imports`](../../src/mu/reflexes/go/fix_go_unused_imports.py).
 
 ## Last measured
 

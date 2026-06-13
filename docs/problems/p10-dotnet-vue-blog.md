@@ -40,7 +40,7 @@ separate stages, each spawning its own session.
 ## Related reflexes
 
 - The full C# family of [p4](p4-fibonacci.md), plus
-  `fix_csharp_package_tfm_mismatch` and `fix_dotnet_test_cwd`.
+  [`fix_csharp_package_tfm_mismatch`](../../src/mu/reflexes/csharp/fix_csharp_package_tfm_mismatch.py) and [`fix_dotnet_test_cwd`](../../src/mu/reflexes/makefile/fix_dotnet_test_cwd.py).
 - The test-gate reapply hook deletes orphaned `.cs` duplicates that the
   root csproj would otherwise compile twice.
 - The Vue/Vitest family of [p9](p9-vue-todo.md) for the frontend stage.
