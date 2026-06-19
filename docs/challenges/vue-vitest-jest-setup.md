@@ -19,7 +19,7 @@ JS/TS test-tooling configuration: Jest `_test.js` naming → 'No tests found'; m
 
 ## Relevant reflexes & mechanisms
 
-- [`fix_package_json_bare_jest`](../../src/mu/reflexes/javascript/fix_package_json_bare_jest.py) — rewrites a bare `jest` to `npx jest`
+- [`fix_package_json_bare_jest`](../../src/mu/reflexes/javascript/fix_package_json_bare_jest.py) — rewrites a `test` script that doesn't run jest correctly: bare `jest` **and** `node x.test.js` (which leaves the jest globals undefined → "it is not defined") → `npx jest --forceExit`
 - [`fix_jest_no_tests_found`](../../src/mu/reflexes/javascript/fix_jest_no_tests_found.py) — broadens the testRegex
 - [`fix_vitest_watch_mode`](../../src/mu/reflexes/javascript/fix_vitest_watch_mode.py) — `vitest` → `vitest run`
 - [`fix_vitest_globals`](../../src/mu/reflexes/javascript/fix_vitest_globals.py) — enables Vitest globals in vite.config.ts
@@ -27,4 +27,8 @@ JS/TS test-tooling configuration: Jest `_test.js` naming → 'No tests found'; m
 
 ## Residual / notes
 
-Jest-globals is currently a diagnose *hint* pointing at the test command; if it stays unresolved it should become a deterministic test-target rewrite (see [TODO.md](../../TODO.md) item 2).
+Jest-globals (`it/describe/jest is not defined`) is now deterministic for the **package.json**
+test script (`fix_package_json_bare_jest` handles both `jest` and `node x.test.js`). The
+residual shape is a model hard-coding `node x.test.js` in a **Makefile** recipe — extend
+`fix_makefile_npm_test_jest` if it recurs. The other p8 residue is model-ceiling
+module-contract mismatches (`program.add is not a function`), not a tooling-config class.

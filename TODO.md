@@ -17,24 +17,41 @@ qwen2.5-coder-7b).
    **Lead proposal:** template scaffolding at ground time — plan
    [docs/plans/scaffolding.md](docs/plans/scaffolding.md) (offline-first; `dotnet new`
    offline, Vite online-opt-in with vendored fallback).
-2. **p8 jest globals (8/19)** — challenge [vue-vitest-jest-setup](docs/challenges/vue-vitest-jest-setup.md).
-   `describe/test is not a function` (×14) — tests run under plain `node`, not `npx jest`.
-   Round 7 shipped only a diagnose *hint*; if run 9 still shows it unresolved, promote to a
-   deterministic reflex that rewrites the Makefile / package.json test target to `npx jest`.
-3. **p7 Makefile `test` target (9/15)** — challenge [build-target-inconsistency](docs/challenges/build-target-inconsistency.md).
-   `no rule to make target 'test'` (×7), the dominant p7 bucket. A Makefile reflex could
-   synthesize a `test` target from the plan's test command when absent.
-4. **p2 SQLAlchemy ORM setup (9/15)** — challenge [missing-imports](docs/challenges/missing-imports.md).
+2. **p8 jest globals** — challenge [vue-vitest-jest-setup](docs/challenges/vue-vitest-jest-setup.md).
+   `describe/test/it/jest is not defined` — tests run under plain `node`, not jest. The
+   package.json-script half is now deterministic (`fix_package_json_bare_jest` rewrites both
+   `"test": "jest"` and `"test": "node x.test.js"` → `npx jest`); residual is when the model
+   hard-codes `node x.test.js` in a **Makefile** recipe (no jest binary there either) — extend
+   `fix_makefile_npm_test_jest` to that shape if it recurs. The remaining p8 failures are
+   model-ceiling module-contract bugs (`program.add is not a function`).
+3. **p2 SQLAlchemy ORM setup (9/15)** — challenge [missing-imports](docs/challenges/missing-imports.md).
    `Todo has no attribute '__table__'`, `declarative_base` undefined — declarative-base
    wiring done wrong. Candidate: a python-writer skill rule, or a reflex for the standard
    declarative-base shape.
-5. **p9 component/test contract (12/13)** — challenge [incorrect-test-assertions](docs/challenges/incorrect-test-assertions.md).
+4. **p9 component/test contract (12/13)** — challenge [incorrect-test-assertions](docs/challenges/incorrect-test-assertions.md).
    Assertion mismatches (component renders heading + button, not the todo text). Mostly
    model quality — low priority, accept variance.
 
 ---
 
 ## Done (recent)
+
+- **False-pass honesty fix + p7 Makefile grounding (2026-06-19).** Archive mining found
+  p7-flask was being scored **success** ~9× while running zero tests: the planner names
+  `make test` with no Makefile, `ground_plan` Level 2b synthesized a **C** `cc -o main main.c`
+  template (Python project!), the makefile reflexes hoisted the bogus rule out, and
+  `make test` printed `make: Nothing to be done for 'test'.` → exit 0 → the gate certified a
+  pass though nothing ran. Two fixes, both regression-tested:
+  - **plan.py** — Level 2b's `cc -o` fallback now fires only when the plan has real C/C++
+    sources; a Python project falls through to Level 4a (the venv Makefile with a real
+    `test:` target). Verified live: p7 now genuinely passes (`1 passed` from pytest).
+  - **agent.py** — `_test_passed`/`_make_vacuous` reject a make-only test command that
+    reports "Nothing to be done" (no work ran) at all four test-gate sites. `make && ./bin`
+    (p1/p3) is gated by the binary's own exit code and is left untouched. A test gate must
+    witness tests execute. (`test_ground_plan_makefile.py`, `test_vacuous_make_gate.py`.)
+- **p8 jest-globals: node-invoked spec (2026-06-19).** Extended `fix_package_json_bare_jest`
+  to also rewrite `"test": "node todo.test.js"` → `npx jest --forceExit` (jest globals are
+  undefined under bare node → "ReferenceError: it is not defined"). (`test_jest_node_invocation.py`.)
 
 - **Round 7 (2026-06-13), telemetry-driven.** `fix_csharp_test_program_conflict` (CS0017
   test-SDK second `Main`); `fix_python_unindented_body` (lint-driven, ast-rollback);

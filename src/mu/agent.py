@@ -802,7 +802,7 @@ def run(goal: str, model: str = '', target_dir: str = '',
             test_cmd = p.test_command
             if test_cmd and is_test_file(task.file_path) and not has_pending_build_file(p):
                 test_log = os.path.join(LOG_DIR, f"tests-iter-{i:02d}.log")
-                if not _run_cmd(test_cmd, test_log):
+                if not _test_passed(test_cmd, test_log):
                     log("Tests failing after %s — invoking repair.", task.file_path)
                     record_challenge(
                         f"tests failed after writing {task.file_path}",
@@ -1220,7 +1220,7 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
     set_chat_context('repair')
 
     def run_test() -> tuple[bool, str]:
-        return _run_cmd(test_cmd, test_log), _extract_test_failures(test_log)
+        return _test_passed(test_cmd, test_log), _extract_test_failures(test_log)
 
     def reapply() -> None:
         # First, run the full write-reflex pass on whatever the previous
@@ -1828,7 +1828,7 @@ def _run_mitigation_pass(model: str, p: Plan, challenges: str, goal: str) -> Non
     os.makedirs(LOG_DIR, exist_ok=True)
     mit_log = os.path.join(LOG_DIR, 'tests-mitigation.log')
     log("Challenges found from previous run — running mitigation pass.")
-    if _run_cmd(test_cmd, mit_log):
+    if _test_passed(test_cmd, mit_log):
         log("Mitigation pass: tests passing — challenges already resolved.")
         return
     log("Mitigation pass: tests failing — attempting repair.")
@@ -2152,7 +2152,7 @@ def _inter_stage_gate(plan_file: str, goal: str, model: str) -> int:
             return 3
 
     gate_log = os.path.join(LOG_DIR, 'tests-backend-gate.log')
-    if _run_cmd(test_cmd, gate_log):
+    if _test_passed(test_cmd, gate_log):
         return 0
 
     log("Inter-stage gate: backend tests failing — attempting repair before frontend.")
@@ -2455,6 +2455,49 @@ def _run_cmd(cmd: str, log_file: str, env: dict | None = None) -> bool:
                                   timeout=120, env=env).returncode == 0
     except (subprocess.TimeoutExpired, OSError):
         return False
+
+
+_MAKE_NOTHING_RE = re.compile(r"make(?:\[\d+\])?: Nothing to be done for", re.I)
+
+
+def _make_vacuous(test_cmd: str, log_file: str) -> bool:
+    """True when a make-only test command did no work.
+
+    A test gate must witness tests actually execute. ``make test`` against an
+    empty ``test:`` target (e.g. a recipe-less target left after the makefile
+    reflexes hoist a bogus rule away) exits 0 while printing
+    ``make: Nothing to be done for `test'.`` — silently certifying a pass though
+    nothing ran. That was the dominant p7-flask false pass: a Flask API scored
+    as passing without a single test executing.
+
+    Scoped to commands whose every step is a ``make`` invocation: a command that
+    chains a real executable (``make && ./hello`` for p1/p3) is gated by that
+    executable's own exit code, so a make no-op there is incidental and must not
+    be flagged. General: any toolchain, any empty/missing make test target.
+    """
+    segs = [s.strip() for s in re.split(r'&&|;|\|\||\n', test_cmd) if s.strip()]
+    if not segs or any(not s.startswith('make') for s in segs):
+        return False
+    try:
+        out = Path(log_file).read_text(errors='ignore')
+    except OSError:
+        return False
+    return bool(_MAKE_NOTHING_RE.search(out))
+
+
+def _test_passed(test_cmd: str, log_file: str, env: dict | None = None) -> bool:
+    """Run a *test* command and honestly judge whether tests passed.
+
+    Like ``_run_cmd`` but rejects a vacuous make run (exit 0, nothing executed):
+    a passing exit code only counts when work actually happened. Use this at
+    every test-gate decision; keep ``_run_cmd`` for lint and build steps.
+    """
+    ok = _run_cmd(test_cmd, log_file, env)
+    if ok and _make_vacuous(test_cmd, log_file):
+        log("Test command made no progress (make: Nothing to be done) — no "
+            "tests ran; treating as a failure, not a pass.")
+        return False
+    return ok
 
 _ANSI_RE = re.compile(r'\x1b\[[0-9;]*[mGKHF]|\x1b\].*?\x1b\\|\x1b[A-Za-z]')
 

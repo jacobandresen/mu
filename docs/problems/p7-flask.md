@@ -32,6 +32,12 @@ set.
 
 ## Related reflexes
 
+- **`ground_plan` Makefile synthesis** ([plan.py](../../src/mu/plan.py)) — when the plan uses
+  `make test` but ships no Makefile, the venv Makefile (Level 4a: `test: install` →
+  `.venv/bin/pytest`) is written. The C `cc -o` fallback (Level 2b) is gated on the plan
+  having C sources, so this Python project no longer gets a recipe-less `test:` target. The
+  test gate also rejects a vacuous `make: Nothing to be done` as a pass (`_make_vacuous`).
+  **Fixed the dominant `no rule to make target 'test'` false-pass bucket (2026-06-19).**
 - [`fix_missing_flask_client_fixture`](../../src/mu/reflexes/python/fix_missing_flask_client_fixture.py) — injects the pytest `client`
   fixture when tests use it undefined; [`fix_flask_post_missing_201`](../../src/mu/reflexes/python/fix_flask_post_missing_201.py),
   [`fix_flask_test_route_decorators`](../../src/mu/reflexes/python/fix_flask_test_route_decorators.py), [`fix_flask_init_db_import`](../../src/mu/reflexes/python/fix_flask_init_db_import.py).
@@ -51,6 +57,6 @@ _Run 7 — 2026-06-12, 8 h collection, qwen2.5-coder-7b-instruct (ctx 6000)._
 | Heaviest phase | repair |
 
 **Dominant errors this run:**
-- **`Makefile: no rule to make target 'test'`** (×7) — the generated Makefile lacks the `test` target the test command invokes; the dominant bucket.
+- **`Makefile: no rule to make target 'test'`** (×7) — the generated Makefile lacks the `test` target the test command invokes; the dominant bucket. **Resolved 2026-06-19** — this was a C `cc -o` template wrongly grounded onto a Python project; it also masked ~9 *false passes* (`make: Nothing to be done for 'test'` → exit 0 → scored success with zero tests run). Both the grounding and the gate are now fixed; a live run passes for real (`1 passed`).
 - `ModuleNotFoundError: 'flask'` (×3) — flask absent from the pip install / requirements.
 - Outcomes: tests still failing after repair (×3), lint still failing (×2), interrupted (×1).
