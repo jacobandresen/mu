@@ -211,6 +211,73 @@ variance stays high — it may shrink the *error classes* without yet crossing t
 pass threshold (the frontend/integration logic ceiling remains). Highest risk of
 a subtle wrong-deletion regression on control problems (p4).
 
+### What all three share — the common substrate (build this first)
+
+A, B, and C are not three unrelated ideas: they are **the same minimization
+ladder**, differing only in *how* the fixed part of the project is produced
+(runtime template / committed fixture / contract spec) and *how much* of it is
+fixed. So they rest on one substrate, and most of the real engineering lives
+there, not in the approach-specific veneer:
+
+| Shared component | A | B | C | Where it lives |
+|---|:-:|:-:|:-:|---|
+| Full-stack stack **detector** (dotnet+vue, capability-keyed) | ✓ | ✓ | ✓ | `scaffold.Signal`/`detect`; `_is_multilayer` |
+| **"Provided = done" reconciliation** (mark fixed files done; model can't clobber/redeclare them) | ✓ | ✓ | ✓ | `agent.py:678` |
+| **Cross-stage type-ownership guard** (CS0101/CS0053 — the #1 p10 error) | ✓ | ✓ | ✓ | new csharp reflex (§A.3) + `run_staged` orphan cleanup |
+| **Honest per-layer gates + the k/4 metric** | ✓ | ✓ | ✓ | `measure.py` `_k4`; `_test_passed` |
+| **L-level / `meta.json` bookkeeping** (a pinned pass ≠ an L0 pass) | ✓ | ✓ | ✓ | `problems-catalog.json` `minimize`; `meta.json` |
+| **One frozen structure artifact** (`dojo/scaffolds/` == fixtures `L2` == C's golden reference) | ✓ | ✓ | ✓ | new shared dir |
+| **Offline-first** (no hard network dependency) | ✓ | ✓ | ✓ | vendored fallback |
+
+The decisive observation: **the artifacts compose.** B's `dojo/fixtures/p10/L2`
+structure *is* the vendored skeleton A copies offline *is* the golden reference
+C's type-ledger guard validates against. Author it once; all three consume it.
+
+### Improvements needed in all three cases (the no-regret backlog)
+
+These are worth doing **before** committing to A, B, or C — each is a prerequisite
+for *all three* and for even comparing them, and the first two carry their own
+weight even if every approach is later dropped:
+
+1. **S1 — Honest per-layer gates (do first).** The k/4 metric is only trustworthy
+   if each layer's gate detects a *vacuous* pass. The work already shipped covers
+   `make` (`_make_vacuous`); p10's real gates are `dotnet test` and
+   `npx vitest run`, which have their own silent-success shapes: `dotnet test`
+   with **0 tests** (no test discovered), a build that *fails* but the wrapper
+   exits 0, and `vitest` reporting **"No test files found"**. Extend the
+   vacuous-detection family to these. Without S1, all three approaches are scored
+   against a lying instrument. **No-regret: it makes the whole harness honest
+   regardless of A/B/C** (same class as the p7 false-pass fix).
+2. **S2 — Cross-stage type-ownership guard (highest leverage).** CS0101 + CS0053
+   are ×22 of p10's errors and bite all three: a scaffold leaves a `Program.cs`
+   the model also writes; a fixture pins a `Post` the model re-declares; a
+   contract *names* the owner but can't stop a redeclaration. A deterministic,
+   general guard (keep the backend-owned definition, delete cross-stage
+   duplicates; raise a type behind a `public` signature to `public`) is needed
+   under every approach. **No-regret: it's a general multi-project-.NET reflex
+   that also helps p4**, independent of any minimization lever.
+3. **S3 — One reconciliation routine.** Generalize `agent.py:678` into a single
+   "this set of paths is fixed; the model owns the rest, and must neither rewrite
+   nor redeclare them" contract that A (scaffold-owned), B (fixture-owned), and C
+   (contract-owned) all call with a different file set. Avoids three subtly
+   different mark-done implementations drifting apart.
+4. **S4 — One detector + level bookkeeping.** A shared `is_fullstack_dotnet_vue`
+   capability check and a `meta.json.minimize`/`scaffold` record, so every reported
+   p10 pass carries its rung and no run is silently compared across levels (the
+   central honesty risk for all three).
+5. **S5 — Test-authoring skills for the two hard test types.** No *structural*
+   lever (A, B-L2, or C) reaches the actual model ceiling: authoring a correct
+   `WebApplicationFactory` integration test and a correct Vitest fetch-mock. All
+   three need a complementary writer/architect skill for exactly these two shapes,
+   or they top out one layer short (B only crosses it by *pinning* the tests at
+   L3 — which is the diagnostic that tells you whether S5 is even worth writing).
+
+Sequencing falls out of this: **S1–S4 are Phase 0 of any path**, and they are the
+cheapest to exercise through Approach B (which needs no runtime templates or
+architect changes to drive the whole substrate end-to-end). That is an
+independent reason the recommendation lands on B-first (§3): it is the minimal
+harness that lights up the shared substrate so A or C can be chosen against data.
+
 ---
 
 ## 2. How to compare the three (the measurement is the hard part)
@@ -337,9 +404,20 @@ validated against. So even when B leads to A or C, nothing built is wasted.
 
 ## 5. Implementation plan (phased, gated)
 
-**Phase 0 — instrument (no agent change).**
-- [ ] Add the **k/4 layer-resolution** scorer to `src/mu/dojo/measure.py` (parse
-      the four checkpoints from stage logs; emit `k4_mean` alongside pass rate).
+**Phase 0 — the shared substrate (do first; mostly no-regret).** Everything here
+is a prerequisite for *all three* approaches and for comparing them; S1 and S2
+stand on their own even if no approach ships.
+- [ ] **S1** Extend honest gates beyond `make`: `dotnet test` with 0 tests /
+      build-failed-but-exit-0, and `vitest` "No test files found" join
+      `_make_vacuous` as vacuous-pass shapes. (Regression-tested, like the p7 fix.)
+- [ ] **k/4** layer-resolution scorer in `src/mu/dojo/measure.py` (parse the four
+      checkpoints from stage logs; emit `k4_mean` alongside pass rate). Depends on S1.
+- [ ] **S2** Cross-stage type-ownership guard as a standalone csharp reflex
+      (`fix_csharp_cross_stage_duplicate_types` + a CS0053 sibling; §A.3),
+      catalogued and regression-tested incl. "a legitimately distinct same-named
+      type is **not** deleted." General multi-project .NET — also helps p4.
+- [ ] **S3/S4** One reconciliation routine (generalize `agent.py:678`) + one
+      `is_fullstack_dotnet_vue` detector + `meta.json.minimize` level record.
 - [ ] Baseline: `mu dojo measure p10 -n 15` at L0; record `efficacy_run`.
 
 **Phase 1 — Approach B (the staircase).**
@@ -357,9 +435,10 @@ validated against. So even when B leads to A or C, nothing built is wasted.
 **Phase 2b — if "jump at L3" → Approach C.**
 - [ ] Full-stack contract template in the architect (manifest + route + JSON +
       test cmd + type-ownership table); capability-keyed; flagged.
-- [ ] Deterministic cross-stage guard: dedup CS0101 types (keep backend owner),
-      promote CS0053 types to `public`; regression tests incl. a control that a
-      legitimately distinct same-named type is **not** deleted.
+- [ ] (The cross-stage CS0101/CS0053 guard is already built in Phase 0 / S2 — C
+      reuses it; nothing to add here.)
+- [ ] Also write the **S5** WebApplicationFactory + Vitest test-authoring skills
+      if the L3 staircase showed the residual ceiling is test logic.
 - [ ] A/B vs baseline + controls (esp. p4); ship-on per KEEP criteria.
 
 **Phase 3 — record.** Update `docs/problems/p10-dotnet-vue-blog.md`,
