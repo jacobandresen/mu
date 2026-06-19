@@ -377,6 +377,64 @@ gives `q̂` with uncertainty and `sz5_gate` tests `Δq`. The model is a logistic
 over `firings.jsonl × outcomes`. The metric (§2.1) and the step-selection rule
 (§A.4) are direct read-outs of it.
 
+### 2.0.1 Fitting it — the one component all three approaches share
+
+The "benefits all three" that matters here is **the three approaches A/B/C**: they
+should not each grow their own analysis, but call one fitted object that measures
+the agent, ranks the next step, and routes. (As a bonus, that same object pools
+across the LLM models mu runs — granite/qwen-3b/qwen-7b — so estimates transfer;
+see the `θ_m`/`β_k` note below. Secondary to the approaches.)
+
+The model earns its keep only if it can be *fitted from dojo data* and *queried by
+A, B, and C through one interface*. Both fall out of the parameterization.
+
+**The fittable form (hierarchical logistic).** Pool every `(model m, problem i,
+layer ℓ, run)` outcome `y∈{0,1}` and fit `logit q = θ_m·a_ℓ − δ_{iℓ} + Σ_k β_k
+x_{kiℓ}` with partial pooling:
+
+- `θ_m` per LLM model (granite-3b, qwen-3b, qwen-7b) — a few parameters.
+- `β_k` per step, **shared across problems and models** (`β_k ~ N(β̄_k, τ²)`).
+  Partial pooling (bonus): a reflex's effect measured on qwen *informs* its effect
+  on granite — and granite's data is sparse. A truly general reflex shows a tight
+  `β` across models; one that only rescues a weak model shows a per-model deviation.
+- `δ_{iℓ}` per (problem, layer), with a prior tying layers *of the same kind* (all
+  "build" layers, all "test" layers) so a new problem borrows strength.
+
+**Honest identifiability.** 10 problems × 1–4 layers × 3 models is *thin* for a
+joint fit with dozens of `β`. So the practical estimator is **two-level, reusing
+machinery mu already has**, not a from-scratch MCMC:
+
+1. **`q̂` per (m,i,ℓ)** by Beta-Binomial smoothing — exactly `observe.Posterior` —
+   a mean + CI from few runs (needs the S1 honest gates, or `q̂` is biased high).
+2. **`β_k` per step** from the **ablation/efficacy Δ** mu already computes
+   (`efficacy_run`, `sz5_gate`): the change in `q̂` when the step is disabled,
+   pooled over the layers it covers (coverage `x` read from `firings.jsonl`).
+3. **`δ` from the B staircase**: each rung lowers `δ` for the pinned layers, so the
+   jump in `q̂` between `L(k)` and `L(k+1)` *is* an estimate of that layer's `δ`
+   contribution. Approach **B is literally the experiment that identifies `δ`** —
+   its only honest role.
+
+**One component, three consumers.** Put this behind `src/mu/capability.py` (a thin
+layer over `observe.py`/`reflexdb.py`) exposing `q_hat`, `p_solve`, `bottleneck`,
+`rank_steps`, `route` (§A.5). Then the *same object* drives all three approaches:
+
+- **A** asks `bottleneck(m,i)` and self-scaffolds a layer only when
+  `expected_solve_gain > 0` (its siblings aren't ≈0) — targeted, not blind; the
+  direct fix for the 0→0 backend-scaffold result.
+- **B** *produces* the `δ` estimates the component needs, then retires to a
+  regression signal once fitted.
+- **C** is selected and justified by its reflex's `β·breadth` and ranked by
+  `expected_solve_gain` on the coordination layer; the contract's `δ`-reduction is
+  predicted, then checked against the refit.
+- **Routing for all three LLM models** is `route(m,i): p_solve(m,i) < ε` — the
+  layer-level generalization of `fixtures.should_skip`, with granite borrowing
+  qwen's pooled `β`.
+
+So the model is not three analyses bolted onto A/B/C: it is **one fitted object
+that measures the agent, ranks the next step, and routes the weak models**, which
+every approach (and the `practice` training loop) calls. That single
+implementation is the concrete "benefits all three."
+
 ### 2.1 The headline instrument: layer-resolution score (k/4)
 
 Binary p10 pass-rate is **0** and therefore uninformative — it cannot rank three
@@ -866,6 +924,84 @@ def expected_solve_gain(q: dict[str, float], layer: str, dq: float) -> float:
 `--emit-json` block next to `pass_rate`, and rank candidate steps with
 `expected_solve_gain`. These are the headline numbers for every arm in §2 and the
 selector for §3's "build the lever the probe named."
+
+### A.5 `capability.py` — the fitted model as one shared component (§2.0.1)
+
+A thin layer over `observe.py` (Beta-Binomial `q̂`) and `reflexdb.py` (efficacy
+`β`) that A, B, C, routing, and `practice` all call. Per-`(model, problem)` layer
+stats in; `p_solve`, `bottleneck`, a step ranking, and a route decision out.
+
+```python
+# src/mu/capability.py — fitted capability model: one measurer/selector/router.
+import math
+from dataclasses import dataclass
+from . import observe                         # Beta-Binomial Posterior (q̂ + CI)
+
+
+@dataclass(frozen=True)
+class LayerStat:
+    clears: int                               # runs that cleared this layer
+    n: int                                    # runs attempted
+    @property
+    def _post(self) -> "observe.Posterior":    # observe.beta_binomial -> Posterior(rate, lo, hi, n)
+        return observe.beta_binomial(self.clears, self.n)
+    @property
+    def q(self) -> float:                      # smoothed q̂ (Beta-Binomial posterior mean)
+        return self._post.rate
+    @property
+    def ci(self) -> tuple[float, float]:       # 95% credible interval — decide with fewer runs
+        p = self._post
+        return (p.lo, p.hi)
+
+
+def p_solve(layers: dict[str, LayerStat]) -> float:
+    """Chain solve-prob = ∏ q̂_l (series system) — the model's P_i."""
+    return math.prod(s.q for s in layers.values())
+
+
+def bottleneck(layers: dict[str, LayerStat]) -> str:
+    """argmin_l q̂ — the layer the next step must target (Result 2)."""
+    return min(layers, key=lambda l: layers[l].q)
+
+
+def expected_solve_gain(layers: dict[str, LayerStat], layer: str, dq: float) -> float:
+    """ΔP_solve ≈ dq · ∏_{l'≠layer} q̂  — a step's marginal value via the chain."""
+    others = math.prod(s.q for l, s in layers.items() if l != layer)
+    return dq * others
+
+
+def route(layers: dict[str, LayerStat], eps: float = 0.02) -> bool:
+    """Skip the (model, problem) when p_solve < eps — the layer-level generalization
+    of fixtures.should_skip, shared across all three LLM models."""
+    return p_solve(layers) < eps
+
+
+@dataclass(frozen=True)
+class Step:
+    name: str
+    layer: str            # the layer it lifts
+    beta: float           # efficacy Δ (partial-pooled across models; reflexdb)
+    cost: float           # median added tokens/iters
+
+
+def rank_steps(layers: dict[str, LayerStat], steps: list[Step]) -> list[tuple]:
+    """Order candidate steps by expected ΔP_solve per unit cost. headroom = β·(1−q̂)
+    is the logistic gain on the target layer; the chain factor routes it to the
+    bottleneck on a 0/L problem and to the broadest β on a near-solved one
+    (depth-vs-breadth, §2.0)."""
+    scored = []
+    for s in steps:
+        dq = s.beta * (1 - layers[s.layer].q)
+        gain = expected_solve_gain(layers, s.layer, dq)
+        scored.append((gain / max(s.cost, 1e-9), s.name, s.layer, gain))
+    return sorted(scored, reverse=True)
+```
+
+Consumers: `measure.py` builds `{layer: LayerStat}` from `_layer_clears`;
+**A** reads `bottleneck`/`expected_solve_gain` to scaffold only where it pays;
+**C** registers its reflex as a `Step` and is ranked by `rank_steps`;
+**B** supplies the `δ`-jumps that calibrate the `LayerStat`s; the `practice` loop
+and `dojo run --route` call `route` for every model. One object, every consumer.
 
 ---
 
