@@ -280,14 +280,111 @@ harness that lights up the shared substrate so A or C can be chosen against data
 
 ---
 
-## 2. How to compare the three (the measurement is the hard part)
+## 2. A capability model, and how to compare the three
 
-Binary p10 pass-rate is **0** and therefore uninformative — it cannot rank three
-interventions that all start from 0. The comparison must use **graded, continuous
-signal**, exactly as the efficacy machinery already does for reflex ablations
-(`observe.Posterior` Beta-Binomial, `sz5_gate`, `efficacy_run`; AGENTS.md §5z).
+### 2.0 A capability model: why each step raises P(solve all 10)
+
+The whole plan needs one quantitative spine: a model in which *every* useful step
+provably raises the chance of solving the problems, whose attributes are the
+levers above (reduction, reflexes, model, variance), and which is estimable from
+what mu already logs. mu's staged, gated architecture gives it for free.
+
+**Layers (a series/chain system).** Problem *i* is verified by `L_i` independent
+gates — its *layers*. p10 has `L=4` (backend build, backend test, frontend build,
+frontend test); a trivial problem has `L=1`. mu solves *i* iff it clears **every**
+layer: a series system in reliability terms.
+
+**Per-layer success (item-response form).** Layer `(i,ℓ)` clears with probability
+
+  q_{iℓ} = σ(z_{iℓ}),  σ(x)=1/(1+e^{−x}),
+  z_{iℓ} = θ·a_ℓ − δ_{iℓ} + Σ_k β_k·x_{kiℓ} − γ·V_{iℓ}
+
+a logistic "ability − difficulty" margin (standard IRT). Attributes and what moves
+each:
+
+| symbol | meaning | moved by |
+|---|---|---|
+| `θ` | model ability (per model, opt. per toolchain) | model choice / routing |
+| `δ_{iℓ}` | intrinsic difficulty / *size* of the subproblem at layer ℓ | **problem-space reduction** (self-scaffold, contract, slicing) |
+| `β_k ≥ 0` | strength of capability/step *k* | reflexes, skills |
+| `x_{kiℓ}` | coverage: does step *k* touch layer (i,ℓ) (its **breadth**) | generality of the step |
+| `γ·V_{iℓ}` | variance penalty (degeneration, planner noise) | guards, seed, prompt-cache |
+| `a_ℓ` | layer discrimination | (structural) |
+
+**Objective.** `P_i = ∏_ℓ q_{iℓ}` (solve problem *i*); `E[#solved] = Σ_i P_i`;
+the strict "solve all ten" `P_all = ∏_i P_i`. All three are strictly increasing
+in every `q_{iℓ}`.
+
+**Result 1 — each step provably raises the likelihood (monotonicity).** `z` is
+increasing in `θ` and each `β_k` (with `x≥0`), decreasing in `δ` and `V`; `σ` is
+strictly increasing. So any step that raises `θ`, adds a `β_k≥0`, lowers a `δ`, or
+lowers a `V` — *without lowering another layer's `z`* — strictly increases the
+affected `q_{iℓ}`, hence `P_i`, `E[#solved]`, and `P_all`. That is the exact
+meaning of "each step improves the likelihood," and of **no-regret**: a step is
+no-regret iff `Δz_{jℓ'} ≥ 0` everywhere (it lowers no layer of any problem — the
+control-set non-regression rule).
+
+**Result 2 — the chain makes the *weakest* layer decisive (and explains the
+dropped scaffolder).** `∂P_i/∂q_{iℓ} = ∏_{ℓ'≠ℓ} q_{iℓ'}`. The marginal value of
+improving layer ℓ is the **product of the other layers' pass probabilities** — so
+if any other layer ≈ 0, improving ℓ barely moves `P_i`. For p10 (all four layers
+low) raising only the backend layer leaves `P_i ≈ 0`: precisely the measured 0→0
+of backend-only scaffolding. For a 0/L problem the binding move is to lift the
+**minimum** layer — maximize `min_ℓ q_{iℓ}` (a bottleneck / max-min objective) —
+until every factor exceeds 0. In log space `log P_i = Σ_ℓ log q_{iℓ}`; the k/4
+score (§2.1) is a coarse threshold-count proxy for this sum, and `argmin_ℓ q̂_{iℓ}`
+names the layer to attack next.
+
+**Result 3 — reduction has the highest leverage when the model is weak (sigmoid
+steepness).** `dq/dz = σ(z)(1−σ(z))` peaks at `z=0` (`q=0.5`) and is tiny in the
+tails. A layer at `q≈0` sits deep in the negative tail, so a *single* step barely
+moves it — you must **stack** steps (`Σβ`, `Δδ`) to drag `z` from very negative
+toward 0 before returns appear. Hence p10 needs a *portfolio* of reductions, not
+one reflex, and progress is invisible in binary pass (`z: −5→−2`, `q` still ≈0)
+yet visible in a finer metric — the formal case for k/4. It also says: when `θ` is
+small and `δ` large (a weak local model on a big subproblem — **mu's regime**),
+lowering `δ` gives the biggest `dq`, because it moves `z` toward the steep region.
+That is the mathematical reason mu's edge is problem-space reduction + reflexes,
+not a bigger model.
+
+**Tradeoffs (read straight off the model).**
+
+1. **Reduction vs. capability — the honesty tradeoff.** External fixtures lower
+   `δ_{iℓ}` for one problem at a declared level but add no transferable `β` and
+   don't raise `θ`: they buy `P_i` without raising ability. The **L-level *is* the
+   amount of `δ` removed externally**; a pass at lowered `δ` ≠ a pass at full `δ`.
+   mu's *own* reduction lowers `δ` through a general mechanism — a real capability
+   gain. (This is the math behind "fixtures are measurement, not product.")
+2. **Generality vs. risk — `β` breadth vs. overfit.** A step with `β>0` on its
+   target but `β<0` elsewhere (overfit, wrong-deletion) lowers some `q`. Net
+   `ΔE[#solved] = Σ_helped − Σ_hurt`; ship iff net > 0 and no control layer
+   regresses (the `sz5_gate` rule).
+3. **Variance vs. cost.** Lowering `V` raises `q` but costs exploration/tokens,
+   and `σ` saturates as `q→1`, so each added repair pass or reflex has diminishing
+   `dq` at fixed cost `ΔT`. Ship while `Δq·(∂P/∂q)/ΔT > threshold`.
+4. **Depth vs. breadth.** For a 0/L problem, concentrate on the bottleneck layer
+   (Result 2); for a near-solved problem (all `q` high), spread — pick the broadest
+   `β` (largest `Σ_i x_{kiℓ}`, helping the most problems at once).
+5. **`θ` vs. `(δ,β)`.** Raise solve-prob with a bigger model (`θ↑` uniform, but
+   cost/swap on 8 GB) or with reduction+reflexes (`δ↓`, `β↑`, targeted, free
+   locally). Result 3 says the latter dominates in mu's weak-`θ`/large-`δ` regime.
+
+**It's estimable from what mu already logs** (so the model is a fit, not an
+abstraction): `q̂_{iℓ}` = clears/`N` per layer — *honest only if S1 makes the gate
+reject vacuous passes*; `θ ≈` the KB `competence_by_toolchain`; `β ≈` a reflex's
+`efficacy` Δ; `V ≈` stochasticity `1−modal/N`; the Beta-Binomial `observe.Posterior`
+gives `q̂` with uncertainty and `sz5_gate` tests `Δq`. The model is a logistic fit
+over `firings.jsonl × outcomes`. The metric (§2.1) and the step-selection rule
+(§A.4) are direct read-outs of it.
 
 ### 2.1 The headline instrument: layer-resolution score (k/4)
+
+Binary p10 pass-rate is **0** and therefore uninformative — it cannot rank three
+interventions that all start from 0 (Result 2/3: their gains hide in the negative
+tail). The comparison uses **graded, continuous signal** — the per-layer `q̂` and
+the chain solve-prob the model defines — exactly as the efficacy machinery already
+does for reflex ablations (`observe.Posterior` Beta-Binomial, `sz5_gate`,
+`efficacy_run`; AGENTS.md §5z).
 
 Define four checkpoints the harness can already read from the stage logs:
 
@@ -478,7 +575,8 @@ stand on their own even if no approach ships.
 - [ ] Level-aware `fixtures.apply` (read `minimize`; apply rungs ≤ target);
       unit tests: each rung copies the right subset; idempotent; off ⇒ no-op.
 - [ ] Measure L2/L3/L4 (15 each). Beta-Binomial Δ + k/4 + stochasticity.
-- [ ] **Decision gate (§3.3):** locate the jump rung → pick A, C, or route-only.
+- [ ] **Decision gate (§3, the B/k4 probe):** locate the jump rung (the bottleneck
+      layer, §2.0 Result 2) → pick C+S5, A, or route-only.
 
 **Phase 2a — if "jump at L2" → Approach A.**
 - [ ] `detect(Signal, stage)`; `vite-vitest` recipe + vendored `dojo/scaffolds/`.
@@ -708,28 +806,66 @@ in `registry.py` (the completeness test fails otherwise) and add an idempotency 
 a "leaves a uniquely-named type alone" regression test. CS0053 gets a sibling
 reflex that raises a type referenced by a `public` signature to `public`.
 
-### A.4 The k/4 layer-resolution metric (shared comparison instrument)
+### A.4 The capability model as code: per-layer `q̂`, chain solve-prob, step selection
 
-Add to `src/mu/dojo/measure.py` ([measure.py](../../src/mu/dojo/measure.py)),
-parsed from the staged session's gate logs — a continuous score that moves while
-binary pass is pinned at 0:
+The metric is a direct read-out of §2.0. First, sample each run's per-layer
+clears (the model's `q_{iℓ}` observations), parsed from the staged gate logs:
 
 ```python
-def _k4(session_dir: Path) -> int:
-    """How many of p10's four verifiable checkpoints a run reached (0–4)."""
-    logs = (session_dir / 'logs')
-    text = '\n'.join(p.read_text(errors='ignore') for p in logs.glob('*.log'))
-    return sum((
-        'Build succeeded' in text and 'error CS' not in text,    # 1 backend builds
-        bool(re.search(r'Passed!\s+-\s+Failed:\s+0', text)),      # 2 dotnet test green
-        'vite build' in text and 'error TS' not in text,          # 3 frontend builds
-        bool(re.search(r'Test Files\s+\d+ passed', text)),        # 4 vitest green
-    ))
+# src/mu/dojo/measure.py
+_P10_LAYERS = ('backend_build', 'backend_test', 'frontend_build', 'frontend_test')
+
+def _layer_clears(session_dir: Path) -> dict[str, bool]:
+    """One run's per-layer pass/fail — the model's q_{i,l} samples. Honest only
+    if the gates reject vacuous passes (S1): a 'green' that ran no tests is not a
+    clear."""
+    text = '\n'.join(p.read_text(errors='ignore')
+                     for p in (session_dir / 'logs').glob('*.log'))
+    return {
+        'backend_build':  'Build succeeded' in text and 'error CS' not in text,
+        'backend_test':   bool(re.search(r'Passed!\s+-\s+Failed:\s+0', text)),
+        'frontend_build': 'vite build' in text and 'error TS' not in text,
+        'frontend_test':  bool(re.search(r'Test Files\s+\d+ passed', text)),
+    }
 ```
 
-`measure.run` already finds the session per run (`sessions.latest_since`); average
-`_k4` across the N runs and emit it next to `pass_rate` in the `--emit-json`
-block. This is the headline number for every arm in §2.
+Aggregate over the `N` runs into the model's quantities — per-layer `q̂`, the
+**chain** solve-prob `∏ q̂` (vs. the measured pass rate), and the **bottleneck**
+`argmin q̂` (Result 2: where the next step actually pays):
+
+```python
+def _capability_summary(runs: list[dict[str, bool]]) -> dict:
+    n = len(runs) or 1
+    q = {l: sum(r[l] for r in runs) / n for l in _P10_LAYERS}   # q̂_l = clears/N
+    p_solve = math.prod(q.values())            # ∏ q̂_l  — series/chain system
+    return {
+        'q_per_layer':   q,
+        'p_solve_model': p_solve,              # model P_i; compare to measured pass_rate
+        'k_mean':        sum(q.values()),      # E[layers cleared] = Σ q̂_l (the old k/4)
+        'bottleneck':    min(q, key=q.get),    # argmin q̂_l → the layer to attack next
+    }
+```
+
+And the step-selection rule, straight from `∂P_i/∂q_{iℓ} = ∏_{ℓ'≠ℓ} q_{iℓ'}`
+(Result 2) — it scores a candidate step by its *expected* contribution to the
+chain, so a step on a layer whose siblings are still ≈0 scores ≈0 (why
+backend-only scaffolding was rejected):
+
+```python
+def expected_solve_gain(q: dict[str, float], layer: str, dq: float) -> float:
+    """Model's marginal value of a step that lifts `layer`'s q̂ by dq:
+    ΔP_solve ≈ dq · ∏_{l'≠layer} q̂_{l'}. Pick the step maximizing this per unit
+    cost (the depth-vs-breadth tradeoff, §2.0): on a 0/L problem it forces work
+    onto the bottleneck; on a near-solved one it rewards the broadest β."""
+    others = math.prod(qv for l, qv in q.items() if l != layer)
+    return dq * others
+```
+
+`measure.run` already finds the session per run (`sessions.latest_since`); collect
+`_layer_clears` across the `N` runs, emit `_capability_summary` in the
+`--emit-json` block next to `pass_rate`, and rank candidate steps with
+`expected_solve_gain`. These are the headline numbers for every arm in §2 and the
+selector for §3's "build the lever the probe named."
 
 ---
 
