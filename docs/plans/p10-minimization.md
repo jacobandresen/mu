@@ -610,55 +610,172 @@ validated against. So even when B leads to A or C, nothing built is wasted.
 
 ---
 
-## 5. Implementation plan (phased, gated)
+## 5. Implementation plan (stepwise, hardened)
 
-**Phase 0 — the shared substrate (do first; mostly no-regret).** Everything here
-is a prerequisite for *all three* approaches and for comparing them; S1 and S2
-stand on their own even if no approach ships.
-- [ ] **S1** Extend honest gates beyond `make`: `dotnet test` with 0 tests /
-      build-failed-but-exit-0, and `vitest` "No test files found" join
-      `_make_vacuous` as vacuous-pass shapes. (Regression-tested, like the p7 fix.)
-- [ ] **k/4** layer-resolution scorer in `src/mu/dojo/measure.py` (parse the four
-      checkpoints from stage logs; emit `k4_mean` alongside pass rate). Depends on S1.
-- [ ] **S2** Cross-stage type-ownership guard as a standalone csharp reflex
-      (`fix_csharp_cross_stage_duplicate_types` + a CS0053 sibling; §A.3),
-      catalogued and regression-tested incl. "a legitimately distinct same-named
-      type is **not** deleted." General multi-project .NET — also helps p4.
-- [ ] **S3/S4** One reconciliation routine (generalize `agent.py:678`) + one
-      `is_fullstack_dotnet_vue` detector + `meta.json.minimize` level record.
-- [ ] Baseline: `mu dojo measure p10 -n 15` at L0; record `efficacy_run`.
+### 5.0 Invariants every step preserves
 
-**Phase 1 — Approach B (the staircase).**
-- [ ] Author `dojo/fixtures/p10/{L2,L3,L4}` correct boilerplate (offline, no deps).
-- [ ] Level-aware `fixtures.apply` (read `minimize`; apply rungs ≤ target);
-      unit tests: each rung copies the right subset; idempotent; off ⇒ no-op.
-- [ ] Measure L2/L3/L4 (15 each). Beta-Binomial Δ + k/4 + stochasticity.
-- [ ] **Decision gate (§3, the B/k4 probe):** locate the jump rung (the bottleneck
-      layer, §2.0 Result 2) → pick C+S5, A, or route-only.
+Non-negotiable; each becomes a test so a violation fails CI, not a live run.
 
-**Phase 2a — if "jump at L2" → Approach A.**
-- [ ] `detect(Signal, stage)`; `vite-vitest` recipe + vendored `dojo/scaffolds/`.
-- [ ] Per-stage scaffold hook before `ground_plan`; `meta.json.scaffold`.
-- [ ] A/B vs baseline + controls; ship-on only if §2.3 KEEP criteria met.
+- **I1 Default-off.** Any agent-affecting change sits behind a flag defaulting
+  off; with all flags off the run is **byte-identical** to today (`test_*_noop`).
+- **I2 Offline.** No step adds a hard network dependency; an online tier degrades
+  to a vendored copy or to baseline (probe + fallback).
+- **I3 Honest level.** Every recorded pass carries its L-level in `meta.json`;
+  no statistic ever compares across levels.
+- **I4 No control regression.** p1/p2/p5/p6 pass-rate Δ has a 95% CI lower bound
+  ≥ −ε (ε = 0.05). Any step that breaches it is reverted, no exceptions.
+- **I5 Idempotent + graceful.** Every reflex/scaffold/fixture op is idempotent and
+  never raises into the agent loop — a failure degrades to baseline.
+- **I6 Pre-registration.** The KEEP/DROP statistic, N, and threshold are written
+  here *before* the run; no post-hoc moving of the bar.
 
-**Phase 2b — if "jump at L3" → Approach C.**
-- [ ] Full-stack contract template in the architect (manifest + route + JSON +
-      test cmd + type-ownership table); capability-keyed; flagged.
-- [ ] (The cross-stage CS0101/CS0053 guard is already built in Phase 0 / S2 — C
-      reuses it; nothing to add here.)
-- [ ] Also write the **S5** WebApplicationFactory + Vitest test-authoring skills
-      if the L3 staircase showed the residual ceiling is test logic.
-- [ ] A/B vs baseline + controls (esp. p4); ship-on per KEEP criteria.
+Each step is specified **Build → Files → Tests → Accept → Measure → Gate →
+Rollback.** "Gate" is the condition to start the next step; "Rollback" is how to
+undo with no residue.
 
-**Phase 3 — record.** Update `docs/problems/p10-dotnet-vue-blog.md`,
-`docs/challenges/csharp-aspnet-scaffolding.md`, `TODO.md`, this plan's results
-table; note the L-level of every reported pass.
+### Phase 0 — shared substrate (no-regret; unblocks all of A/B/C)
 
-**Honesty safeguards throughout.** Capability-only detection for A/C (a synthetic
-non-dojo full-stack goal must trigger the same path); fixtures labelled by rung
-and never compared across levels; controls p1/p2/p5/p6 must not regress; all
-agent-affecting flags default **off** so a live collection run is byte-identical
-until a change earns its flip.
+**Step 0.1 — S1 honest per-layer gates** *(prerequisite for every measurement)*
+- *Build:* add `_dotnet_test_vacuous` (0 tests discovered, or "Build FAILED" with a
+  0 exit) and `_vitest_vacuous` ("No test files found" / 0 passed) to the
+  `_make_vacuous` family; route the staged backend/frontend gates through
+  `_test_passed`.
+- *Files:* `src/mu/agent.py` (+ `tests/test_vacuous_dotnet_vitest.py`).
+- *Tests:* each sentinel ⇒ fail; a genuine green log ⇒ pass (no false-negative); a
+  genuine failing log ⇒ fail.
+- *Accept:* replay archived p10/p4/p8/p9 `tests-final.log`s — **zero** genuine
+  passes reclassified; every "0 tests"/"Build FAILED, exit 0" caught.
+- *Measure:* count reclassified archive sessions (expect dotnet false-passes, the
+  analogue of p7's `make` ones).
+- *Gate:* ≥1 real reclassification **and** 0 false-negatives ⇒ proceed.
+- *Rollback:* the sentinels are additive predicates; delete them.
+
+**Step 0.2 — k/4 layer scorer** *(depends on 0.1)*
+- *Build:* `_layer_clears` + `_capability_summary` (§A.4) in `measure.py`; emit
+  `q_per_layer`, `p_solve_model`, `bottleneck`, `k_mean`.
+- *Files:* `src/mu/dojo/measure.py` (+ test with archived-log fixtures).
+- *Tests:* exact per-layer booleans on fixture logs; a missing/garbled log ⇒ "not
+  cleared", never a crash.
+- *Accept:* **self-consistency** — on the L0 archive, `p_solve_model` ≈ measured
+  `pass_rate` within its CI (the chain product reproduces observed solves).
+- *Gate:* self-consistency holds ⇒ the metric is trustworthy for ranking.
+- *Rollback:* additive JSON keys; drop them.
+
+**Step 0.3 — S2 cross-stage type-ownership guard** *(general capability; ship-worthy alone)*
+- *Build:* `fix_csharp_cross_stage_duplicate_types` (keep the backend-owned
+  definition, delete cross-stage duplicate blocks → CS0101) + a CS0053 sibling
+  (raise a type behind a `public` signature to `public`); §A.3.
+- *Files:* 2 reflex files under `src/mu/reflexes/csharp/`, `registry.py` catalog
+  slot (`duplicate-declaration`), reapply wiring in `apply_csharp_repair_reflexes`
+  and `_inter_stage_gate`.
+- *Tests:* dup type across two stage files ⇒ one removed (backend kept); a
+  **legitimately distinct** same-named type in a different namespace ⇒ **not**
+  removed; CS0053 case ⇒ public; idempotent (double-apply stable).
+- *Accept:* dry-run replay of archived p10 CS0101/CS0053 sessions ⇒ the guard
+  resolves them.
+- *Measure:* ablation — `mu dojo measure p10 -n 15 --disable
+  fix_csharp_cross_stage_duplicate_types` vs enabled; β = Δ(backend-layer q̂)+CI;
+  record an `efficacy_run` row.
+- *Gate (KEEP):* backend-layer q̂ Δ CI lower bound > 0 **and** p4 not regressed (I4)
+  ⇒ on by default. Else keep behind `MU_DISABLE_REFLEX`-style flag.
+- *Rollback:* it's a catalogued reflex — the ablation path already removes it.
+
+**Step 0.4 — S3/S4 reconciliation + detector + level record** *(behavior-preserving refactor)*
+- *Build:* factor `agent.py:678` into `reconcile_provided(plan, owned_paths)`; add
+  `is_fullstack_dotnet_vue(signal)`; write `meta.json.minimize`.
+- *Tests:* provided files marked done; the model cannot re-add a provided type;
+  detector fires on a synthetic full-stack goal, not on p1.
+- *Accept:* with `owned_paths=∅` the refactor is byte-identical (I1); full suite
+  unchanged.
+- *Gate:* suite green, no behavior delta ⇒ proceed.
+- *Rollback:* inline the function back.
+
+**Step 0.5 — L0 baseline.** `mu dojo measure p10 -n 15` (post S1–S4); record
+`efficacy_run` with per-layer q̂ — the reference every arm diffs against.
+
+### Phase 1 — Approach B as the δ-identification probe (not a deliverable)
+
+- **Step 1.1 — author fixtures** `dojo/fixtures/p10/{L2,L3,L4}`, each a *correct*
+  rung-delta, offline and dependency-free.
+- **Step 1.2 — level-aware `fixtures.apply`** (§A.2) + the runner apply hook; unit
+  tests (right subset per rung, idempotent, off ⇒ no-op, I1).
+- **Step 1.3 — measure the staircase** L2/L3/L4 at N=15; record per-layer q̂.
+- **Step 1.4 — identify δ:** `δ̂_ℓ ≈ logit(q̂_ℓ at the rung that pins ℓ) −
+  logit(q̂_ℓ at the rung below)`; the bottleneck is `argmin_ℓ q̂_ℓ` at L0/L2.
+
+**Decision gate (pre-registered; I6).** With N=15 and the k/4 continuous CI:
+
+| Observation | Inference | Next |
+|---|---|---|
+| jump at **L2**, bottleneck a *build* layer | structure binds | Phase 2a (A) |
+| jump only at **L3**, bottleneck a *test* layer | coordination + test-authoring binds | Phase 2b (C + S5) |
+| no jump until **L4** | irreducible model-logic ceiling | **kill A/C**; `route()` p10 (§A.5); keep L3 fixture as a regression signal only |
+
+The L4 branch is an explicit **kill criterion** — the plan must be willing to
+conclude "no minimization lever ships" and stop, rather than build A or C anyway.
+
+### Phase 2a — Approach A *(only if the gate said "structure")*
+- *Build:* `detect(Signal, stage)` (§A.1); `vite-vitest` recipe + vendored
+  `dojo/scaffolds/vite-vitest/`; per-stage scaffold hook **before** `ground_plan`;
+  `meta.json.scaffold`.
+- *Tests:* stage-aware detection (frontend stage ⇒ vite, not webapi); offline
+  guarantee (network blocked ⇒ vendored or baseline, no crash, I2); scaffold-then-
+  ground reconciliation (no exit-73 collision); off ⇒ no-op (I1).
+- *Measure/Gate:* A/B vs L0 baseline + controls; KEEP per §2.3 (p10 pass-rate CI
+  lower bound > 0 or k/4 ↑ with CI∉0; controls hold, I4).
+- *Rollback:* `MU_SCAFFOLD` off restores baseline.
+
+### Phase 2b — Approach C *(only if the gate said "coordination + test")*
+- *Build:* full-stack contract template in `_run_architect_pass` (manifest + route
+  + JSON + test cmd + type-ownership table), capability-keyed, flagged. **Reuses
+  S2** (already built in 0.3) as the deterministic backstop — the contract is
+  advisory, the guard is enforcement, so the model ignoring the contract still
+  can't ship CS0101.
+- *Build (S5):* WebApplicationFactory + Vitest fetch-mock test-authoring skills,
+  iff 1.4 localized the ceiling to test logic.
+- *Tests:* contract injected only for full-stack goals; the S2 backstop fires when
+  the model violates the type ledger; skills load for the right stack.
+- *Measure/Gate:* A/B vs baseline + controls (esp. **p4**); KEEP per §2.3.
+- *Rollback:* contract flag off; S2 stays (it's no-regret).
+
+### Phase 2c — model calibration *(closes the loop; the key hardening)*
+Before declaring any lever shipped: compare the capability model's **predicted**
+effect (`expected_solve_gain` from the pre-ship fit) with the **measured**
+Δp_solve post-ship. If `|predicted − measured|` exceeds the measurement CI, the
+model is miscalibrated → **do not trust its rankings**: widen N, refit (§2.0.1),
+and re-derive the next step. This prevents the model from becoming decorative and
+turns §2.0 into a falsifiable predictor, not just a description.
+
+### Phase 3 — record & generalize
+- Update `docs/problems/p10-dotnet-vue-blog.md`,
+  `docs/challenges/csharp-aspnet-scaffolding.md`, `TODO.md`, this plan's results
+  table; **every figure carries its L-level** (I3).
+- Promote any *general* capability that earned KEEP (S2; a contract/self-scaffold
+  `reduce()` step) toward the product path per [feedback `agent_self_minimization`]
+  — the dojo trained it, the agent keeps it.
+
+### 5.1 Risk register
+
+| Risk | Phase | Detector | Mitigation |
+|---|---|---|---|
+| Honest gate flags a *genuine* pass (false-negative) | 0.1 | archive replay shows a real pass reclassified | scope to exact sentinels; regression test on archived genuine passes; only on test gates |
+| Log-parse drift across toolchain versions corrupts k/4 | 0.2 | self-consistency (Accept) breaks | parse stable substrings; unknown ⇒ "not cleared"; fixture-log tests |
+| S2 deletes a legitimately distinct same-named type | 0.3 | the "distinct type not removed" test fails; p4 regresses (I4) | match exact duplicate blocks only, namespace-aware; ablation + control gate |
+| Cross-level comparison inflates a result | all | a reported number lacks an L-level | I3 test: `meta.json.minimize` required; readme block prints the level |
+| A's vite recipe needs the network mid-run | 2a | offline test fails | vendored fallback (I2); online tier opt-in + reachability probe |
+| Model ignores C's contract | 2b | CS0101 reappears in logs | S2 backstop enforces deterministically regardless of the prompt |
+| Capability model mis-ranks the next step | 2c | predicted vs measured Δ diverges | calibration gate (2c): refit before trusting rankings |
+| p10 is pure model-ceiling; effort wasted | 1 | no jump until L4 | the L4 **kill criterion** stops A/C; route instead |
+
+### 5.2 Statistical power & cost
+
+Fresh-plan runs are the unit (planner variance included). A binary pass-rate shift
+of 0→0.2 needs ≈ N=50 runs for a 95% CI to exclude 0; the **continuous** k/4 /
+per-layer q̂ detects the same underlying shift at **N≈15** (§2.0 Result 3: progress
+shows as `z` moving in the tail before pass flips), which is why every gate above
+keys on k/4 first and confirms with pass-rate. Budget: p10 ≈ 200–300 s/run on the
+8 GB M2 ⇒ a 15-run arm ≈ 1 h; the four Phase-0/1 arms (L0, L2, L3, L4) ≈ half a
+day; reuse the `efficacy_run`/Beta-Binomial machinery rather than re-rolling stats.
 
 ---
 
