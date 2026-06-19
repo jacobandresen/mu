@@ -343,57 +343,110 @@ pass/fail — the explicit reason to build §2.1.
 
 ## 3. Recommendation
 
-**Do Approach B first — the fixture staircase — as a diagnostic, and let its
-result decide whether to invest in A or C.** Concretely:
+**Objective (the lens for everything below): make _mu_ better — and the specific
+capability to build is that _mu itself knows how to make its own problem space
+smaller_.** The minimization ladder (L0–L4), the fixtures, the scaffold, the
+contract are, as written elsewhere in this plan, things *we* do **to** the problem
+from outside. That makes p10's *number* move; it does not make the **agent**
+better. The durable win is to move that skill **inside mu**: faced with a big,
+ambiguous, multi-layer goal, the agent should itself reduce it — scaffold the
+structure, write a contract it then honours, decompose into the smallest
+independently-verifiable slices, and build them up gated one at a time — so the
+*model* only ever faces a small, low-variance subproblem. p10 is the **test
+case**; an agent that reduces its own problem space is the **product**.
 
-1. Build the **k/4 layer-resolution metric** (§2.1) and author `dojo/fixtures/p10`
-   with the level-aware `apply`.
-2. Measure p10 at **L0, L2, L3, L4** (15 runs each). Read the rung where mean k/4
-   (and pass-rate) jumps off the floor.
-3. Branch on the result:
-   - **Jumps at L2** (structure removed ⇒ passes) → the ceiling *was* structure;
-     ship **A** (stage-aware scaffold) as the general version, A/B to confirm.
-   - **Jumps only at L3** (needs the tests given) → the ceiling is **coordination
-     + test-authoring**, not structure → invest in **C** (contract + type ledger)
-     and a test-shape skill; A is confirmed not worth shipping.
-   - **Only at L4** (needs stubs) → the residue is irreducible model logic ceiling
-     → don't build A or C; record p10 as model-ceiling at L0–L3 and route it
-     (`MU_ROUTE`) for weak models, climbing the ladder only to keep a deterministic
-     regression signal.
+Handing mu correct files (a fixture) can make p10 *pass* without teaching mu
+anything; per the codebase's own rule a fixture is "correct boilerplate given to
+the model, not an answer key" — a *measurement* device, external to the agent. So:
 
-This converts an unfalsifiable 0/12 into a **localized, ranked diagnosis** and
-turns the "build A or C?" question from a guess into a data-driven choice.
+- **Capability deliverables (these are "mu getting better"):** the general,
+  capability-keyed mechanisms — **S2** (cross-stage type-ownership reflex), **C**
+  (the L1 contract that shrinks what the model must decide on *any* full-stack
+  goal), **S5** (WebApplicationFactory + Vitest test-authoring skills), and **A**
+  (scaffolding) if structure turns out to bind. These help every matching goal,
+  not just p10.
+- **Diagnostic only (not a deliverable):** **B**, the fixture staircase. It does
+  not improve the agent; it *localizes the ceiling* cheaply so the capability work
+  is aimed correctly. Its fixtures persist only as a labelled-L-level regression
+  signal, never as a capability claim.
+
+Recommended order:
+
+1. **Ship S2 now — a real agent improvement.** A general cross-stage
+   type-ownership reflex is exactly mu's thesis (a deterministic fixer for a
+   general error class); it kills p10's #1 error (CS0101/CS0053, ×22) *and* helps
+   p4, with no minimization at all. Pair with **S1** (honest `dotnet test`/`vitest`
+   gates) so any gain is measurable rather than vacuous.
+2. **Run the B/k4 probe** (§2.1) — instrumental, run-once, then set aside. Measure
+   p10 at L0/L2/L3/L4 and read the rung where mean k/4 jumps:
+   - **jumps at L2** → structure binds → build **A** (general scaffold);
+   - **jumps at L3** → coordination + test-authoring binds → build **C** (contract)
+     and **S5** (test skills) — the capability work, *not* the fixtures;
+   - **only at L4** → irreducible model-logic ceiling → don't build A/C; route p10
+     (`MU_ROUTE`) and keep the L3 fixture purely as a regression signal.
+3. **Build the capability lever the probe named** (C+S5, or A), A/B it against the
+   controls, ship-on only if it improves mu at **L0** (the open problem), not just
+   at a pinned rung.
+
+The mental check for every item: *would this help mu on a novel full-stack goal it
+has never seen?* S2/C/S5/A pass it; B does not — which is exactly why B is a probe,
+not the product.
+
+### 3.1 Internalize it: the agent's own reduce-then-solve loop
+
+Read through the objective, the three approaches are not separate features — they
+are the **moves of one capability mu should own**: a *reduce* pass that runs before
+the writer on any goal `detect_complexity` flags as hard/multi-layer, drawing on
+the same toolbox a human uses to climb the ladder, but invoked **by the agent**:
+
+| External lever (today) | Internalized as a mu capability |
+|---|---|
+| A — we scaffold from a template | **mu self-scaffolds**: detects the stack and lays its own skeleton (the `scaffold.py` recipes, but *mu* deciding to) |
+| C — we pin a contract | **mu writes its contract first**: manifest + single-owner type ledger + per-layer test command, then holds itself to it (extends the architect) |
+| B — we hand it fixtures | **mu builds in vertical slices**: skeleton → one layer green at a gate → expand. The *spirit* of the staircase (smallest verifiable core first) with **no answer-keys** — this is the only honest internalization of B |
+| (the cascade literature) | **mu decomposes** the goal into the smallest independently-gated subtasks and stops an error before it compounds |
+
+So the product is a general **`reduce()` stage** in the agent loop: detect → self-
+scaffold → contract + type-ledger → vertical-slice plan with a gate per slice →
+writer fills the smallest next slice. `ground_plan` and architect mode are the
+embryonic version of this; the work is to generalize and *train* it. Crucially,
+**mu should learn _when_ to reduce and which move helps which stack** — the dojo
+`practice` loop and the competence/KB are exactly the training signal for that, so
+the reduction skill improves with data instead of being hand-tuned per problem.
+
+This also relocates the harness's job: the dojo no longer *applies* minimization
+(except B as a one-off probe) — it **measures and trains** mu's own reduction
+(honest per-layer gates + k/4 + the KB). The agent owns making the problem small;
+the harness only scores how well it does it.
 
 ---
 
 ## 4. Why this is optimal (the argument)
 
-Treat the decision as one under uncertainty. The binding unknown is **which layer
-is p10's true constraint** — structure, coordination, or irreducible logic. We
-already paid once for guessing: the dropped scaffolder assumed *structure* and
-returned 0→0 with higher cost. Compute expected value, EV ≈ P(moves p10)·value −
-cost:
+The objective fixes where *value* lives: only a **general capability** — mu
+reducing its own problem space (§3.1) — counts. A fixture pass yields **zero**
+capability value (it's measurement); so B's worth is purely the *information* it
+gives about which capability move to build. With that, two decisions:
 
-- **A and C** each have **low, unknown** P(success) *given the prior* (structure
-  shown not to bind; coordination only *plausibly* binds) and **high** build cost.
-  Building either blind repeats the scaffolder mistake — negative-EV in
-  expectation until the constraint is known.
-- **B** has **P(moves p10) ≈ 1** (pin enough and it passes *by construction*) at
-  **low** cost (shipped mechanism), **and** it is the *only* action that resolves
-  the binding unknown — it makes P(success) for A and C *computable* instead of
-  guessed.
+**What to ship.** S2 (the cross-stage type reflex) is a general agent improvement
+*now* — it helps any multi-project .NET goal and p4, independent of p10's outcome,
+so its EV is positive unconditionally. Ship it first. The larger reduction moves
+(C/A/S5) have **low, unknown** P(success) *given the prior* (structure shown not
+to bind; coordination only *plausibly* binds) and **high** build cost — building
+either blind repeats the dropped-scaffolder mistake.
 
-So B strictly dominates as the first move on two independent grounds: it has the
-highest immediate, near-certain value, **and** it is a prerequisite that
-de-risks the expensive options. In information terms, B maximizes information
-gain per unit cost about the one variable that determines whether A or C can ever
-pay off. After B, the *targeted* follow-up (A xor C) is chosen against evidence,
-so its EV is then positive by construction. The alternative orderings
-(A-first or C-first) are dominated: they spend the most to learn the least and
-have already failed once. This is the same honest-harness discipline the codebase
-mandates ([AGENTS.md](../../AGENTS.md) §0, memory `project-false-pass-gate`,
+**How to choose among them.** B has **P(localizes the ceiling) ≈ 1** at **low**
+cost (shipped mechanism) and is the *only* action that makes P(success) for C/A
+*computable* instead of guessed — but it is a **probe, not a deliverable**: it
+buys information, never capability. So the optimal sequence is *ship the no-regret
+capability (S2) → probe cheaply (B/k4) → build the reduction move the probe names
+(C+S5 or A)*. Front-loading C or A is dominated (most cost to learn the least, and
+it already failed once); front-loading B as if it were the *answer* is the error
+the objective rules out — it makes the number move without making mu better. This
+is the same honest-harness discipline the codebase mandates
+([AGENTS.md](../../AGENTS.md) §0, memory `project-false-pass-gate`,
 `feedback-honest-dojo`): don't build a general mechanism until the data names the
-class it must target.
+class it must target — and don't mistake a measurement device for the product.
 
 A secondary optimality: B is the only option whose *artifacts compose with* the
 others — its fixtures double as the offline vendored skeletons Approach A needs
