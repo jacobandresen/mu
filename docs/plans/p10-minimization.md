@@ -1,14 +1,56 @@
 # Plan: minimizing & de-risking the p10 problem space
 
-_A design report on making **p10-dotnet-vue-blog** — the dojo's one persistently
-0-pass problem — either smaller (less for the model to decide) or more
-deterministic (less run-to-run variance). Three approaches, a comparison
-framework, a recommendation with an optimality argument, and an implementation
-plan. Status: **proposed**. Written 2026-06-19._
+_The **objective is to solve more of the ten dojo problems** — formally to raise
+`E[#solved] = Σ_i P_i` (and the stretch `P_all = ∏_i P_i`). **p10-dotnet-vue-blog**
+is the *worked example* — the dojo's one persistently 0-pass problem — because it
+exercises every mechanism; but the capability model (§2.0), the `reduce()` skill
+(§3.1), and the general levers (honest gates S1, the cross-stage reflex S2) are
+built to lift the **whole set**, and §0.1 shows the highest-EV targets are usually
+**not** p10. Status: **proposed**. Written 2026-06-19._
 
 ---
 
-## 0. Why p10 is the open problem
+## 0. The objective is all ten problems (p10 is the worked example)
+
+### 0.1 Optimise `E[#solved]` over the set, not `P_10` in isolation
+
+The capability model's objective (§2.0) is `E[#solved] = Σ_i P_i`. The marginal
+value of a step on problem *i*, layer ℓ is
+
+  `∂E/∂(step) ∝ β · q_{iℓ}(1−q_{iℓ}) · ∏_{ℓ'≠ℓ} q_{iℓ'}`
+
+— logistic headroom `q(1−q)` (Result 3) **times** the chain factor `∏ siblings`
+(Result 2). Read off the consequence: for **p10** every layer sits at `q≈0`, so
+*both* factors are ≈0 — a step there buys almost nothing per unit cost. For a
+**mid-tier** problem at `q≈0.5` with healthy siblings, `q(1−q)=0.25` and `∏≈1` — the
+*same* `β` buys far more solved-problems. **To solve more of the ten, the steepest
+(mid-tier) problems and the broad levers dominate the hardest problem.**
+
+Current measured rates (recent archive; p7 now ≈80% post the false-pass fix):
+
+| solved ✓ (≥90%) | mid-tier (most marginal EV) | frontier |
+|---|---|---|
+| p1, p3, p6 (100%), p9 (94%) | **p8 42%, p7 ~80%, p4 66%, p2 71%, p5 89%** | **p10 0%** |
+
+So the program that maximises `E[#solved]` is a **portfolio**:
+
+1. **Broad levers first** — a general reflex/skill lifts several problems at once
+   (large `Σ_i x_{kiℓ}`). S1 (honest gates) and S2 (cross-stage type reflex, helps
+   **p4 and p10**) are exactly this, which is why they are no-regret and ranked
+   first. The `reduce()` capability (§3.1) is the broadest lever of all.
+2. **Then the steep mid-tier** — p8 (42%) and p2/p4/p7 have the most headroom×
+   steepness; lifting p8 42→70% adds ≈0.28 to `E[#solved]` cheaply, more than
+   dragging p10 0→>0 at high cost and risk.
+3. **p10 as the frontier** — invest there only via (a) the general levers that also
+   help others and (b) the cheap B-probe, until stacked reductions drag its `q`
+   into the steep region. p10 earns the deep-dive because it *exercises every
+   mechanism*, not because it is the best place to spend.
+
+The selection rule (§A.5 `rank_steps`/`portfolio_gain`) and the measurement
+(§2.1, run over **all ten**, not p10 alone) implement this: rank every candidate
+step by its **summed** expected gain across the problems it covers.
+
+### 0.2 Why p10 is the open problem
 
 p10 asks for a coordinated two-project full stack in one shot: an ASP.NET Core
 minimal API with EF Core/SQLite, a seeded `Post` model, `GET /api/posts`, an
@@ -610,7 +652,11 @@ validated against. So even when B leads to A or C, nothing built is wasted.
 
 ---
 
-## 5. Implementation plan (stepwise, hardened)
+## 5. Implementation: a provable, whole-set improvement loop
+
+The plan is **not** "fix p10." It is a loop that **provably raises `E[#solved]`
+across all ten problems**, one shipped step at a time, with p10 handled as
+whatever candidates happen to cover it (and, by §0.1, rarely the first target).
 
 ### 5.0 Invariants every step preserves
 
@@ -633,33 +679,80 @@ Each step is specified **Build → Files → Tests → Accept → Measure → Ga
 Rollback.** "Gate" is the condition to start the next step; "Rollback" is how to
 undo with no residue.
 
-### Phase 0 — shared substrate (no-regret; unblocks all of A/B/C)
+### 5.0a The loop and its proof obligation (what makes the improvement *provable*)
 
-**Step 0.1 — S1 honest per-layer gates** *(prerequisite for every measurement)*
-- *Build:* add `_dotnet_test_vacuous` (0 tests discovered, or "Build FAILED" with a
-  0 exit) and `_vitest_vacuous` ("No test files found" / 0 passed) to the
-  `_make_vacuous` family; route the staged backend/frontend gates through
-  `_test_passed`.
-- *Files:* `src/mu/agent.py` (+ `tests/test_vacuous_dotnet_vitest.py`).
-- *Tests:* each sentinel ⇒ fail; a genuine green log ⇒ pass (no false-negative); a
-  genuine failing log ⇒ fail.
-- *Accept:* replay archived p10/p4/p8/p9 `tests-final.log`s — **zero** genuine
-  passes reclassified; every "0 tests"/"Build FAILED, exit 0" caught.
-- *Measure:* count reclassified archive sessions (expect dotnet false-passes, the
-  analogue of p7's `make` ones).
-- *Gate:* ≥1 real reclassification **and** 0 false-negatives ⇒ proceed.
+**Proof obligation.** A candidate step *k* is **shipped** iff the dojo measurement
+shows, with the existing Beta-Binomial / `sz5_gate` machinery:
+
+- **(P1) it raises the set:** `ΔE[#solved]` has a 95% CI lower bound **> 0**; and
+- **(P2) it regresses nothing:** every problem's pass-rate Δ has a CI lower bound
+  **≥ −ε** (ε = 0.05) — the control set p1/p2/p5/p6 *and* every covered problem.
+
+By Result 1 (monotonicity) a step meeting **P1 ∧ P2** strictly increases
+`E[#solved]`. So the shipped sequence makes `E[#solved]` a **monotone-increasing
+ledger**: every KEEP is a *proven* gain across the set, every step that cannot
+prove P1∧P2 is reverted. That is the precise meaning of "provable improvement for
+all problems" — not p10 alone.
+
+**The loop (each pass ships ≤1 proven step):**
+
+1. **Measure the board** — all ten at N (§A.5 `board`): per-problem-per-layer `q̂`,
+   `p_solve`, and `E[#solved]` with CIs. Honest gates (S1) make `q̂` unbiased.
+2. **Generate candidates** — from the board's bottleneck layers (`argmin q̂`) and
+   the KB's recurring *cross-problem* error classes; each carries an estimated `β`
+   and coverage `x` (which problems/layers it touches).
+3. **Rank by `portfolio_gain`** = `Σ_i Σ_ℓ expected_solve_gain` over covered
+   `(i,ℓ)`, per unit cost (§A.5). By Results 2–3 this **automatically prefers a
+   broad lever on steep mid-tier problems** over a narrow p10-only lever.
+4. **Implement** the top candidate (general reflex / skill / `reduce()` move),
+   gated off, with unit tests and the §5.0 invariants.
+5. **Prove it** — A/B (ablation) over covered problems + controls at the §5.2
+   power N. **KEEP iff P1∧P2**; else **revert**.
+6. **Refit & recompute** the board (`q̂`, `β`, `E[#solved]`); append the proven Δ
+   to the ledger.
+7. **Repeat from 2. Stop** when no candidate clears the cost threshold — guaranteed
+   to terminate because steepness (Result 3) drives marginal gains down as `q̂→1`.
+
+The phases below are the **first passes** of this loop: **Phase 0 is iteration 0**
+(instrument the board + ship the broad no-regret levers S1/S2 that lift several
+problems at once); the p10 B-probe and A/C are later iterations *selected by the
+ranking*, only once the broad levers are banked.
+
+### Phase 0 — iteration 0: the board + the broad no-regret levers
+
+**Step 0.1 — S1 honest gates for *every* toolchain** *(prerequisite for a board over all ten)*
+- *Build:* extend the `_make_vacuous` family to **every test-command shape the dojo
+  uses**, so a vacuous "pass" is caught on every problem, not just p7: `pytest`/
+  `go test`/`cargo test` (0 collected / `no tests ran`), `dotnet test` (0 tests,
+  or "Build FAILED" with a 0 exit), `jest`/`vitest` (No tests found / 0 passed).
+  Route all per-problem and staged test gates through `_test_passed`.
+- *Files:* `src/mu/agent.py` (+ `tests/test_vacuous_all_toolchains.py`).
+- *Tests:* each sentinel ⇒ fail; a genuine green log of each toolchain ⇒ pass (no
+  false-negative); a genuine failing log ⇒ fail.
+- *Accept:* replay the archived `tests-final.log` of **all ten** problems — **zero**
+  genuine passes reclassified; every "0 tests"/"nothing to be done"/"Build FAILED,
+  exit 0" caught.
+- *Measure:* count reclassified archive sessions per problem (expect false-passes
+  beyond p7 — e.g. a `go test` that compiled nothing).
+- *Gate:* 0 false-negatives across all toolchains ⇒ proceed (the board is now
+  honest for the whole set).
 - *Rollback:* the sentinels are additive predicates; delete them.
 
-**Step 0.2 — k/4 layer scorer** *(depends on 0.1)*
-- *Build:* `_layer_clears` + `_capability_summary` (§A.4) in `measure.py`; emit
-  `q_per_layer`, `p_solve_model`, `bottleneck`, `k_mean`.
-- *Files:* `src/mu/dojo/measure.py` (+ test with archived-log fixtures).
-- *Tests:* exact per-layer booleans on fixture logs; a missing/garbled log ⇒ "not
-  cleared", never a crash.
-- *Accept:* **self-consistency** — on the L0 archive, `p_solve_model` ≈ measured
-  `pass_rate` within its CI (the chain product reproduces observed solves).
-- *Gate:* self-consistency holds ⇒ the metric is trustworthy for ranking.
-- *Rollback:* additive JSON keys; drop them.
+**Step 0.2 — the whole-set board** *(depends on 0.1)*
+- *Build:* per-problem `_layer_clears` (each problem declares its own layers; a
+  trivial problem has one) + the `board`/`e_solved` aggregation (§A.5): emit, for
+  **all ten**, per-layer `q̂`, per-problem `p_solve`, the bottleneck, and
+  `E[#solved] = Σ_i p_solve_i` with a CI. Add a `mu dojo board` subcommand that
+  runs the set and prints the table.
+- *Files:* `src/mu/dojo/measure.py`, `src/mu/dojo/cli.py` (+ archived-log fixture test).
+- *Tests:* exact per-layer booleans on fixture logs per toolchain; a missing/garbled
+  log ⇒ "not cleared", never a crash.
+- *Accept:* **self-consistency over the set** — `E[#solved]` (Σ `p_solve`) ≈ the
+  observed count of solved problems within CI; each `p_solve_i` ≈ that problem's
+  measured pass rate. The board reproduces reality before it is trusted to rank.
+- *Gate:* set-level self-consistency holds ⇒ the board is a trustworthy ranking and
+  ledger instrument.
+- *Rollback:* additive subcommand + JSON keys; drop them.
 
 **Step 0.3 — S2 cross-stage type-ownership guard** *(general capability; ship-worthy alone)*
 - *Build:* `fix_csharp_cross_stage_duplicate_types` (keep the backend-owned
@@ -769,13 +862,17 @@ turns §2.0 into a falsifiable predictor, not just a description.
 
 ### 5.2 Statistical power & cost
 
-Fresh-plan runs are the unit (planner variance included). A binary pass-rate shift
-of 0→0.2 needs ≈ N=50 runs for a 95% CI to exclude 0; the **continuous** k/4 /
-per-layer q̂ detects the same underlying shift at **N≈15** (§2.0 Result 3: progress
-shows as `z` moving in the tail before pass flips), which is why every gate above
-keys on k/4 first and confirms with pass-rate. Budget: p10 ≈ 200–300 s/run on the
-8 GB M2 ⇒ a 15-run arm ≈ 1 h; the four Phase-0/1 arms (L0, L2, L3, L4) ≈ half a
-day; reuse the `efficacy_run`/Beta-Binomial machinery rather than re-rolling stats.
+Fresh-plan runs are the unit (planner variance included). The loop proves **P1**
+on `E[#solved]` — a *sum* over ten problems, whose CI is tighter than any single
+problem's, so a broad lever that adds ~0.1–0.3 to `E[#solved]` is detectable at
+**N≈10–15 per problem**, whereas a single binary pass-rate shift of 0→0.2 needs
+≈N=50; the continuous per-layer `q̂` detects the underlying shift even earlier
+(§2.0 Result 3: progress shows as `z` moving in the tail before pass flips). So
+every gate keys on `q̂`/`E[#solved]` first and confirms with pass-rate. Budget: a
+problem ≈ 60–300 s/run on the 8 GB M2 ⇒ a full **board** (ten problems × 15) ≈
+half a day, and a per-step ablation only re-runs the **covered** problems plus
+controls, not the whole set. Reuse the `efficacy_run`/Beta-Binomial machinery
+rather than re-rolling stats.
 
 ---
 
@@ -1114,11 +1211,48 @@ def rank_steps(layers: dict[str, LayerStat], steps: list[Step]) -> list[tuple]:
     return sorted(scored, reverse=True)
 ```
 
-Consumers: `measure.py` builds `{layer: LayerStat}` from `_layer_clears`;
-**A** reads `bottleneck`/`expected_solve_gain` to scaffold only where it pays;
-**C** registers its reflex as a `Step` and is ranked by `rank_steps`;
-**B** supplies the `δ`-jumps that calibrate the `LayerStat`s; the `practice` loop
-and `dojo run --route` call `route` for every model. One object, every consumer.
+**Whole-set objective and selector (provable improvement for *all* problems).** The
+board is `{problem_id: {layer: LayerStat}}`; the objective the loop monotonically
+raises is `E[#solved] = Σ_i p_solve_i`, and steps are ranked by their summed gain
+across **every problem they cover** — so a broad reflex (helps p4 *and* p10)
+outranks a p10-only lever (§0.1):
+
+```python
+Board = dict[str, dict[str, LayerStat]]        # problem_id -> {layer: LayerStat}
+
+def e_solved(board: Board) -> float:
+    """E[#solved] = Σ_i p_solve_i — the objective the loop raises monotonically."""
+    return sum(p_solve(layers) for layers in board.values())
+
+def portfolio_gain(board: Board, targets: list[tuple[str, str]], beta: float) -> float:
+    """A step's expected ΔE[#solved]: Σ expected_solve_gain over the (problem,
+    layer) pairs it covers. Summed across ALL covered problems, so breadth wins —
+    the whole-set selector, not a per-problem one."""
+    total = 0.0
+    for pid, layer in targets:
+        layers = board.get(pid)
+        if layers and layer in layers:
+            dq = beta * (1 - layers[layer].q)
+            total += expected_solve_gain(layers, layer, dq)
+    return total
+
+def rank_portfolio(board, candidates) -> list[tuple]:
+    """candidates: (name, targets, beta, cost). Rank by ΔE[#solved] per unit cost."""
+    return sorted(((portfolio_gain(board, t, b) / max(c, 1e-9), name)
+                   for name, t, b, c in candidates), reverse=True)
+```
+
+The provable-improvement gate (§5.0a) then reads off the board: ship a step iff the
+re-measured `e_solved` rose with a CI excluding 0 (**P1**) and no problem's pass
+rate regressed (**P2**).
+
+Consumers: `measure.py` builds the `Board` from `_layer_clears` over **all ten**;
+the loop (§5.0a) ranks candidates with `rank_portfolio` and tracks `e_solved` as
+the monotone ledger; **A** reads `bottleneck`/`expected_solve_gain` to scaffold only
+where it pays; **C** registers its reflex with its coverage and is ranked by
+`portfolio_gain`; **B** supplies the `δ`-jumps that calibrate the `LayerStat`s; the
+`practice` loop and `dojo run --route` call `route` for every model. One object,
+every consumer.
 
 ---
 
