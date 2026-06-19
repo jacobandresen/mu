@@ -2461,20 +2461,11 @@ _MAKE_NOTHING_RE = re.compile(r"make(?:\[\d+\])?: Nothing to be done for", re.I)
 
 
 def _make_vacuous(test_cmd: str, log_file: str) -> bool:
-    """True when a make-only test command did no work.
-
-    A test gate must witness tests actually execute. ``make test`` against an
-    empty ``test:`` target (e.g. a recipe-less target left after the makefile
-    reflexes hoist a bogus rule away) exits 0 while printing
-    ``make: Nothing to be done for `test'.`` — silently certifying a pass though
-    nothing ran. That was the dominant p7-flask false pass: a Flask API scored
-    as passing without a single test executing.
-
-    Scoped to commands whose every step is a ``make`` invocation: a command that
-    chains a real executable (``make && ./hello`` for p1/p3) is gated by that
-    executable's own exit code, so a make no-op there is incidental and must not
-    be flagged. General: any toolchain, any empty/missing make test target.
-    """
+    """True when a make-only test command did no work — make printed "Nothing to
+    be done", so the target had no recipe and no test ran (the p7-flask false
+    pass: exit 0, nothing executed). Scoped to all-make commands; one that chains
+    a real executable (``make && ./hello``, p1/p3) is gated by that binary's exit
+    code, so a make no-op there is incidental and not flagged."""
     segs = [s.strip() for s in re.split(r'&&|;|\|\||\n', test_cmd) if s.strip()]
     if not segs or any(not s.startswith('make') for s in segs):
         return False
@@ -2486,12 +2477,9 @@ def _make_vacuous(test_cmd: str, log_file: str) -> bool:
 
 
 def _test_passed(test_cmd: str, log_file: str, env: dict | None = None) -> bool:
-    """Run a *test* command and honestly judge whether tests passed.
-
-    Like ``_run_cmd`` but rejects a vacuous make run (exit 0, nothing executed):
-    a passing exit code only counts when work actually happened. Use this at
-    every test-gate decision; keep ``_run_cmd`` for lint and build steps.
-    """
+    """Like ``_run_cmd`` but for *test* gates: a passing exit code counts only
+    when work happened — a vacuous make run (``_make_vacuous``) is a failure.
+    Keep ``_run_cmd`` for lint/build steps."""
     ok = _run_cmd(test_cmd, log_file, env)
     if ok and _make_vacuous(test_cmd, log_file):
         log("Test command made no progress (make: Nothing to be done) — no "

@@ -604,19 +604,15 @@ def ground_plan(plan_path: str, p: Plan) -> list[str]:
             except OSError:
                 pass
 
-    # Level 2b — a C/C++ project whose test command uses 'make' but ships no
-    # Makefile needs a compile rule. This is the C *fallback* only: synthesize
-    # the `cc -o` template solely when the plan actually has C sources. A Python
-    # (or other non-C) project must NOT get a C compile Makefile — its `test:`
-    # recipe would be a stray `pytest` that the makefile reflexes hoist away,
-    # leaving `make test` with no rule ("no rule to make target 'test'", the
-    # dominant p7-flask failure). Python projects are handled by Level 4a below.
+    # Level 2b — only a C/C++ project (real C sources) whose `make` test command
+    # ships no Makefile gets the synthesized `cc -o` rule. A Python/other project
+    # must NOT: its stray `pytest` recipe gets hoisted away, leaving `make test`
+    # with no rule (the p7-flask failure). Those fall through to Level 4a below.
     has_makefile = any(Path(t.file_path).name.lower() == 'makefile' for t in p.tasks)
     c_sources = [t.file_path for t in p.tasks
                  if Path(t.file_path).suffix.lower() in ('.c', '.cpp', '.cc', '.cxx')]
     if not has_makefile and 'make' in p.test_command and not has_cs and c_sources:
-        # C# projects must not get a C Makefile — their Makefile is written by the model.
-        # Infer binary name from test command (e.g. 'make && ./hello_world' → 'hello_world')
+        # Infer the binary from the test command (e.g. 'make && ./hello' → 'hello').
         bin_match = re.search(r'&&\s+\.?/?([\w.-]+)\s*$', p.test_command)
         binary = bin_match.group(1) if bin_match else 'main'
         src = c_sources[0]
