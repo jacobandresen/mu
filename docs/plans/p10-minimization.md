@@ -552,19 +552,19 @@ are mutually exclusive, selected by Step 1.4.
   toolchains $\Rightarrow$ the board is honest for the whole set.
 - **Rollback.** Sentinels are additive predicates — delete them; the gate reverts.
 
-- [ ] **Step 0.2 — the whole-set board + `mu dojo board`** $\to$ `src/mu/dojo/measure.py`, `src/mu/dojo/cli.py` *(depends on 0.1)*
+- [x] **Step 0.2 — the whole-set board + `mu dojo board`** $\to$ `src/mu/dojo/measure.py`, `src/mu/dojo/cli.py` *(depends on 0.1)* — 🟡 **code done 2026-06-20** (9 unit tests; Accept self-consistency runs with the L0 baseline board, post-0.4)
 - **Files.** `src/mu/dojo/measure.py` — `_layer_clears` + board aggregation;
   `src/mu/dojo/cli.py` — the `mu dojo board` subcommand; new `tests/test_board.py` —
   fixture-log assertions.
 - **Build:**
-  - [ ] In `src/mu/dojo/measure.py`, add `_layer_clears(session_dir)` (§A.4) — each
+  - [x] In `src/mu/dojo/measure.py`, add `_layer_clears(session_dir)` (§A.4) — each
      problem declares its own layers (a trivial problem has one).
-  - [ ] In `src/mu/dojo/measure.py`, aggregate the N runs into a `capability.Board` and
+  - [x] In `src/mu/dojo/measure.py`, aggregate the N runs into a `capability.Board` and
      emit, for all ten: per-layer $\hat q$ (+CI), per-problem `p_solve`, the
      `bottleneck`, and `e_solved(board)` (+CI).
-  - [ ] In `src/mu/dojo/cli.py`, add a `mu dojo board` subcommand that runs the set,
+  - [x] In `src/mu/dojo/cli.py`, add a `mu dojo board` subcommand that runs the set,
      prints the table, and writes the JSON the loop reads.
-- [ ] **Tests.** Exact per-layer booleans on committed fixture logs per toolchain; a
+- [x] **Tests.** Exact per-layer booleans on committed fixture logs per toolchain; a
   missing/garbled log $\Rightarrow$ "not cleared", never a crash.
 - **Accept.** Set-level self-consistency: `e_solved` ($\sum$ `p_solve`) $\approx$ the observed
   count of solved problems within CI, and each `p_solve_i` $\approx$ that problem's measured

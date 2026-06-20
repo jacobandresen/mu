@@ -44,6 +44,14 @@ def _build_parser() -> argparse.ArgumentParser:
     m.add_argument('--emit-json', default='', metavar='PATH',
                    help='write structured result JSON to PATH (for record_efficacy)')
 
+    # -- board --------------------------------------------------------------
+    b = sub.add_parser('board', help='measure ALL problems and print the capability '
+                                     'board (per-layer q̂, p_solve, E[#solved])')
+    b.add_argument('-n', '--runs', type=int, default=int(os.environ.get('N', '5')),
+                   help='runs per problem (fresh plan each)')
+    b.add_argument('--emit-json', default='', metavar='PATH',
+                   help='write the board JSON to PATH (the loop reads this)')
+
     # -- run ----------------------------------------------------------------
     r = sub.add_parser('run', help='run one problem, or all available')
     r.add_argument('problem_id', nargs='?', default='',
@@ -102,6 +110,11 @@ def main(argv: Optional[list[str]] = None) -> int:
             os.environ['MU_DISABLE_REFLEX'] = args.disable  # reaches the iterate subprocess
         from . import measure
         return measure.run(args.problem_id, emit_json=args.emit_json)
+
+    if args.cmd == 'board':
+        os.environ['N'] = str(args.runs)
+        from . import measure
+        return measure.board(emit_json=args.emit_json, runs=args.runs)
 
     if args.cmd == 'run':
         if args.model:

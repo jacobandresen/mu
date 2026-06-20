@@ -12,6 +12,7 @@ runs than binary pass/fail), and a stochasticity score.
 """
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -89,6 +90,136 @@ def run(problem_id: str, emit_json: str = '') -> int:
         print(f"Result written to {emit_json}")
 
     return 0
+
+
+# --- the whole-set board (plan Step 0.2 / §A.4): per-layer q̂ over all problems ---
+
+# p10's four independent verification gates (a staged full-stack problem). Most
+# problems are a single gate; only a dotnet+node full stack declares these four.
+_P10_LAYERS = ('backend_build', 'backend_test', 'frontend_build', 'frontend_test')
+
+
+def _problem_layers(problem: dict) -> tuple[str, ...]:
+    """The verification layers a problem declares. A trivial problem (e.g.
+    p1-helloworld) is a single gate, L=1; a staged dotnet+node full stack (p10) has
+    four. Keyed on toolchains, not the id, so it generalizes."""
+    tc = set(problem.get('toolchains') or [])
+    if {'dotnet', 'node'} <= tc:
+        return _P10_LAYERS
+    return ('solved',)
+
+
+def _p10_layer_clears(session_dir: Path) -> dict[str, bool]:
+    """One p10 run's per-layer pass/fail, parsed from the staged gate logs (§A.4).
+    Honest only because S1 (Step 0.1) makes a 'green' that ran no tests not a clear.
+    A missing/garbled log reads as 'not cleared', never a crash."""
+    try:
+        text = '\n'.join(p.read_text(errors='ignore')
+                         for p in (session_dir / 'logs').glob('*.log'))
+    except OSError:
+        text = ''
+    return {
+        'backend_build':  'Build succeeded' in text and 'error CS' not in text,
+        'backend_test':   bool(re.search(r'Passed!\s+-\s+Failed:\s+0', text)),
+        'frontend_build': 'vite build' in text and 'error TS' not in text,
+        'frontend_test':  bool(re.search(r'Test Files\s+\d+ passed', text)),
+    }
+
+
+def _layer_clears(problem: dict, session) -> dict[str, bool]:
+    """Per-layer pass/fail for one run. Single-gate problems clear iff the session
+    succeeded; the full-stack stack reads its four layers from the logs."""
+    layers = _problem_layers(problem)
+    if layers == _P10_LAYERS:
+        if session is None:
+            return {l: False for l in _P10_LAYERS}
+        return _p10_layer_clears(session.dir)
+    return {'solved': bool(session and session.outcome == 'success')}
+
+
+def board(emit_json: str = '', runs: int | None = None) -> int:
+    """Run **all ten** problems over N fresh-plan runs and print the capability
+    board: per-layer q̂, per-problem p_solve, the bottleneck layer, and the whole-set
+    objective E[#solved] = Σ p_solve. The ranking + ledger instrument of plan §4.2."""
+    from mu.toolchain import load_problems_catalog
+    from .. import capability
+
+    augment_path()
+    n = runs if runs is not None else int(os.environ.get('N', '5'))
+    problems = load_problems_catalog(None)
+    subprocess.run(mu_cmd() + ['model', 'warm'],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    print(f"Board: measuring {len(problems)} problems over {n} run(s) each…\n")
+
+    table: capability.Board = {}
+    observed_solved = 0.0
+    for problem in problems:
+        pid, goal = problem['id'], problem['goal']
+        layers = _problem_layers(problem)
+        clears = {l: 0 for l in layers}
+        solved = 0
+        work = Path('dojo') / pid
+        try:
+            for i in range(1, n + 1):
+                if work.exists():
+                    shutil.rmtree(work)
+                work.mkdir(parents=True)
+                marker = now()
+                subprocess.run(mu_cmd() + ['agent', goal, '--dir', str(work)],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                s = sessions.latest_since(marker)
+                solved += bool(s and s.outcome == 'success')
+                lc = _layer_clears(problem, s)
+                for l in layers:
+                    if lc.get(l):
+                        clears[l] += 1
+        finally:
+            if work.exists():
+                shutil.rmtree(work)
+        table[pid] = {l: capability.LayerStat(clears=clears[l], n=n) for l in layers}
+        observed_solved += solved / n if n else 0.0
+        print(f"  {pid:<26} solved {solved}/{n} · "
+              f"layers " + ', '.join(f"{l}={clears[l]}/{n}" for l in layers))
+
+    _print_board(table, observed_solved)
+
+    if emit_json:
+        import datetime, json as _json
+        out = {
+            'n': n,
+            'e_solved': capability.e_solved(table),
+            'observed_solved': observed_solved,
+            'board': {
+                pid: {
+                    l: {'clears': st.clears, 'n': st.n,
+                        'q': round(st.q, 4), 'ci': [round(c, 4) for c in st.ci]}
+                    for l, st in layers.items()
+                }
+                for pid, layers in table.items()
+            },
+            'ts': datetime.datetime.now().isoformat(timespec='seconds'),
+        }
+        Path(emit_json).write_text(_json.dumps(out, indent=2))
+        print(f"\nBoard written to {emit_json}")
+    return 0
+
+
+def _print_board(table, observed_solved: float) -> None:
+    """Print per-problem p_solve + bottleneck, then E[#solved] vs the observed
+    solved count — the self-consistency check that earns the board its trust (§0.2)."""
+    from .. import capability
+    print()
+    for pid, layers in table.items():
+        ps = capability.p_solve(layers)
+        bn = capability.bottleneck(layers)
+        bn_note = f" · bottleneck {bn} (q̂={layers[bn].q:.2f})" if len(layers) > 1 else ""
+        print(f"  {pid:<26} p_solve={ps:.3f}{bn_note}")
+    es = capability.e_solved(table)
+    print(f"\nE[#solved] = {es:.2f}  (observed solved ≈ {observed_solved:.2f})")
+    if abs(es - observed_solved) <= 1.0:
+        print("self-consistency OK: E[#solved] ≈ observed solved count.")
+    else:
+        print("WARNING: E[#solved] diverges from observed — board not yet trustworthy.")
 
 
 def _print_summary(problem_id: str, outcomes: list[str], repair_total: int,
