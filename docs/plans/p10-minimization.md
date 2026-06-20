@@ -623,7 +623,7 @@ are mutually exclusive, selected by Step 1.4.
 - **Gate.** Suite green, no behaviour delta $\Rightarrow$ proceed.
 - **Rollback.** Inline the function back; remove the meta keys.
 
-- [ ] **Step 0.5 — L0 baseline** $\to$ *no new file — runs the instrument* *(records, does not gate)*
+- [ ] **Step 0.5 — L0 baseline** $\to$ *no new file — runs the instrument* *(records, does not gate)* — 🟡 **baseline board running** (background, `qwen2.5-coder-3b-instruct`, N=5 → `.mu/board_L0_3b.json`; smoke: p1-helloworld 1/1 in a single step, 0 repair). Note: qwen-7b won't load on this 8 GB host ("insufficient system resources"), so the baseline uses the 3b model.
 - [ ] **Build:** Run `mu dojo board` over all ten plus `mu dojo measure p10 -n 15`,
   post S1–S4; record an `efficacy_run` with per-layer $\hat q$. This board is the L0
   reference P1/P2 are measured against for every arm.
