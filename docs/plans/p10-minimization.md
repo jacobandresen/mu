@@ -1,67 +1,90 @@
 # Plan: minimizing & de-risking the p10 problem space
 
 _The **objective is to solve more of the ten dojo problems** — formally to raise
-`E[#solved] = Σ_i P_i` (and the stretch `P_all = ∏_i P_i`). **p10-dotnet-vue-blog**
-is the *worked example* — the dojo's one persistently 0-pass problem — because it
-exercises every mechanism; but the capability model (§2.0), the `reduce()` skill
-(§3.1), and the general levers (honest gates S1, the cross-stage reflex S2) are
-built to lift the **whole set**, and §0.1 shows the highest-EV targets are usually
-**not** p10. Status: **proposed**. Written 2026-06-19._
+$E[\#\text{solved}] = \sum_i P_i$ (stretch $P_\text{all}=\prod_i P_i$).
+**p10-dotnet-vue-blog** is the *worked example* — the dojo's one persistently
+0-pass problem, because it exercises every mechanism — but the capability model
+(§1), the `reduce()` loop (§2.1), and the broad levers (honest gates S1, the
+cross-stage reflex S2) are built to lift the **whole set**, and §0.1 shows the
+highest-EV targets are usually **not** p10._
+
+_The binding constraint on this work is a principle (§0.2): **mu must not rely on
+fixtures or pregenerated code.** Anything we hand the agent moves p10's *number*
+without making the *agent* better. Status: **proposed**. Written 2026-06-19,
+trimmed 2026-06-20._
 
 ---
 
-## 0. The objective is all ten problems (p10 is the worked example)
+## 0. Objective and principle
 
 ### 0.1 Optimise `E[#solved]` over the set, not `P_10` in isolation
 
-The capability model's objective (§2.0) is `E[#solved] = Σ_i P_i`. The marginal
-value of a step on problem *i*, layer ℓ is
+The capability model (§1) gives the marginal value of a step on problem $i$,
+layer $\ell$:
 
-  `∂E/∂(step) ∝ β · q_{iℓ}(1−q_{iℓ}) · ∏_{ℓ'≠ℓ} q_{iℓ'}`
+$$\frac{\partial E}{\partial(\text{step})} \;\propto\; \beta \cdot \underbrace{q_{i\ell}(1-q_{i\ell})}_{\text{logistic headroom}} \cdot \underbrace{\prod_{\ell'\neq\ell} q_{i\ell'}}_{\text{chain factor}}$$
 
-— logistic headroom `q(1−q)` (Result 3) **times** the chain factor `∏ siblings`
-(Result 2). Read off the consequence: for **p10** every layer sits at `q≈0`, so
-*both* factors are ≈0 — a step there buys almost nothing per unit cost. For a
-**mid-tier** problem at `q≈0.5` with healthy siblings, `q(1−q)=0.25` and `∏≈1` — the
-*same* `β` buys far more solved-problems. **To solve more of the ten, the steepest
-(mid-tier) problems and the broad levers dominate the hardest problem.**
+— logistic headroom (Result 3) **times** the chain factor (Result 2). The
+consequence: for **p10** every layer sits at $q\approx0$, so *both* factors are
+$\approx 0$ — a step there buys almost nothing per unit cost. For a **mid-tier**
+problem at $q\approx0.5$ with healthy siblings, $q(1-q)=0.25$ and $\prod\approx1$
+— the *same* $\beta$ buys far more solved problems. **To solve more of the ten,
+the steep mid-tier problems and the broad levers dominate the hardest problem.**
 
-Current measured rates (recent archive; p7 now ≈80% post the false-pass fix):
+Current measured rates (recent archive; p7 ≈80% post the false-pass fix):
 
 | solved ✓ (≥90%) | mid-tier (most marginal EV) | frontier |
 |---|---|---|
 | p1, p3, p6 (100%), p9 (94%) | **p8 42%, p7 ~80%, p4 66%, p2 71%, p5 89%** | **p10 0%** |
 
-So the program that maximises `E[#solved]` is a **portfolio**:
+So the program that maximises `E[#solved]` is a **portfolio**: (1) **broad levers
+first** — a general reflex/skill lifts several problems at once (S1, S2, the
+`reduce()` loop); (2) **then the steep mid-tier** — lifting p8 42→70% adds ≈0.28
+to `E[#solved]` cheaply, more than dragging p10 0→>0 at high cost; (3) **p10 as
+the frontier** — invest only via levers that also help others, until stacked
+reductions drag its `q` into the steep region. The selector (§A.5 `rank_portfolio`)
+ranks every candidate by its *summed* expected gain across the problems it covers,
+over **all ten**, not p10 alone.
 
-1. **Broad levers first** — a general reflex/skill lifts several problems at once
-   (large `Σ_i x_{kiℓ}`). S1 (honest gates) and S2 (cross-stage type reflex, helps
-   **p4 and p10**) are exactly this, which is why they are no-regret and ranked
-   first. The `reduce()` capability (§3.1) is the broadest lever of all.
-2. **Then the steep mid-tier** — p8 (42%) and p2/p4/p7 have the most headroom×
-   steepness; lifting p8 42→70% adds ≈0.28 to `E[#solved]` cheaply, more than
-   dragging p10 0→>0 at high cost and risk.
-3. **p10 as the frontier** — invest there only via (a) the general levers that also
-   help others and (b) the cheap B-probe, until stacked reductions drag its `q`
-   into the steep region. p10 earns the deep-dive because it *exercises every
-   mechanism*, not because it is the best place to spend.
+### 0.2 The principle: no fixtures, no pregenerated code
 
-The selection rule (§A.5 `rank_steps`/`portfolio_gain`) and the measurement
-(§2.1, run over **all ten**, not p10 alone) implement this: rank every candidate
-step by its **summed** expected gain across the problems it covers.
+Handing mu correct files (a committed fixture) or a copied skeleton (a vendored
+template) can make p10 *pass* without teaching mu anything. Per the codebase's own
+rule a fixture is "correct boilerplate given to the model, not an answer key" — a
+**measurement device, external to the agent.** The capability model makes the cost
+exact: external code lowers $\delta_{i\ell}$ for one problem at a declared level
+but adds no transferable $\beta$ and does not raise $\theta$ — it buys $P_i$
+without raising ability (§1.3, tradeoff 1).
 
-### 0.2 Why p10 is the open problem
+So the durable win is mu reducing its **own** problem space: self-scaffolding by
+*invoking* the toolchain's own generator, writing and then honouring its own
+contract, and building in vertical slices it generates itself.
+
+> **The substep clarification.** "No pregenerated code" forbids *seeding the agent
+> with code it did not generate.* It does **not** forbid a later substep building
+> on an earlier one. When a reduction is split into slices, it is expected and
+> correct that **step 2 relies on the code mu generated in step 1** — that *is* the
+> vertical-slice method (skeleton → one gated layer green → expand on it). The line
+> is provenance: code mu wrote in a previous slice is fair game; code we authored
+> and dropped into its workspace is not.
+
+This principle is the gate on every lever in §2: Approach C (contract) and S2
+(reflex) are general capability that mu owns; Approach B (committed fixtures) is a
+**diagnostic probe only**, shipping no fixtures as product; Approach A is
+acceptable only in the form where **mu runs `dotnet new` / `npm create vite`
+itself** (tool-generated, mu's own output) — a copied vendored skeleton is the
+part that conflicts, kept only as a last-resort offline fallback.
+
+### 0.3 Why p10 is the open problem
 
 p10 asks for a coordinated two-project full stack in one shot: an ASP.NET Core
 minimal API with EF Core/SQLite, a seeded `Post` model, `GET /api/posts`, an
-**xUnit `WebApplicationFactory` integration test**, *plus* a Vue 3 + Vite + TS
-frontend with a **Vitest fetch-mocking test**, wired by one Makefile. It runs in
-architect (staged) mode — backend, frontend, integration as separate sessions
-([`_detect_stages`](../../src/mu/agent.py)).
+xUnit `WebApplicationFactory` integration test, *plus* a Vue 3 + Vite + TS
+frontend with a Vitest fetch-mock test, wired by one Makefile. It runs in
+architect (staged) mode ([`_detect_stages`](../../src/mu/agent.py)).
 
 Measured (run 7, qwen2.5-coder-7b, ctx 6000): **0/12**, median 6 repair iters,
-~33k prompt tokens/run — the heaviest and least reliable problem in the set.
-Dominant errors:
+~33k prompt tokens/run — the heaviest, least reliable problem in the set.
 
 | Error | Count | Class |
 |---|---|---|
@@ -69,516 +92,321 @@ Dominant errors:
 | MSB1003 no project/solution at the test dir | ×8 | **structure** (where `dotnet test` runs) |
 | CS0053 inconsistent accessibility (public API exposes internal EF type) | ×8 | **coordination** (type-ownership / visibility) |
 
-### The decisive prior: a general scaffolding A/B already found structure isn't the binding constraint
-
-**State in this tree (verified 2026-06-19):** `src/mu/scaffold.py` exists but is
-the **detection + recipe core only**, *unwired* (commit `48fa0c8`,
-"iteration 1… unwired, gated, offline-first"). Nothing in the hot path imports
-it; there is no per-stage hook and no committed A/B. [scaffolding.md](scaffolding.md)
-§6 is the *evaluation plan*, not results.
-
-A later line of work (recorded in project memory `project-scaffolding-impl`, on a
-branch **not merged here**) wired it per-`run`, fixed an ordering bug so the
-scaffold actually fired, and ran a pre-registered A/B whose verdict was **DROP**:
+**The decisive prior: structure is probably *not* the binding constraint.**
+`src/mu/scaffold.py` exists but is the detection+recipe core only, **unwired**
+(commit `48fa0c8`). A later branch (project memory `project-scaffolding-impl`, not
+merged here) wired it per-`run`, fixed an ordering bug so it actually fired, and
+ran a pre-registered A/B whose verdict was **DROP**:
 
 > p10 A/B (scaffold confirmed firing): baseline **0/8** vs treatment **0/8** — no
-> movement, and repair-iters *rose* 0.8 → 2.2 (a cost regression). Backend
-> scaffolding fixes MSB1003/CS0017 **but not p10's real ceiling**: the frontend,
-> the WebApplicationFactory integration test, and multi-project coordination.
+> movement, and repair-iters *rose* 0.8 → 2.2. Backend scaffolding fixes
+> MSB1003/CS0017 **but not p10's real ceiling**: the frontend, the
+> WebApplicationFactory integration test, and multi-project coordination.
 
-Treat this as a **strong working hypothesis**, not in-tree fact: the structural
-failure classes (MSB1003, csproj shape) are likely **not** the binding
-constraint — adding backend structure-by-construction moved nothing. So any new
-proposal must be judged on whether it attacks **coordination** (CS0101/CS0053)
-and the **frontend/integration logic**, not just structure. Approach B (§1) is
-designed precisely to *confirm or refute* this hypothesis in-tree before we spend
-on A or C.
+Treat this as a **strong working hypothesis**, not in-tree fact: any new proposal
+must be judged on whether it attacks **coordination** (CS0101/CS0053, ×22 combined)
+and the **frontend/integration logic**, not just structure.
 
-### What the 2026 literature says
+### 0.4 What the 2026 literature says
 
-The current external picture lines the three approaches up almost exactly:
+The external picture lines the levers up almost exactly:
 
-- **Spec-/contract-driven development** treats a structured spec as the source of
-  truth and separates planning from implementation; structured input measurably
-  reduces hallucination ([Thoughtworks 2025][tw], [GitHub spec-kit][ghspec],
-  [arXiv 2602.00180][sdd]). → Approach **C**.
-- **Skeleton/template-guided repository generation** ships a target skeleton (and
-  often the tests) and has the model fill only the dynamic parts; hybrid
-  *parameterized templates* enforce structure while the LLM infers logic
-  ([Skeleton-Guided-Translation, arXiv 2501.16050][skel]; RepoZero; Transrepo-Bench).
-  → Approaches **A** and **B**.
-- **TDD-style pinning**: giving the test as the contract is "a fundamental
-  determinant of success"; ~40% of agent-generated code still fails to match the
-  deterministic reference even when it executes ([TDD-Bench, arXiv 2505.09027][tdd]).
-  → Approach **B** (L3 rung).
-- **Cascade control / atomic decomposition**: "error propagation is the primary
-  bottleneck in agent reliability"; the mitigation is to decompose into the
-  smallest subtasks and gate each, so an early mistake can't compound
-  ([Constraint decay, arXiv 2605.06445][decay]; [Where LLM Agents Fail, arXiv
-  2509.25370][fail]). This is *exactly* p10's repair-oscillation failure mode.
-  → Approaches **B** (independent gates) and **C** (type-ownership ledger).
+- **Spec-/contract-driven development** — a structured spec as source of truth,
+  planning separated from implementation, measurably less hallucination
+  ([Thoughtworks 2025][tw], [spec-kit][ghspec], [2602.00180][sdd]). → contract (C).
+- **Skeleton/template-guided generation** — ship a target skeleton and have the
+  model fill the dynamic parts ([2501.16050][skel]). → self-scaffold (A) / the
+  vertical-slice skeleton.
+- **TDD-style pinning** — the test-as-contract is "a fundamental determinant of
+  success"; ~40% of agent code still fails the reference even when it runs
+  ([2505.09027][tdd]). → the B-probe's L3 rung, and S5 test skills.
+- **Cascade control / atomic decomposition** — "error propagation is the primary
+  bottleneck in agent reliability"; decompose into the smallest gated subtasks so
+  an early mistake can't compound ([2605.06445][decay], [2509.25370][fail]).
+  This is *exactly* p10's repair-oscillation mode. → S2 (independent gates) and the
+  `reduce()` loop's vertical slices.
 
-The minimization ladder mu already defines ([DOJO.md](../../DOJO.md)) is the local
-name for this literature: **L0 open → L1 contract → L2 scaffold → L3 test-pinned →
-L4 fill-in.** The three approaches below are three different rungs/mechanisms on
-that ladder.
+mu's own minimization ladder ([DOJO.md](../../DOJO.md)) is the local name for this:
+**L0 open → L1 contract → L2 scaffold → L3 test-pinned → L4 fill-in.**
 
 ---
 
-## 1. The three approaches
+## 1. The capability model
 
-### Approach A — Stage-aware runtime scaffolding (general, L2)
+### 1.1 The logistic chain
 
-**Idea.** Resurrect the dropped scaffolder, but fix the design flaw that killed
-it: make it **per-stage**. Today `scaffold.detect()` returns `dotnet-webapi`
-first, so on the staged path it fires once (on the model stage) and the csproj it
-leaves blocks every later stage's own scaffold (`dotnet new` exits 73 on a
-non-empty dir). Make detection a function of the **current stage**: backend →
-`dotnet new webapi` + EF refs; integration → `dotnet new xunit` referencing the
-backend; frontend → vendored `vite-vitest` skeleton. Each stage gets the
-canonical skeleton from an official template; the model writes only the source
-and test bodies.
+mu's staged, gated architecture gives the model for free. A problem $i$ is
+verified by $L_i$ independent gates — its **layers**. p10 has $L=4$ (backend
+build, backend test, frontend build, frontend test); a trivial problem has $L=1$.
+mu solves $i$ iff it clears **every** layer — a *series system* in reliability
+terms.
 
-**External basis.** Skeleton-guided repository generation; hybrid parameterized
-templates ([2501.16050][skel]).
+Layer $(i,\ell)$ clears with probability (standard IRT "ability − difficulty"):
 
-**Implementation.**
-- `src/mu/scaffold.py`: change `detect(Signal)` → `detect(Signal, stage)`; add a
-  `vite-vitest` recipe (online `npm create vite` *plus* a frozen vendored copy in
-  `dojo/scaffolds/vite-vitest/` for the offline guarantee, per scaffolding.md §1).
-- `src/mu/agent.py`: call `_maybe_scaffold(stage=...)` at the **start of each
-  staged session** (the architect loop), not once globally; keep it before
-  `ground_plan` so the reconciliation in scaffolding.md §3.3 holds (scaffold owns
-  `*.csproj`/config, model owns `.cs`/`.vue`/`.test.*`).
-- Record `meta.json.scaffold = {stage, recipe, files, tier}` so analysis can
-  separate scaffolded from from-scratch passes.
-- Stays behind `MU_SCAFFOLD` until an A/B earns a default flip.
+$$q_{i\ell} = \sigma(z_{i\ell}), \qquad \sigma(x) = \frac{1}{1+e^{-x}}$$
 
-**Pros.** General and honest (capability+stage keyed, never the problem id);
-offline for the backend; the detection + recipe core already exists
-(`scaffold.py`); eliminates MSB1003 and the csproj-shape classes by construction;
-makes runs *cheaper* if it works. (Caveat: the wiring, the per-stage `detect`, and
-the vendored Vite fallback are **not** in this tree yet — see §0.)
-
-**Cons.** The A/B prior says backend structure is **not** the binding constraint,
-so the upside hinges entirely on the *new* frontend recipe + correct stage
-routing actually attacking the frontend/integration ceiling — unproven. Adds a
-(vendored-mitigated) network surface. Does **not** touch CS0101/CS0053
-(coordination) or test logic. Template version drift to maintain.
-
-### Approach B — Committed fixture staircase (per-problem, L2 → L3 → L4)
-
-**Idea.** Use the shipped fixture mechanism ([`fixtures.apply`](../../src/mu/fixtures.py),
-`dojo/fixtures/<id>/`, the `minimize` field in
-[problems-catalog.json](../../problems-catalog.json)) to give p10 progressively
-more of its own correct boilerplate, and **measure at each rung** to find where
-it starts passing. This does not try to make the agent better; it makes p10 a
-*deterministic instrument* and **localizes the binding constraint**.
-
-The rungs (each = the previous plus more given files):
-
-| Rung | Given as fixtures (model skips) | Model still writes | Isolates |
-|---|---|---|---|
-| **L2** | both `*.csproj`, `Makefile`, `frontend/{package.json,vite.config.ts,tsconfig.json}` | `Program.cs`, xUnit test, `App.vue`, `*.test.ts` | structure removed → logic+coordination+test-authoring |
-| **L3** | + the xUnit test file + the Vitest test file | `Program.cs`, `App.vue` | + test-authoring removed → implementation + coordination only |
-| **L4** | + `Program.cs`/`App.vue` stubs with fixed signatures | function/handler bodies | the irreducible logic core |
-
-**External basis.** TDD-pinning ([2505.09027][tdd]); skeleton-with-tests
-repository benchmarks (Transrepo-Bench); atomic decomposition with independent
-gates ([2605.06445][decay]).
-
-**Implementation.**
-- Author `dojo/fixtures/p10/` once, by hand, as *correct* boilerplate (committed
-  via the `.gitignore` golden-file exception fixtures already use).
-- Extend `fixtures.apply` to be **level-aware**: read `minimize` for the problem
-  and copy only the subset for that rung (e.g. lay fixtures out as
-  `dojo/fixtures/p10/L2/…`, `…/L3/…` deltas, and apply L≤target). ~20 lines.
-- The agent already marks any pre-existing planned file done (`agent.py` ~648),
-  so given files vanish from the writer's job automatically.
-- Record the rung in `problems-catalog.json` and in `meta.json`, so a pass is
-  always reported *with its level* (an L3 95% is not an L0 95%).
-
-**Pros.** The **only** approach guaranteed to move p10 off 0 (pin enough and it
-must pass), and — decisively — it **tells you which layer is the real ceiling**,
-which neither A nor C can do blind. Uses shipped, tested code (near-zero new
-attack surface), fully offline, fully deterministic, gives graded continuous
-signal. Each rung is an independent gate, the literature's prescribed cascade
-mitigation.
-
-**Cons.** Fixtures are **per-problem**, the honesty tension: an L3/L4 pass
-measures implementation, not the open-ended capability. It's a *diagnostic /
-measurement* lever, not a shipped product improvement — by itself it doesn't make
-the real agent better on novel full-stack goals. Must be scrupulously labelled by
-L-level or it misleads.
-
-### Approach C — Deterministic full-stack contract + type-ownership ledger (general, L1)
-
-**Idea.** Attack the *coordination* ceiling directly. Extend the architect so
-that, for a detected full-stack stack (`_is_multilayer` + dotnet&node), it emits
-a **deterministic contract** — fixed file manifest with paths, the API route and
-JSON shape, the canonical test command, and a **single-owner type ledger**: each
-shared type (`Post`, the `DbContext`) is declared to live in exactly one backend
-file and be `public`, referenced (never redefined) by the test stage. Pair it
-with a deterministic cross-stage guard that, before the integration gate,
-**removes any type re-defined in a second stage file** and flags a `public`
-member exposing a non-`public` type — i.e. promote a generalized, contract-driven
-version of the existing `run_staged orphan cleanup` so CS0101/CS0053 cannot
-survive to the compiler.
-
-**External basis.** Spec-/contract-first development ([2602.00180][sdd],
-[spec-kit][ghspec]); atomic-provenance to stop error cascades ([2606.07937][casc],
-[2509.25370][fail]).
-
-**Implementation.**
-- `src/mu/plan.py` / architect: a declarative full-stack contract template
-  (capability-keyed) injected into `ARCHITECTURE.md`/PLAN.md — manifest + route +
-  JSON + test command + the type-ownership table. Pure L1 (no files written).
-- A new deterministic step (a reflex or a staged-gate guard in `agent.py`):
-  scan all stage `.cs` for a `class/record <T>` declared more than once across
-  files → keep the backend-owned one, delete the duplicate (CS0101); detect a
-  `public` signature returning/exposing a type whose declaration is not `public`
-  → raise the type to `public` (CS0053). General class, no problem id.
-- Keep the architect change behind a flag for the A/B.
-
-**Pros.** The only approach that targets p10's *actual* dominant errors
-(CS0101/CS0053 coordination, ×22 combined) and is **general** — a full-stack
-contract + type-ownership guard helps any multi-project .NET goal, not just p10,
-so it's honest *and* a real product improvement. Reduces repair oscillation at
-its root (the cascade) per the cited failure-analysis work.
-
-**Cons.** The most design work and the most new attack surface (architect
-template + a cross-stage AST-ish guard that must not delete a legitimately
-distinct type). An L1 contract still leaves the model to author every file, so
-variance stays high — it may shrink the *error classes* without yet crossing the
-pass threshold (the frontend/integration logic ceiling remains). Highest risk of
-a subtle wrong-deletion regression on control problems (p4).
-
-### What all three share — the common substrate (build this first)
-
-A, B, and C are not three unrelated ideas: they are **the same minimization
-ladder**, differing only in *how* the fixed part of the project is produced
-(runtime template / committed fixture / contract spec) and *how much* of it is
-fixed. So they rest on one substrate, and most of the real engineering lives
-there, not in the approach-specific veneer:
-
-| Shared component | A | B | C | Where it lives |
-|---|:-:|:-:|:-:|---|
-| Full-stack stack **detector** (dotnet+vue, capability-keyed) | ✓ | ✓ | ✓ | `scaffold.Signal`/`detect`; `_is_multilayer` |
-| **"Provided = done" reconciliation** (mark fixed files done; model can't clobber/redeclare them) | ✓ | ✓ | ✓ | `agent.py:678` |
-| **Cross-stage type-ownership guard** (CS0101/CS0053 — the #1 p10 error) | ✓ | ✓ | ✓ | new csharp reflex (§A.3) + `run_staged` orphan cleanup |
-| **Honest per-layer gates + the k/4 metric** | ✓ | ✓ | ✓ | `measure.py` `_k4`; `_test_passed` |
-| **L-level / `meta.json` bookkeeping** (a pinned pass ≠ an L0 pass) | ✓ | ✓ | ✓ | `problems-catalog.json` `minimize`; `meta.json` |
-| **One frozen structure artifact** (`dojo/scaffolds/` == fixtures `L2` == C's golden reference) | ✓ | ✓ | ✓ | new shared dir |
-| **Offline-first** (no hard network dependency) | ✓ | ✓ | ✓ | vendored fallback |
-
-The decisive observation: **the artifacts compose.** B's `dojo/fixtures/p10/L2`
-structure *is* the vendored skeleton A copies offline *is* the golden reference
-C's type-ledger guard validates against. Author it once; all three consume it.
-
-### Improvements needed in all three cases (the no-regret backlog)
-
-These are worth doing **before** committing to A, B, or C — each is a prerequisite
-for *all three* and for even comparing them, and the first two carry their own
-weight even if every approach is later dropped:
-
-1. **S1 — Honest per-layer gates (do first).** The k/4 metric is only trustworthy
-   if each layer's gate detects a *vacuous* pass. The work already shipped covers
-   `make` (`_make_vacuous`); p10's real gates are `dotnet test` and
-   `npx vitest run`, which have their own silent-success shapes: `dotnet test`
-   with **0 tests** (no test discovered), a build that *fails* but the wrapper
-   exits 0, and `vitest` reporting **"No test files found"**. Extend the
-   vacuous-detection family to these. Without S1, all three approaches are scored
-   against a lying instrument. **No-regret: it makes the whole harness honest
-   regardless of A/B/C** (same class as the p7 false-pass fix).
-2. **S2 — Cross-stage type-ownership guard (highest leverage).** CS0101 + CS0053
-   are ×22 of p10's errors and bite all three: a scaffold leaves a `Program.cs`
-   the model also writes; a fixture pins a `Post` the model re-declares; a
-   contract *names* the owner but can't stop a redeclaration. A deterministic,
-   general guard (keep the backend-owned definition, delete cross-stage
-   duplicates; raise a type behind a `public` signature to `public`) is needed
-   under every approach. **No-regret: it's a general multi-project-.NET reflex
-   that also helps p4**, independent of any minimization lever.
-3. **S3 — One reconciliation routine.** Generalize `agent.py:678` into a single
-   "this set of paths is fixed; the model owns the rest, and must neither rewrite
-   nor redeclare them" contract that A (scaffold-owned), B (fixture-owned), and C
-   (contract-owned) all call with a different file set. Avoids three subtly
-   different mark-done implementations drifting apart.
-4. **S4 — One detector + level bookkeeping.** A shared `is_fullstack_dotnet_vue`
-   capability check and a `meta.json.minimize`/`scaffold` record, so every reported
-   p10 pass carries its rung and no run is silently compared across levels (the
-   central honesty risk for all three).
-5. **S5 — Test-authoring skills for the two hard test types.** No *structural*
-   lever (A, B-L2, or C) reaches the actual model ceiling: authoring a correct
-   `WebApplicationFactory` integration test and a correct Vitest fetch-mock. All
-   three need a complementary writer/architect skill for exactly these two shapes,
-   or they top out one layer short (B only crosses it by *pinning* the tests at
-   L3 — which is the diagnostic that tells you whether S5 is even worth writing).
-
-Sequencing falls out of this: **S1–S4 are Phase 0 of any path**, and they are the
-cheapest to exercise through Approach B (which needs no runtime templates or
-architect changes to drive the whole substrate end-to-end). That is an
-independent reason the recommendation lands on B-first (§3): it is the minimal
-harness that lights up the shared substrate so A or C can be chosen against data.
-
----
-
-## 2. A capability model, and how to compare the three
-
-### 2.0 A capability model: why each step raises P(solve all 10)
-
-The whole plan needs one quantitative spine: a model in which *every* useful step
-provably raises the chance of solving the problems, whose attributes are the
-levers above (reduction, reflexes, model, variance), and which is estimable from
-what mu already logs. mu's staged, gated architecture gives it for free.
-
-**Layers (a series/chain system).** Problem *i* is verified by `L_i` independent
-gates — its *layers*. p10 has `L=4` (backend build, backend test, frontend build,
-frontend test); a trivial problem has `L=1`. mu solves *i* iff it clears **every**
-layer: a series system in reliability terms.
-
-**Per-layer success (item-response form).** Layer `(i,ℓ)` clears with probability
-
-  q_{iℓ} = σ(z_{iℓ}),  σ(x)=1/(1+e^{−x}),
-  z_{iℓ} = θ·a_ℓ − δ_{iℓ} + Σ_k β_k·x_{kiℓ} − γ·V_{iℓ}
-
-a logistic "ability − difficulty" margin (standard IRT). Attributes and what moves
-each:
+$$z_{i\ell} = \theta\, a_\ell \;-\; \delta_{i\ell} \;+\; \sum_k \beta_k\, x_{ki\ell} \;-\; \gamma\, V_{i\ell}$$
 
 | symbol | meaning | moved by |
 |---|---|---|
-| `θ` | model ability (per model, opt. per toolchain) | model choice / routing |
-| `δ_{iℓ}` | intrinsic difficulty / *size* of the subproblem at layer ℓ | **problem-space reduction** (self-scaffold, contract, slicing) |
-| `β_k ≥ 0` | strength of capability/step *k* | reflexes, skills |
-| `x_{kiℓ}` | coverage: does step *k* touch layer (i,ℓ) (its **breadth**) | generality of the step |
-| `γ·V_{iℓ}` | variance penalty (degeneration, planner noise) | guards, seed, prompt-cache |
-| `a_ℓ` | layer discrimination | (structural) |
+| $\theta$ | model ability (per model / toolchain) | model choice / routing |
+| $\delta_{i\ell}$ | intrinsic difficulty / *size* of subproblem at layer $\ell$ | **problem-space reduction** (self-scaffold, contract, slicing) |
+| $\beta_k \ge 0$ | strength of step $k$ | reflexes, skills |
+| $x_{ki\ell}$ | coverage: does step $k$ touch layer $(i,\ell)$ (its **breadth**) | generality of the step |
+| $\gamma V_{i\ell}$ | variance penalty (degeneration, planner noise) | guards, seed, prompt-cache |
+| $a_\ell$ | layer discrimination | (structural) |
 
-**Objective.** `P_i = ∏_ℓ q_{iℓ}` (solve problem *i*); `E[#solved] = Σ_i P_i`;
-the strict "solve all ten" `P_all = ∏_i P_i`. All three are strictly increasing
-in every `q_{iℓ}`.
+**Objective.** $P_i = \prod_\ell q_{i\ell}$; $\;E[\#\text{solved}] = \sum_i P_i$;
+$\;P_\text{all} = \prod_i P_i$. All three are strictly increasing in every
+$q_{i\ell}$.
 
-**Result 1 — each step provably raises the likelihood (monotonicity).** `z` is
-increasing in `θ` and each `β_k` (with `x≥0`), decreasing in `δ` and `V`; `σ` is
-strictly increasing. So any step that raises `θ`, adds a `β_k≥0`, lowers a `δ`, or
-lowers a `V` — *without lowering another layer's `z`* — strictly increases the
-affected `q_{iℓ}`, hence `P_i`, `E[#solved]`, and `P_all`. That is the exact
-meaning of "each step improves the likelihood," and of **no-regret**: a step is
-no-regret iff `Δz_{jℓ'} ≥ 0` everywhere (it lowers no layer of any problem — the
-control-set non-regression rule).
+### 1.2 Three results
+
+**Result 1 — each step provably raises the likelihood (monotonicity).** $z$
+increases in $\theta$ and each $\beta_k$ (with $x\ge0$), decreases in $\delta$ and
+$V$; $\sigma$ is strictly increasing. So any step that raises $\theta$, adds a
+$\beta_k\ge0$, lowers a $\delta$, or lowers a $V$ — *without lowering another
+layer's $z$* — strictly increases the affected $q_{i\ell}$, hence $P_i$,
+$E[\#\text{solved}]$, $P_\text{all}$. That is **no-regret**: a step is no-regret
+iff $\Delta z_{j\ell'}\ge0$ everywhere.
 
 **Result 2 — the chain makes the *weakest* layer decisive (and explains the
-dropped scaffolder).** `∂P_i/∂q_{iℓ} = ∏_{ℓ'≠ℓ} q_{iℓ'}`. The marginal value of
-improving layer ℓ is the **product of the other layers' pass probabilities** — so
-if any other layer ≈ 0, improving ℓ barely moves `P_i`. For p10 (all four layers
-low) raising only the backend layer leaves `P_i ≈ 0`: precisely the measured 0→0
-of backend-only scaffolding. For a 0/L problem the binding move is to lift the
-**minimum** layer — maximize `min_ℓ q_{iℓ}` (a bottleneck / max-min objective) —
-until every factor exceeds 0. In log space `log P_i = Σ_ℓ log q_{iℓ}`; the k/4
-score (§2.1) is a coarse threshold-count proxy for this sum, and `argmin_ℓ q̂_{iℓ}`
+dropped scaffolder).**
+
+$$\frac{\partial P_i}{\partial q_{i\ell}} = \prod_{\ell'\neq\ell} q_{i\ell'}, \qquad \log P_i = \sum_\ell \log q_{i\ell}$$
+
+The marginal value of improving layer $\ell$ is the **product of the other
+layers' pass probabilities** — so if any sibling $\approx0$, improving $\ell$
+barely moves $P_i$. For p10 (all four layers low) raising only the backend layer
+leaves $P_i\approx0$: precisely the measured 0→0 of backend-only scaffolding. For
+a 0/L problem the binding move is to lift the **minimum** layer
+($\max\min_\ell q_{i\ell}$) until every factor exceeds 0; $\arg\min_\ell \hat q_{i\ell}$
 names the layer to attack next.
 
 **Result 3 — reduction has the highest leverage when the model is weak (sigmoid
-steepness).** `dq/dz = σ(z)(1−σ(z))` peaks at `z=0` (`q=0.5`) and is tiny in the
-tails. A layer at `q≈0` sits deep in the negative tail, so a *single* step barely
-moves it — you must **stack** steps (`Σβ`, `Δδ`) to drag `z` from very negative
-toward 0 before returns appear. Hence p10 needs a *portfolio* of reductions, not
-one reflex, and progress is invisible in binary pass (`z: −5→−2`, `q` still ≈0)
-yet visible in a finer metric — the formal case for k/4. It also says: when `θ` is
-small and `δ` large (a weak local model on a big subproblem — **mu's regime**),
-lowering `δ` gives the biggest `dq`, because it moves `z` toward the steep region.
-That is the mathematical reason mu's edge is problem-space reduction + reflexes,
-not a bigger model.
+steepness).**
 
-**Tradeoffs (read straight off the model).**
+$$\frac{dq}{dz} = \sigma(z)\,(1-\sigma(z)) \quad\text{peaks at } z=0\ (q=0.5),\ \text{tiny in the tails.}$$
 
-1. **Reduction vs. capability — the honesty tradeoff.** External fixtures lower
-   `δ_{iℓ}` for one problem at a declared level but add no transferable `β` and
-   don't raise `θ`: they buy `P_i` without raising ability. The **L-level *is* the
-   amount of `δ` removed externally**; a pass at lowered `δ` ≠ a pass at full `δ`.
-   mu's *own* reduction lowers `δ` through a general mechanism — a real capability
-   gain. (This is the math behind "fixtures are measurement, not product.")
-2. **Generality vs. risk — `β` breadth vs. overfit.** A step with `β>0` on its
-   target but `β<0` elsewhere (overfit, wrong-deletion) lowers some `q`. Net
-   `ΔE[#solved] = Σ_helped − Σ_hurt`; ship iff net > 0 and no control layer
-   regresses (the `sz5_gate` rule).
-3. **Variance vs. cost.** Lowering `V` raises `q` but costs exploration/tokens,
-   and `σ` saturates as `q→1`, so each added repair pass or reflex has diminishing
-   `dq` at fixed cost `ΔT`. Ship while `Δq·(∂P/∂q)/ΔT > threshold`.
+A layer at $q\approx0$ sits deep in the negative tail, so a *single* step barely
+moves it — you must **stack** steps ($\sum\beta$, $\Delta\delta$) to drag $z$ from
+very negative toward 0 before returns appear. Progress is invisible in binary pass
+($z:-5\to-2$, $q$ still $\approx0$) yet visible in a finer metric — the formal case
+for $k/4$ (§1.5). And: when $\theta$ is small and $\delta$ large (a weak local
+model on a big subproblem — **mu's regime**), lowering $\delta$ gives the biggest
+$dq$. That is the mathematical reason mu's edge is problem-space reduction +
+reflexes, not a bigger model.
+
+### 1.3 Tradeoffs (read straight off the model)
+
+1. **Reduction vs. capability — the honesty tradeoff (this is §0.2 in math).**
+   External fixtures lower $\delta_{i\ell}$ at a declared level but add no
+   transferable $\beta$ and don't raise $\theta$. The **L-level *is* the amount of
+   $\delta$ removed externally**; a pass at lowered $\delta\neq$ a pass at full
+   $\delta$. mu's *own* reduction lowers $\delta$ through a general mechanism — a
+   real capability gain.
+2. **Generality vs. risk.** A step with $\beta>0$ on its target but $\beta<0$
+   elsewhere (overfit, wrong-deletion) lowers some $q$. Ship iff net
+   $\Delta E[\#\text{solved}] = \sum_\text{helped} - \sum_\text{hurt} > 0$ and no
+   control layer regresses.
+3. **Variance vs. cost.** Lowering $V$ raises $q$ but costs tokens; $\sigma$
+   saturates as $q\to1$. Ship while $\Delta q\cdot(\partial P/\partial q)/\Delta T >$ threshold.
 4. **Depth vs. breadth.** For a 0/L problem, concentrate on the bottleneck layer
-   (Result 2); for a near-solved problem (all `q` high), spread — pick the broadest
-   `β` (largest `Σ_i x_{kiℓ}`, helping the most problems at once).
-5. **`θ` vs. `(δ,β)`.** Raise solve-prob with a bigger model (`θ↑` uniform, but
-   cost/swap on 8 GB) or with reduction+reflexes (`δ↓`, `β↑`, targeted, free
-   locally). Result 3 says the latter dominates in mu's weak-`θ`/large-`δ` regime.
+   (Result 2); for a near-solved problem, spread to the broadest $\beta$ (largest
+   $\sum_i x_{ki\ell}$).
+5. **$\theta$ vs. $(\delta,\beta)$.** A bigger model ($\theta\uparrow$ uniform, but
+   swap-bound on 8 GB) vs. reduction+reflexes ($\delta\downarrow$, $\beta\uparrow$,
+   targeted, free locally). Result 3 says the latter dominates in mu's regime.
 
-**It's estimable from what mu already logs** (so the model is a fit, not an
-abstraction): `q̂_{iℓ}` = clears/`N` per layer — *honest only if S1 makes the gate
-reject vacuous passes*; `θ ≈` the KB `competence_by_toolchain`; `β ≈` a reflex's
-`efficacy` Δ; `V ≈` stochasticity `1−modal/N`; the Beta-Binomial `observe.Posterior`
-gives `q̂` with uncertainty and `sz5_gate` tests `Δq`. The model is a logistic fit
-over `firings.jsonl × outcomes`. The metric (§2.1) and the step-selection rule
-(§A.4) are direct read-outs of it.
+**Estimable from what mu already logs** (so the model is a *fit*, not an
+abstraction): $\hat q_{i\ell}=$ clears/$N$ per layer (honest only if S1 rejects
+vacuous passes); $\theta\approx$ KB `competence_by_toolchain`; $\beta\approx$ a
+reflex's `efficacy` Δ; $V\approx$ stochasticity $1-\text{modal}/N$; the
+Beta-Binomial `observe.Posterior` gives $\hat q$ with a CI and `sz5_gate` tests
+$\Delta q$.
 
-### 2.0.1 Fitting it — the one component all three approaches share
+### 1.4 Fitting it: the hierarchical logistic (one shared component)
 
-The "benefits all three" that matters here is **the three approaches A/B/C**: they
-should not each grow their own analysis, but call one fitted object that measures
-the agent, ranks the next step, and routes. (As a bonus, that same object pools
-across the LLM models mu runs — granite/qwen-3b/qwen-7b — so estimates transfer;
-see the `θ_m`/`β_k` note below. Secondary to the approaches.)
+The model earns its keep only if it can be *fitted from dojo data* and *queried
+through one interface* by every lever. Both fall out of the parameterization. Pool
+every $(\text{model }m,\text{ problem }i,\text{ layer }\ell,\text{ run})$ outcome
+and fit a **hierarchical logistic** with partial pooling:
 
-The model earns its keep only if it can be *fitted from dojo data* and *queried by
-A, B, and C through one interface*. Both fall out of the parameterization.
+```text
+# Hierarchical logistic fit of per-layer success  q = σ(z)
+# data: one row per (model m, problem i, layer ℓ, run), outcome y ∈ {0,1}
 
-**The fittable form (hierarchical logistic).** Pool every `(model m, problem i,
-layer ℓ, run)` outcome `y∈{0,1}` and fit `logit q = θ_m·a_ℓ − δ_{iℓ} + Σ_k β_k
-x_{kiℓ}` with partial pooling:
+# ---- partial-pooling priors (the "hierarchical" part) ----
+θ[m]        ~ Normal(0, 1)                  # per-model ability: granite-3b, qwen-3b, qwen-7b
+β̄[k]        ~ Normal(0, 1)                  # global effect of step k (reflex / reduce-move)
+β[k, m]     ~ Normal(β̄[k], τ²)              # per-model deviation; τ small ⇒ step k is GENERAL
+δ_kind[c]   ~ Normal(0, 1)                  # difficulty shared by layer-kind c ∈ {build, test}
+δ[i, ℓ]     ~ Normal(δ_kind[kind(ℓ)], σδ²)  # per (problem, layer); a NEW problem borrows its kind
 
-- `θ_m` per LLM model (granite-3b, qwen-3b, qwen-7b) — a few parameters.
-- `β_k` per step, **shared across problems and models** (`β_k ~ N(β̄_k, τ²)`).
-  Partial pooling (bonus): a reflex's effect measured on qwen *informs* its effect
-  on granite — and granite's data is sparse. A truly general reflex shows a tight
-  `β` across models; one that only rescues a weak model shows a per-model deviation.
-- `δ_{iℓ}` per (problem, layer), with a prior tying layers *of the same kind* (all
-  "build" layers, all "test" layers) so a new problem borrows strength.
+# ---- likelihood ----
+for row (m, i, ℓ, y):
+    z = θ[m]·a[ℓ] − δ[i, ℓ] + Σ_k β[k, m]·x[k, i, ℓ] − γ·V[i, ℓ]
+    y ~ Bernoulli(σ(z))
 
-**Honest identifiability.** 10 problems × 1–4 layers × 3 models is *thin* for a
-joint fit with dozens of `β`. So the practical estimator is **two-level, reusing
-machinery mu already has**, not a from-scratch MCMC:
+# ---- read-outs every consumer queries (see capability.py) ----
+q̂[m, i, ℓ]  = σ( E[z | data] )              # per-layer pass prob, with a CI
+p_solve     = ∏_ℓ q̂[m, i, ℓ]                # chain / series system  → capability.p_solve
+bottleneck  = argmin_ℓ q̂[m, i, ℓ]           # weakest link           → capability.bottleneck
+gain(ℓ, dq) = dq · ∏_{ℓ'≠ℓ} q̂[m, i, ℓ']     # marginal value (Result 2) → expected_solve_gain
+```
 
-1. **`q̂` per (m,i,ℓ)** by Beta-Binomial smoothing — exactly `observe.Posterior` —
-   a mean + CI from few runs (needs the S1 honest gates, or `q̂` is biased high).
-2. **`β_k` per step** from the **ablation/efficacy Δ** mu already computes
-   (`efficacy_run`, `sz5_gate`): the change in `q̂` when the step is disabled,
-   pooled over the layers it covers (coverage `x` read from `firings.jsonl`).
-3. **`δ` from the B staircase**: each rung lowers `δ` for the pinned layers, so the
-   jump in `q̂` between `L(k)` and `L(k+1)` *is* an estimate of that layer's `δ`
-   contribution. Approach **B is literally the experiment that identifies `δ`** —
-   its only honest role.
+Partial pooling is what makes the thin data usable: a reflex's effect measured on
+qwen *informs* its effect on granite (whose data is sparse); a truly general
+reflex shows a tight $\beta$ across models, one that only rescues a weak model
+shows a per-model deviation.
 
-**One component, three consumers.** Put this behind `src/mu/capability.py` (a thin
-layer over `observe.py`/`reflexdb.py`) exposing `q_hat`, `p_solve`, `bottleneck`,
-`rank_steps`, `route` (§A.5). Then the *same object* drives all three approaches:
+**Practical estimator (not from-scratch MCMC).** 10 problems × 1–4 layers × 3
+models is thin for a joint fit with dozens of $\beta$. The shipped estimator
+collapses the hierarchy onto machinery mu already has:
 
-- **A** asks `bottleneck(m,i)` and self-scaffolds a layer only when
-  `expected_solve_gain > 0` (its siblings aren't ≈0) — targeted, not blind; the
-  direct fix for the 0→0 backend-scaffold result.
-- **B** *produces* the `δ` estimates the component needs, then retires to a
-  regression signal once fitted.
-- **C** is selected and justified by its reflex's `β·breadth` and ranked by
-  `expected_solve_gain` on the coordination layer; the contract's `δ`-reduction is
-  predicted, then checked against the refit.
-- **Routing for all three LLM models** is `route(m,i): p_solve(m,i) < ε` — the
-  layer-level generalization of `fixtures.should_skip`, with granite borrowing
-  qwen's pooled `β`.
+1. **$\hat q$ per $(m,i,\ell)$** by Beta-Binomial smoothing — exactly
+   `observe.Posterior` (needs S1, or $\hat q$ is biased high).
+2. **$\beta_k$** from the **ablation/efficacy Δ** mu already computes
+   (`efficacy_run`, `sz5_gate`), pooled over the layers it covers ($x$ from
+   `firings.jsonl`).
+3. **$\delta$** from the B-probe: the jump in $\hat q$ between rung $L(k)$ and
+   $L(k{+}1)$ *is* an estimate of that layer's $\delta$ contribution. **B is
+   literally the experiment that identifies $\delta$** — its only honest role.
 
-So the model is not three analyses bolted onto A/B/C: it is **one fitted object
-that measures the agent, ranks the next step, and routes the weak models**, which
-every approach (and the `practice` training loop) calls. That single
-implementation is the concrete "benefits all three."
+**One component, three consumers — already shipped** as
+[`src/mu/capability.py`](../../src/mu/capability.py) (a thin layer over
+`observe.py`/`reflexdb.py`): `p_solve`, `bottleneck`, `expected_solve_gain`,
+`route`, `e_solved`, `portfolio_gain`, `rank_portfolio` (§A.5). The *same* object
+measures the agent, ranks the next step, and routes the weak models — every lever
+and the `practice` loop call it, instead of each growing its own analysis.
 
-### 2.1 The headline instrument: layer-resolution score (k/4)
+### 1.5 The metric: per-layer `q̂` and the board (k/4)
 
-Binary p10 pass-rate is **0** and therefore uninformative — it cannot rank three
-interventions that all start from 0 (Result 2/3: their gains hide in the negative
-tail). The comparison uses **graded, continuous signal** — the per-layer `q̂` and
-the chain solve-prob the model defines — exactly as the efficacy machinery already
-does for reflex ablations (`observe.Posterior` Beta-Binomial, `sz5_gate`,
-`efficacy_run`; AGENTS.md §5z).
+Binary p10 pass-rate is **0** and cannot rank three interventions that all start
+from 0 (their gains hide in the negative tail, Result 3). The comparison uses
+**graded, continuous signal** — the per-layer $\hat q$ and chain solve-prob — via
+the existing efficacy machinery (`observe.Posterior`, `sz5_gate`, `efficacy_run`).
 
-Define four checkpoints the harness can already read from the stage logs:
+Four checkpoints the harness reads from stage logs:
 
 1. **Backend builds** — no CS/MSB errors from `dotnet build`.
-2. **Backend+integration test passes** — `dotnet test` green (the
-   WebApplicationFactory `GET /api/posts` → "Hello World").
+2. **Backend+integration test passes** — `dotnet test` green (WebApplicationFactory
+   `GET /api/posts` → "Hello World").
 3. **Frontend builds / type-checks** — `vite build` / `tsc` clean.
 4. **Frontend Vitest passes** — mocked-fetch render assertion green.
 
-`p10 pass` ⇔ all four. The comparison metric is **mean k/4 reached per run** — a
+`p10 pass` ⇔ all four. The headline metric is **mean $k/4$ reached per run** — a
 continuous score that *moves* while binary pass is pinned at 0, and that
-**localizes** where each approach helps (A should lift #1; B at L3 should lift
-#1–#2; C should lift #2/#3 by killing the coordination cascade). This is the
-single most valuable thing to build for this work and it is reusable for any
-staged problem.
+**localizes** where each lever helps. The **board** (§A.5) generalizes this to all
+ten: per-layer $\hat q$, per-problem $p\_solve$, the bottleneck, and
+$E[\#\text{solved}]$ with a CI.
 
-### 2.2 Arms and metrics
+---
 
-| Arm | Level | Flag/mechanism |
-|---|---|---|
-| Baseline | L0 | none (today) |
-| A | L2 | `MU_SCAFFOLD=1`, stage-aware |
-| B-L2 / B-L3 / B-L4 | L2/L3/L4 | `dojo/fixtures/p10` + `minimize` |
-| C | L1 | architect contract + type-ledger guard, flagged |
+## 2. The levers, ranked by the principle
 
-Per arm, ≥15 fresh-plan runs (`mu dojo measure p10 -n 15` — fresh plan captures
-planner variance), recording:
+Three external levers map onto the ladder; the principle (§0.2) decides which
+become product:
 
-- **mean k/4** (headline, continuous) and its bootstrap 95% CI;
-- pass-rate Δ vs baseline with **Beta-Binomial 95% CI** + `sz5_gate`;
-- **stochasticity** `1 − modal/N` (the determinism axis the ladder targets);
-- median **repair-iters** and **tokens/run** (cost; the dropped scaffolder
-  *raised* these — a real signal);
-- **first-stage-of-failure** histogram (which checkpoint each run dies at).
+| Lever | Ladder | Mechanism | Relies on pregenerated code? | Honesty verdict |
+|---|---|---|---|---|
+| **A** scaffold | L2 | stage-aware skeleton | **only if it copies a vendored blob** — fine if mu *runs* `dotnet new`/`npm create` | conditional (structure must bind) |
+| **B** fixtures | L2→L4 | committed correct boilerplate per rung | **yes — by construction** | **diagnostic probe only, never product** |
+| **C** contract | L1 | declarative manifest + single-owner type ledger | **no** — mu writes every file | **product** |
 
-### 2.3 The decision rubric (pre-registered, weighted)
+So the real deliverables are the *general, no-pregenerated-code* mechanisms:
+**S2** (cross-stage type reflex), **C** (the contract), **S5**
+(WebApplicationFactory + Vitest test-authoring skills), and **A** *only* in its
+tool-invoked form if structure turns out to bind. **B is a measurement device**:
+it localizes the ceiling cheaply so the capability work is aimed correctly, and
+its fixtures persist only as a labelled-L-level regression signal.
 
-Score each arm on five axes; **honesty is a gate, not a weight**:
+### 2.1 The product: mu's own reduce-then-solve loop
+
+The levers above are not separate features — they are the **moves of one
+capability mu should own**: a `reduce()` pass that runs before the writer on any
+goal `detect_complexity` flags as hard/multi-layer.
+
+| External lever (today) | Internalized as a mu capability |
+|---|---|
+| A — we scaffold from a template | **mu self-scaffolds**: detects the stack and *invokes the toolchain's own generator* (`dotnet new`, `npm create vite`) — mu's own output, no copied blob |
+| C — we pin a contract | **mu writes its contract first**: manifest + single-owner type ledger + per-layer test command, then holds itself to it (extends the architect) |
+| B — we hand it fixtures | **mu builds in vertical slices**: skeleton → one layer green at a gate → expand. The *spirit* of the staircase (smallest verifiable core first) with **no answer-keys** — and each slice builds on the code the previous slice generated (§0.2). The only honest internalization of B |
+| (the cascade literature) | **mu decomposes** the goal into the smallest independently-gated subtasks and stops an error before it compounds |
+
+The product is a general **`reduce()` stage**: detect → self-scaffold → contract +
+type-ledger → vertical-slice plan with a gate per slice → writer fills the smallest
+next slice, *each slice resting on the previous slice's verified output.*
+`ground_plan` and architect mode are the embryonic version; the work is to
+generalize and *train* it — the `practice` loop + competence/KB are the training
+signal, so the skill improves with data instead of being hand-tuned per problem.
+
+This relocates the harness's job: the dojo no longer *applies* minimization (except
+B as a one-off probe) — it **measures and trains** mu's own reduction. The agent
+owns making the problem small; the harness only scores how well it does it.
+
+### 2.2 The no-regret backlog (S1–S5)
+
+Prerequisites for *every* lever and for comparing them; the first two carry their
+own weight even if every lever is later dropped:
+
+1. **S1 — Honest per-layer gates (do first).** $k/4$ is only trustworthy if each
+   gate detects a *vacuous* pass. `make` is covered (`_make_vacuous`); extend the
+   family to p10's real gates: `dotnet test` (0 tests, or "Build FAILED" with exit
+   0) and `vitest` ("No test files found"). Without S1, every lever is scored
+   against a lying instrument. Same class as the p7 false-pass fix — **no-regret**.
+2. **S2 — Cross-stage type-ownership guard (highest leverage).** CS0101+CS0053 are
+   ×22 of p10's errors. A deterministic general guard (keep the backend-owned
+   definition, delete cross-stage duplicates → CS0101; raise a type behind a
+   `public` signature → CS0053) is needed under every lever and **also helps p4** —
+   a general multi-project-.NET reflex, **no-regret**.
+3. **S3 — One reconciliation routine.** Generalize `agent.py:678` into a single
+   "these paths are fixed; the model owns the rest and may neither rewrite nor
+   redeclare them" contract that A, B, and C all call with a different file set.
+4. **S4 — One detector + level bookkeeping.** A shared `is_fullstack_dotnet_vue`
+   capability check and a `meta.json.minimize`/`scaffold` record, so every reported
+   pass carries its rung and no run is silently compared across levels.
+5. **S5 — Test-authoring skills.** No *structural* lever reaches the model's
+   ceiling: authoring a correct `WebApplicationFactory` integration test and a
+   correct Vitest fetch-mock. All levers top out one layer short without these (B
+   only crosses it by *pinning* the tests at L3 — the diagnostic that tells you
+   whether S5 is worth writing).
+
+### 2.3 Decision rubric (pre-registered, weighted)
+
+Per arm, ≥15 fresh-plan runs (`mu dojo measure p10 -n 15`); **honesty is a gate,
+not a weight.**
 
 | Axis | Weight | What wins |
 |---|---|---|
-| Lifts p10 (CI lower bound of pass-rate > 0, or mean k/4 ↑ with CI∉0) | 0.35 | the headline |
-| Determinism (stochasticity ↓) | 0.20 | a tighter, more reproducible instrument |
+| Lifts p10 (pass-rate CI lower bound > 0, or mean $k/4$ ↑ with CI∌0) | 0.35 | the headline |
+| Determinism (stochasticity ↓) | 0.20 | a tighter instrument |
 | Cost (repair-iters & tokens ↓, not ↑) | 0.15 | cheaper runs |
 | Generality / product value (helps novel goals, capability-keyed) | 0.20 | A, C |
-| Implementation + maintenance cost (low = better) | 0.10 | B |
+| Implementation + maintenance cost | 0.10 | B |
 | **Honesty gate** (label L-level; controls p1/p2/p5/p6 Δ CI ∋ 0) | gate | any arm that regresses a control or misreports its level is disqualified |
 
-Continuous metrics (k/4, iters, tokens) decide with far fewer runs than binary
-pass/fail — the explicit reason to build §2.1.
+Continuous metrics ($k/4$, iters, tokens) decide with far fewer runs than binary
+pass/fail — the explicit reason to build §1.5.
 
 ---
 
 ## 3. Recommendation
 
-**Objective (the lens for everything below): make _mu_ better — and the specific
-capability to build is that _mu itself knows how to make its own problem space
-smaller_.** The minimization ladder (L0–L4), the fixtures, the scaffold, the
-contract are, as written elsewhere in this plan, things *we* do **to** the problem
-from outside. That makes p10's *number* move; it does not make the **agent**
-better. The durable win is to move that skill **inside mu**: faced with a big,
-ambiguous, multi-layer goal, the agent should itself reduce it — scaffold the
-structure, write a contract it then honours, decompose into the smallest
-independently-verifiable slices, and build them up gated one at a time — so the
-*model* only ever faces a small, low-variance subproblem. p10 is the **test
-case**; an agent that reduces its own problem space is the **product**.
-
-Handing mu correct files (a fixture) can make p10 *pass* without teaching mu
-anything; per the codebase's own rule a fixture is "correct boilerplate given to
-the model, not an answer key" — a *measurement* device, external to the agent. So:
-
-- **Capability deliverables (these are "mu getting better"):** the general,
-  capability-keyed mechanisms — **S2** (cross-stage type-ownership reflex), **C**
-  (the L1 contract that shrinks what the model must decide on *any* full-stack
-  goal), **S5** (WebApplicationFactory + Vitest test-authoring skills), and **A**
-  (scaffolding) if structure turns out to bind. These help every matching goal,
-  not just p10.
-- **Diagnostic only (not a deliverable):** **B**, the fixture staircase. It does
-  not improve the agent; it *localizes the ceiling* cheaply so the capability work
-  is aimed correctly. Its fixtures persist only as a labelled-L-level regression
-  signal, never as a capability claim.
-
-Recommended order:
+Only a **general capability** counts — mu reducing its own problem space (§2.1). A
+fixture pass yields **zero** capability value (it's measurement), so B's worth is
+purely the *information* it gives about which capability move to build.
 
 1. **Ship S2 now — a real agent improvement.** A general cross-stage
-   type-ownership reflex is exactly mu's thesis (a deterministic fixer for a
-   general error class); it kills p10's #1 error (CS0101/CS0053, ×22) *and* helps
-   p4, with no minimization at all. Pair with **S1** (honest `dotnet test`/`vitest`
-   gates) so any gain is measurable rather than vacuous.
-2. **Run the B/k4 probe** (§2.1) — instrumental, run-once, then set aside. Measure
-   p10 at L0/L2/L3/L4 and read the rung where mean k/4 jumps:
-   - **jumps at L2** → structure binds → build **A** (general scaffold);
+   type-ownership reflex is mu's thesis (a deterministic fixer for a general error
+   class); it kills p10's #1 error (×22) *and* helps p4, with no minimization at
+   all. Pair with **S1** so any gain is measurable, not vacuous.
+2. **Run the B/k4 probe** (§1.5) — instrumental, run-once, then set aside. Measure
+   p10 at L0/L2/L3/L4 and read the rung where mean $k/4$ jumps:
+   - **jumps at L2** → structure binds → build **A** (mu self-scaffolds via the
+     toolchain generator);
    - **jumps at L3** → coordination + test-authoring binds → build **C** (contract)
-     and **S5** (test skills) — the capability work, *not* the fixtures;
+     and **S5** — the capability work, *not* the fixtures;
    - **only at L4** → irreducible model-logic ceiling → don't build A/C; route p10
      (`MU_ROUTE`) and keep the L3 fixture purely as a regression signal.
 3. **Build the capability lever the probe named** (C+S5, or A), A/B it against the
@@ -587,312 +415,187 @@ Recommended order:
 
 The mental check for every item: *would this help mu on a novel full-stack goal it
 has never seen?* S2/C/S5/A pass it; B does not — which is exactly why B is a probe,
-not the product.
-
-### 3.1 Internalize it: the agent's own reduce-then-solve loop
-
-Read through the objective, the three approaches are not separate features — they
-are the **moves of one capability mu should own**: a *reduce* pass that runs before
-the writer on any goal `detect_complexity` flags as hard/multi-layer, drawing on
-the same toolbox a human uses to climb the ladder, but invoked **by the agent**:
-
-| External lever (today) | Internalized as a mu capability |
-|---|---|
-| A — we scaffold from a template | **mu self-scaffolds**: detects the stack and lays its own skeleton (the `scaffold.py` recipes, but *mu* deciding to) |
-| C — we pin a contract | **mu writes its contract first**: manifest + single-owner type ledger + per-layer test command, then holds itself to it (extends the architect) |
-| B — we hand it fixtures | **mu builds in vertical slices**: skeleton → one layer green at a gate → expand. The *spirit* of the staircase (smallest verifiable core first) with **no answer-keys** — this is the only honest internalization of B |
-| (the cascade literature) | **mu decomposes** the goal into the smallest independently-gated subtasks and stops an error before it compounds |
-
-So the product is a general **`reduce()` stage** in the agent loop: detect → self-
-scaffold → contract + type-ledger → vertical-slice plan with a gate per slice →
-writer fills the smallest next slice. `ground_plan` and architect mode are the
-embryonic version of this; the work is to generalize and *train* it. Crucially,
-**mu should learn _when_ to reduce and which move helps which stack** — the dojo
-`practice` loop and the competence/KB are exactly the training signal for that, so
-the reduction skill improves with data instead of being hand-tuned per problem.
-
-This also relocates the harness's job: the dojo no longer *applies* minimization
-(except B as a one-off probe) — it **measures and trains** mu's own reduction
-(honest per-layer gates + k/4 + the KB). The agent owns making the problem small;
-the harness only scores how well it does it.
-
----
-
-## 4. Why this is optimal (the argument)
-
-The objective fixes where *value* lives: only a **general capability** — mu
-reducing its own problem space (§3.1) — counts. A fixture pass yields **zero**
-capability value (it's measurement); so B's worth is purely the *information* it
-gives about which capability move to build. With that, two decisions:
-
-**What to ship.** S2 (the cross-stage type reflex) is a general agent improvement
-*now* — it helps any multi-project .NET goal and p4, independent of p10's outcome,
-so its EV is positive unconditionally. Ship it first. The larger reduction moves
-(C/A/S5) have **low, unknown** P(success) *given the prior* (structure shown not
-to bind; coordination only *plausibly* binds) and **high** build cost — building
-either blind repeats the dropped-scaffolder mistake.
-
-**How to choose among them.** B has **P(localizes the ceiling) ≈ 1** at **low**
-cost (shipped mechanism) and is the *only* action that makes P(success) for C/A
-*computable* instead of guessed — but it is a **probe, not a deliverable**: it
-buys information, never capability. So the optimal sequence is *ship the no-regret
-capability (S2) → probe cheaply (B/k4) → build the reduction move the probe names
-(C+S5 or A)*. Front-loading C or A is dominated (most cost to learn the least, and
-it already failed once); front-loading B as if it were the *answer* is the error
-the objective rules out — it makes the number move without making mu better. This
-is the same honest-harness discipline the codebase mandates
+not the product. Front-loading C or A is dominated (most cost to learn the least,
+and A already failed once); front-loading B *as if it were the answer* is the error
+the principle rules out — it makes the number move without making mu better
 ([AGENTS.md](../../AGENTS.md) §0, memory `project-false-pass-gate`,
-`feedback-honest-dojo`): don't build a general mechanism until the data names the
-class it must target — and don't mistake a measurement device for the product.
+`feedback-honest-dojo`).
 
-A secondary optimality: B is the only option whose *artifacts compose with* the
-others — its fixtures double as the offline vendored skeletons Approach A needs
-(`dojo/scaffolds/`) and as the golden reference Approach C's type-ledger guard is
-validated against. So even when B leads to A or C, nothing built is wasted.
+A secondary optimality: B's artifacts **compose** with the others — the same
+`L2` structure is the offline reference A's tool-invoked scaffold can be validated
+against and the golden reference C's type-ledger guard checks against. So even when
+B leads to A or C, nothing built is wasted.
 
 ---
 
-## 5. Implementation: a provable, whole-set improvement loop
+## 4. Implementation: a provable, whole-set loop
 
-The plan is **not** "fix p10." It is a loop that **provably raises `E[#solved]`
-across all ten problems**, one shipped step at a time, with p10 handled as
-whatever candidates happen to cover it (and, by §0.1, rarely the first target).
+The plan is **not** "fix p10." It is a loop that **provably raises
+$E[\#\text{solved}]$ across all ten**, one shipped step at a time, with p10 handled
+as whatever candidates happen to cover it (rarely the first target, §0.1).
 
-### 5.0 Invariants every step preserves
+### 4.1 Invariants every step preserves
 
 Non-negotiable; each becomes a test so a violation fails CI, not a live run.
 
-- **I1 Default-off.** Any agent-affecting change sits behind a flag defaulting
-  off; with all flags off the run is **byte-identical** to today (`test_*_noop`).
-- **I2 Offline.** No step adds a hard network dependency; an online tier degrades
-  to a vendored copy or to baseline (probe + fallback).
-- **I3 Honest level.** Every recorded pass carries its L-level in `meta.json`;
-  no statistic ever compares across levels.
+- **I1 Default-off.** Any agent-affecting change sits behind a flag defaulting off;
+  with all flags off the run is **byte-identical** to today (`test_*_noop`).
+- **I2 Offline.** No step adds a hard network dependency; an online tier degrades to
+  a fallback or baseline.
+- **I3 Honest level.** Every recorded pass carries its L-level in `meta.json`; no
+  statistic compares across levels.
 - **I4 No control regression.** p1/p2/p5/p6 pass-rate Δ has a 95% CI lower bound
-  ≥ −ε (ε = 0.05). Any step that breaches it is reverted, no exceptions.
-- **I5 Idempotent + graceful.** Every reflex/scaffold/fixture op is idempotent and
-  never raises into the agent loop — a failure degrades to baseline.
+  ≥ −ε (ε = 0.05). Any breach is reverted.
+- **I5 Idempotent + graceful.** Every reflex/scaffold op is idempotent and never
+  raises into the agent loop — a failure degrades to baseline.
 - **I6 Pre-registration.** The KEEP/DROP statistic, N, and threshold are written
-  here *before* the run; no post-hoc moving of the bar.
+  *before* the run.
+- **I7 No external code.** No step seeds the agent with code it did not generate
+  (§0.2). A reduction's later slice **may** build on an earlier slice's *generated*
+  output; it may **not** depend on committed boilerplate or a copied skeleton. (B's
+  fixtures violate this by design — that is why B is a probe, scored under its own
+  L-level, never shipped on the L0 product path.)
 
 Each step is specified **Build → Files → Tests → Accept → Measure → Gate →
-Rollback.** "Gate" is the condition to start the next step; "Rollback" is how to
-undo with no residue.
+Rollback.**
 
-### 5.0a The loop and its proof obligation (what makes the improvement *provable*)
+### 4.2 The loop and its proof obligation
 
-**Proof obligation.** A candidate step *k* is **shipped** iff the dojo measurement
-shows, with the existing Beta-Binomial / `sz5_gate` machinery:
+**Proof obligation.** A candidate step $k$ is **shipped** iff the dojo measurement
+shows, via the existing Beta-Binomial / `sz5_gate` machinery:
 
-- **(P1) it raises the set:** `ΔE[#solved]` has a 95% CI lower bound **> 0**; and
+- **(P1) it raises the set:** $\Delta E[\#\text{solved}]$ has a 95% CI lower bound
+  **> 0**; and
 - **(P2) it regresses nothing:** every problem's pass-rate Δ has a CI lower bound
-  **≥ −ε** (ε = 0.05) — the control set p1/p2/p5/p6 *and* every covered problem.
+  **≥ −ε** (ε = 0.05) — controls p1/p2/p5/p6 *and* every covered problem.
 
-By Result 1 (monotonicity) a step meeting **P1 ∧ P2** strictly increases
-`E[#solved]`. So the shipped sequence makes `E[#solved]` a **monotone-increasing
-ledger**: every KEEP is a *proven* gain across the set, every step that cannot
-prove P1∧P2 is reverted. That is the precise meaning of "provable improvement for
-all problems" — not p10 alone.
+By Result 1, a step meeting **P1 ∧ P2** strictly increases $E[\#\text{solved}]$.
+So the shipped sequence makes $E[\#\text{solved}]$ a **monotone-increasing ledger**:
+every KEEP is a *proven* gain across the set; every step that cannot prove P1∧P2 is
+reverted.
 
 **The loop (each pass ships ≤1 proven step):**
 
-1. **Measure the board** — all ten at N (§A.5 `board`): per-problem-per-layer `q̂`,
-   `p_solve`, and `E[#solved]` with CIs. Honest gates (S1) make `q̂` unbiased.
-2. **Generate candidates** — from the board's bottleneck layers (`argmin q̂`) and
-   the KB's recurring *cross-problem* error classes; each carries an estimated `β`
-   and coverage `x` (which problems/layers it touches).
-3. **Rank by `portfolio_gain`** = `Σ_i Σ_ℓ expected_solve_gain` over covered
-   `(i,ℓ)`, per unit cost (§A.5). By Results 2–3 this **automatically prefers a
-   broad lever on steep mid-tier problems** over a narrow p10-only lever.
-4. **Implement** the top candidate (general reflex / skill / `reduce()` move),
-   gated off, with unit tests and the §5.0 invariants.
-5. **Prove it** — A/B (ablation) over covered problems + controls at the §5.2
-   power N. **KEEP iff P1∧P2**; else **revert**.
-6. **Refit & recompute** the board (`q̂`, `β`, `E[#solved]`); append the proven Δ
-   to the ledger.
+1. **Measure the board** — all ten at N (§A.5): per-layer $\hat q$, $p\_solve$,
+   $E[\#\text{solved}]$ with CIs. S1 makes $\hat q$ unbiased.
+2. **Generate candidates** — from the board's bottleneck layers ($\arg\min\hat q$)
+   and the KB's recurring *cross-problem* error classes; each carries an estimated
+   $\beta$ and coverage $x$.
+3. **Rank by `portfolio_gain`** = $\sum_i\sum_\ell$ expected_solve_gain over covered
+   $(i,\ell)$, per unit cost. By Results 2–3 this **automatically prefers a broad
+   lever on steep mid-tier problems** over a narrow p10-only lever.
+4. **Implement** the top candidate (general reflex / skill / `reduce()` move), gated
+   off, with unit tests and the §4.1 invariants.
+5. **Prove it** — A/B (ablation) over covered problems + controls at the §4.5 power
+   N. **KEEP iff P1∧P2**; else **revert**.
+6. **Refit & recompute** the board; append the proven Δ to the ledger.
 7. **Repeat from 2. Stop** when no candidate clears the cost threshold — guaranteed
-   to terminate because steepness (Result 3) drives marginal gains down as `q̂→1`.
+   to terminate because steepness (Result 3) drives marginal gains down as
+   $\hat q\to1$.
 
-The phases below are the **first passes** of this loop: **Phase 0 is iteration 0**
-(instrument the board + ship the broad no-regret levers S1/S2 that lift several
-problems at once); the p10 B-probe and A/C are later iterations *selected by the
-ranking*, only once the broad levers are banked.
+### 4.3 Phases (the first passes of the loop)
 
-### Phase 0 — iteration 0: the board + the broad no-regret levers
+**Phase 0 — iteration 0: the board + the broad no-regret levers.**
 
-**Step 0.1 — S1 honest gates for *every* toolchain** *(prerequisite for a board over all ten)*
-- *Build:* extend the `_make_vacuous` family to **every test-command shape the dojo
-  uses**, so a vacuous "pass" is caught on every problem, not just p7: `pytest`/
-  `go test`/`cargo test` (0 collected / `no tests ran`), `dotnet test` (0 tests,
-  or "Build FAILED" with a 0 exit), `jest`/`vitest` (No tests found / 0 passed).
-  Route all per-problem and staged test gates through `_test_passed`.
-- *Files:* `src/mu/agent.py` (+ `tests/test_vacuous_all_toolchains.py`).
-- *Tests:* each sentinel ⇒ fail; a genuine green log of each toolchain ⇒ pass (no
-  false-negative); a genuine failing log ⇒ fail.
-- *Accept:* replay the archived `tests-final.log` of **all ten** problems — **zero**
-  genuine passes reclassified; every "0 tests"/"nothing to be done"/"Build FAILED,
-  exit 0" caught.
-- *Measure:* count reclassified archive sessions per problem (expect false-passes
-  beyond p7 — e.g. a `go test` that compiled nothing).
-- *Gate:* 0 false-negatives across all toolchains ⇒ proceed (the board is now
-  honest for the whole set).
-- *Rollback:* the sentinels are additive predicates; delete them.
+- **0.1 S1 honest gates for *every* toolchain.** Extend `_make_vacuous` to every
+  test-command shape (`pytest`/`go test`/`cargo test` 0-collected; `dotnet test`
+  0-tests / "Build FAILED" exit 0; `jest`/`vitest` "No tests found"). *Accept:*
+  replay archived `tests-final.log` of all ten — **zero** genuine passes
+  reclassified. *Rollback:* additive predicates; delete them.
+- **0.2 The whole-set board.** Per-problem `_layer_clears` + `board`/`e_solved`
+  (§A.4–A.5); a `mu dojo board` subcommand. *Accept:* set-level self-consistency —
+  $E[\#\text{solved}]$ ≈ observed solved count within CI; each $p\_solve_i$ ≈ that
+  problem's measured pass rate.
+- **0.3 S2 cross-stage type-ownership guard** (general capability, ship-worthy
+  alone). `fix_csharp_cross_stage_duplicate_types` + a CS0053 sibling (§A.3).
+  *Tests:* dup across stages ⇒ one removed (backend kept); a legitimately distinct
+  same-named type ⇒ **not** removed; idempotent. *Gate (KEEP):* backend-layer
+  $\hat q$ Δ CI lower bound > 0 **and** p4 not regressed (I4).
+- **0.4 S3/S4 reconciliation + detector + level record** (behavior-preserving
+  refactor). *Accept:* with `owned_paths=∅` byte-identical (I1).
+- **0.5 L0 baseline.** `mu dojo measure p10 -n 15` post S1–S4; the reference every
+  arm diffs against.
 
-**Step 0.2 — the whole-set board** *(depends on 0.1)*
-- *Build:* per-problem `_layer_clears` (each problem declares its own layers; a
-  trivial problem has one) + the `board`/`e_solved` aggregation (§A.5): emit, for
-  **all ten**, per-layer `q̂`, per-problem `p_solve`, the bottleneck, and
-  `E[#solved] = Σ_i p_solve_i` with a CI. Add a `mu dojo board` subcommand that
-  runs the set and prints the table.
-- *Files:* `src/mu/dojo/measure.py`, `src/mu/dojo/cli.py` (+ archived-log fixture test).
-- *Tests:* exact per-layer booleans on fixture logs per toolchain; a missing/garbled
-  log ⇒ "not cleared", never a crash.
-- *Accept:* **self-consistency over the set** — `E[#solved]` (Σ `p_solve`) ≈ the
-  observed count of solved problems within CI; each `p_solve_i` ≈ that problem's
-  measured pass rate. The board reproduces reality before it is trusted to rank.
-- *Gate:* set-level self-consistency holds ⇒ the board is a trustworthy ranking and
-  ledger instrument.
-- *Rollback:* additive subcommand + JSON keys; drop them.
+**Phase 1 — Approach B as the δ-identification probe (not a deliverable).** Author
+`dojo/fixtures/p10/{L2,L3,L4}` rung-deltas (§A.2); level-aware `fixtures.apply`;
+measure the staircase at N=15; identify
+$\hat\delta_\ell \approx \operatorname{logit}\hat q_\ell|_{\text{rung that pins }\ell} - \operatorname{logit}\hat q_\ell|_{\text{rung below}}$.
 
-**Step 0.3 — S2 cross-stage type-ownership guard** *(general capability; ship-worthy alone)*
-- *Build:* `fix_csharp_cross_stage_duplicate_types` (keep the backend-owned
-  definition, delete cross-stage duplicate blocks → CS0101) + a CS0053 sibling
-  (raise a type behind a `public` signature to `public`); §A.3.
-- *Files:* 2 reflex files under `src/mu/reflexes/csharp/`, `registry.py` catalog
-  slot (`duplicate-declaration`), reapply wiring in `apply_csharp_repair_reflexes`
-  and `_inter_stage_gate`.
-- *Tests:* dup type across two stage files ⇒ one removed (backend kept); a
-  **legitimately distinct** same-named type in a different namespace ⇒ **not**
-  removed; CS0053 case ⇒ public; idempotent (double-apply stable).
-- *Accept:* dry-run replay of archived p10 CS0101/CS0053 sessions ⇒ the guard
-  resolves them.
-- *Measure:* ablation — `mu dojo measure p10 -n 15 --disable
-  fix_csharp_cross_stage_duplicate_types` vs enabled; β = Δ(backend-layer q̂)+CI;
-  record an `efficacy_run` row.
-- *Gate (KEEP):* backend-layer q̂ Δ CI lower bound > 0 **and** p4 not regressed (I4)
-  ⇒ on by default. Else keep behind `MU_DISABLE_REFLEX`-style flag.
-- *Rollback:* it's a catalogued reflex — the ablation path already removes it.
-
-**Step 0.4 — S3/S4 reconciliation + detector + level record** *(behavior-preserving refactor)*
-- *Build:* factor `agent.py:678` into `reconcile_provided(plan, owned_paths)`; add
-  `is_fullstack_dotnet_vue(signal)`; write `meta.json.minimize`.
-- *Tests:* provided files marked done; the model cannot re-add a provided type;
-  detector fires on a synthetic full-stack goal, not on p1.
-- *Accept:* with `owned_paths=∅` the refactor is byte-identical (I1); full suite
-  unchanged.
-- *Gate:* suite green, no behavior delta ⇒ proceed.
-- *Rollback:* inline the function back.
-
-**Step 0.5 — L0 baseline.** `mu dojo measure p10 -n 15` (post S1–S4); record
-`efficacy_run` with per-layer q̂ — the reference every arm diffs against.
-
-### Phase 1 — Approach B as the δ-identification probe (not a deliverable)
-
-- **Step 1.1 — author fixtures** `dojo/fixtures/p10/{L2,L3,L4}`, each a *correct*
-  rung-delta, offline and dependency-free.
-- **Step 1.2 — level-aware `fixtures.apply`** (§A.2) + the runner apply hook; unit
-  tests (right subset per rung, idempotent, off ⇒ no-op, I1).
-- **Step 1.3 — measure the staircase** L2/L3/L4 at N=15; record per-layer q̂.
-- **Step 1.4 — identify δ:** `δ̂_ℓ ≈ logit(q̂_ℓ at the rung that pins ℓ) −
-  logit(q̂_ℓ at the rung below)`; the bottleneck is `argmin_ℓ q̂_ℓ` at L0/L2.
-
-**Decision gate (pre-registered; I6).** With N=15 and the k/4 continuous CI:
+**Decision gate (pre-registered; I6):**
 
 | Observation | Inference | Next |
 |---|---|---|
 | jump at **L2**, bottleneck a *build* layer | structure binds | Phase 2a (A) |
 | jump only at **L3**, bottleneck a *test* layer | coordination + test-authoring binds | Phase 2b (C + S5) |
-| no jump until **L4** | irreducible model-logic ceiling | **kill A/C**; `route()` p10 (§A.5); keep L3 fixture as a regression signal only |
+| no jump until **L4** | irreducible model-logic ceiling | **kill A/C**; `route()` p10; keep L3 fixture as a regression signal only |
 
 The L4 branch is an explicit **kill criterion** — the plan must be willing to
-conclude "no minimization lever ships" and stop, rather than build A or C anyway.
+conclude "no minimization lever ships" and stop.
 
-### Phase 2a — Approach A *(only if the gate said "structure")*
-- *Build:* `detect(Signal, stage)` (§A.1); `vite-vitest` recipe + vendored
-  `dojo/scaffolds/vite-vitest/`; per-stage scaffold hook **before** `ground_plan`;
-  `meta.json.scaffold`.
-- *Tests:* stage-aware detection (frontend stage ⇒ vite, not webapi); offline
-  guarantee (network blocked ⇒ vendored or baseline, no crash, I2); scaffold-then-
-  ground reconciliation (no exit-73 collision); off ⇒ no-op (I1).
-- *Measure/Gate:* A/B vs L0 baseline + controls; KEEP per §2.3 (p10 pass-rate CI
-  lower bound > 0 or k/4 ↑ with CI∉0; controls hold, I4).
-- *Rollback:* `MU_SCAFFOLD` off restores baseline.
+**Phase 2a — Approach A** *(only if the gate said "structure")*. `detect(Signal,
+stage)` (§A.1); mu invokes `dotnet new` / `npm create vite` itself, per-stage,
+**before** `ground_plan`; vendored copy is the air-gapped fallback only (I2, and
+note the §0.2 tension — prefer the tool-invoked path). KEEP per §2.3.
 
-### Phase 2b — Approach C *(only if the gate said "coordination + test")*
-- *Build:* full-stack contract template in `_run_architect_pass` (manifest + route
-  + JSON + test cmd + type-ownership table), capability-keyed, flagged. **Reuses
-  S2** (already built in 0.3) as the deterministic backstop — the contract is
-  advisory, the guard is enforcement, so the model ignoring the contract still
-  can't ship CS0101.
-- *Build (S5):* WebApplicationFactory + Vitest fetch-mock test-authoring skills,
-  iff 1.4 localized the ceiling to test logic.
-- *Tests:* contract injected only for full-stack goals; the S2 backstop fires when
-  the model violates the type ledger; skills load for the right stack.
-- *Measure/Gate:* A/B vs baseline + controls (esp. **p4**); KEEP per §2.3.
-- *Rollback:* contract flag off; S2 stays (it's no-regret).
+**Phase 2b — Approach C** *(only if the gate said "coordination + test")*.
+Full-stack contract template in `_run_architect_pass` (manifest + route + JSON +
+test cmd + type-ownership table), capability-keyed, flagged; **reuses S2** as the
+deterministic backstop (contract advisory, guard enforcing). Build **S5** iff 1.4
+localized the ceiling to test logic. KEEP per §2.3 (esp. **p4**).
 
-### Phase 2c — model calibration *(closes the loop; the key hardening)*
-Before declaring any lever shipped: compare the capability model's **predicted**
-effect (`expected_solve_gain` from the pre-ship fit) with the **measured**
-Δp_solve post-ship. If `|predicted − measured|` exceeds the measurement CI, the
-model is miscalibrated → **do not trust its rankings**: widen N, refit (§2.0.1),
-and re-derive the next step. This prevents the model from becoming decorative and
-turns §2.0 into a falsifiable predictor, not just a description.
+**Phase 2c — model calibration** *(the key hardening)*. Compare the model's
+**predicted** `expected_solve_gain` with the **measured** Δp_solve post-ship. If
+$|\text{predicted}-\text{measured}|$ exceeds the CI, the model is miscalibrated →
+do **not** trust its rankings: widen N, refit (§1.4), re-derive. This turns §1 into
+a falsifiable predictor, not a description.
 
-### Phase 3 — record & generalize
-- Update `docs/problems/p10-dotnet-vue-blog.md`,
-  `docs/challenges/csharp-aspnet-scaffolding.md`, `TODO.md`, this plan's results
-  table; **every figure carries its L-level** (I3).
-- Promote any *general* capability that earned KEEP (S2; a contract/self-scaffold
-  `reduce()` step) toward the product path per [feedback `agent_self_minimization`]
-  — the dojo trained it, the agent keeps it.
+**Phase 3 — record & generalize.** Update
+`docs/problems/p10-dotnet-vue-blog.md`,
+`docs/challenges/csharp-aspnet-scaffolding.md`, `TODO.md`, this plan's results
+table; **every figure carries its L-level** (I3). Promote any *general* capability
+that earned KEEP (S2; a contract/self-scaffold `reduce()` step) toward the product
+path per memory `agent-self-minimization`.
 
-### 5.1 Risk register
+### 4.4 Risk register
 
 | Risk | Phase | Detector | Mitigation |
 |---|---|---|---|
-| Honest gate flags a *genuine* pass (false-negative) | 0.1 | archive replay shows a real pass reclassified | scope to exact sentinels; regression test on archived genuine passes; only on test gates |
-| Log-parse drift across toolchain versions corrupts k/4 | 0.2 | self-consistency (Accept) breaks | parse stable substrings; unknown ⇒ "not cleared"; fixture-log tests |
-| S2 deletes a legitimately distinct same-named type | 0.3 | the "distinct type not removed" test fails; p4 regresses (I4) | match exact duplicate blocks only, namespace-aware; ablation + control gate |
-| Cross-level comparison inflates a result | all | a reported number lacks an L-level | I3 test: `meta.json.minimize` required; readme block prints the level |
-| A's vite recipe needs the network mid-run | 2a | offline test fails | vendored fallback (I2); online tier opt-in + reachability probe |
-| Model ignores C's contract | 2b | CS0101 reappears in logs | S2 backstop enforces deterministically regardless of the prompt |
-| Capability model mis-ranks the next step | 2c | predicted vs measured Δ diverges | calibration gate (2c): refit before trusting rankings |
+| Honest gate flags a *genuine* pass | 0.1 | archive replay reclassifies a real pass | scope to exact sentinels; regression test on genuine passes |
+| Log-parse drift corrupts $k/4$ | 0.2 | self-consistency breaks | parse stable substrings; unknown ⇒ "not cleared" |
+| S2 deletes a legitimately distinct same-named type | 0.3 | the "distinct type kept" test fails; p4 regresses | exact-block match, namespace-aware; ablation + control gate |
+| Cross-level comparison inflates a result | all | a number lacks an L-level | I3 test: `meta.json.minimize` required |
+| A's scaffold needs the network mid-run | 2a | offline test fails | tool-invoked first; vendored fallback (I2); online opt-in |
+| Model ignores C's contract | 2b | CS0101 reappears | S2 backstop enforces deterministically |
+| Capability model mis-ranks | 2c | predicted vs measured Δ diverge | calibration gate (2c) |
 | p10 is pure model-ceiling; effort wasted | 1 | no jump until L4 | the L4 **kill criterion** stops A/C; route instead |
 
-### 5.2 Statistical power & cost
+### 4.5 Statistical power & cost
 
-Fresh-plan runs are the unit (planner variance included). The loop proves **P1**
-on `E[#solved]` — a *sum* over ten problems, whose CI is tighter than any single
-problem's, so a broad lever that adds ~0.1–0.3 to `E[#solved]` is detectable at
-**N≈10–15 per problem**, whereas a single binary pass-rate shift of 0→0.2 needs
-≈N=50; the continuous per-layer `q̂` detects the underlying shift even earlier
-(§2.0 Result 3: progress shows as `z` moving in the tail before pass flips). So
-every gate keys on `q̂`/`E[#solved]` first and confirms with pass-rate. Budget: a
-problem ≈ 60–300 s/run on the 8 GB M2 ⇒ a full **board** (ten problems × 15) ≈
-half a day, and a per-step ablation only re-runs the **covered** problems plus
-controls, not the whole set. Reuse the `efficacy_run`/Beta-Binomial machinery
-rather than re-rolling stats.
+The loop proves **P1** on $E[\#\text{solved}]$ — a *sum* over ten, whose CI is
+tighter than any single problem's — so a broad lever adding ~0.1–0.3 is detectable
+at **N≈10–15 per problem**, whereas a binary pass-rate shift 0→0.2 needs ≈N=50; the
+continuous per-layer $\hat q$ detects the shift even earlier (Result 3). Every gate
+keys on $\hat q$/$E[\#\text{solved}]$ first, confirms with pass-rate. Budget: a
+problem ≈ 60–300 s/run on the 8 GB M2 ⇒ a full **board** (ten × 15) ≈ half a day; a
+per-step ablation re-runs only the **covered** problems plus controls. Reuse
+`efficacy_run`/Beta-Binomial rather than re-rolling stats.
 
 ---
 
-## 6. Appendix A — worked code against the current tree
+## 5. Appendix A — worked code against the current tree
 
-Illustrative, not final — each snippet names the real symbol it extends so the
-diff is obvious. Verified against the tree at 2026-06-19.
+Illustrative, not final — each snippet names the real symbol it extends. Verified
+against the tree at 2026-06-19 (capability.py: 2026-06-20).
 
-### A.1 Approach A — wire the existing `scaffold.py` per stage
+### A.1 Approach A — `scaffold.py` per stage (mu invokes the generator itself)
 
-Today `scaffold.detect(sig)` ([scaffold.py](../../src/mu/scaffold.py)) returns the
-first matching recipe globally, and nothing calls it. The fix is (1) make
-detection stage-aware and (2) call it at the top of each staged session in
-`run_staged` ([agent.py](../../src/mu/agent.py):2109). The off-path stays
-byte-identical (`scaffold.enabled()` is `MU_SCAFFOLD=="1"`, default off).
+Today `scaffold.detect(sig)` returns the first matching recipe globally, and
+nothing calls it. The fix: (1) make detection stage-aware, (2) call it at the top
+of each staged session in `run_staged` ([agent.py](../../src/mu/agent.py):2109).
+Off-path stays byte-identical (`scaffold.enabled()` is `MU_SCAFFOLD=="1"`).
 
 ```python
-# src/mu/scaffold.py — make detection accept the stage the architect is on.
-# 'backend' wants the web API (+EF), 'frontend' wants Vite/Vitest, the xUnit
-# integration project rides with the backend stage.
+# src/mu/scaffold.py — detection depends on the stage the architect is on.
 _STAGE_PRIORITY: dict[str, tuple[str, ...]] = {
     'backend':  ('dotnet-webapi', 'dotnet-xunit', 'cargo-bin'),
     'frontend': ('vite-vitest',),
@@ -900,58 +603,30 @@ _STAGE_PRIORITY: dict[str, tuple[str, ...]] = {
 }
 
 def detect(sig: Signal, stage: str | None = None) -> Optional[Recipe]:
-    """First recipe whose predicate matches. When *stage* is given, only recipes
+    """First recipe whose predicate matches. With *stage* given, only recipes
     relevant to that stage are eligible (so the frontend stage can't be captured
     by the backend's dotnet-webapi — the bug that sank the first wiring)."""
     eligible = RECIPES
     if stage and stage in _STAGE_PRIORITY:
         names = _STAGE_PRIORITY[stage]
-        eligible = tuple(r for r in RECIPES if r.name in names)
-        eligible = tuple(sorted(eligible, key=lambda r: names.index(r.name)))
+        eligible = tuple(sorted((r for r in RECIPES if r.name in names),
+                                key=lambda r: names.index(r.name)))
     return next((r for r in eligible if r.detect(sig)), None)
 ```
 
-```python
-# src/mu/agent.py — in run_staged()'s loop, BEFORE run() executes the stage.
-# Build the capability Signal from the stage's own plan file (parse() gives the
-# tasks + test command), scaffold, and let the existing fixture-detection at
-# agent.py:678 mark the scaffold-owned files done.
-from . import scaffold
+Each recipe runs the **toolchain's own generator** (`dotnet new webapi`,
+`npm create vite`) — mu's own output, satisfying §0.2. The vendored copy under
+`dojo/scaffolds/vite-vitest/` is copied only when `online_enabled()` is false (the
+air-gapped fallback, and the one part in tension with the principle — prefer the
+tool-invoked path). Call `scaffold.detect(sig, stage=stage_name)` at the top of
+`run_staged`'s loop, **before** `run()` executes the stage, so the existing
+fixture-detection at `agent.py:678` marks scaffold-owned files done.
 
-for i, (stage_name, plan_file) in enumerate(active):
-    ...
-    if scaffold.enabled() and Path(plan_file).exists():
-        sp = parse(plan_file)
-        sig = scaffold.Signal(
-            goal=goal,
-            toolchains=frozenset(_infer_toolchains(sp)),   # from plan/test cmd
-            test_command=sp.test_command or '',
-            files=tuple(t.file_path for t in sp.tasks),
-        )
-        res = scaffold.detect(sig, stage=stage_name) and scaffold.scaffold(sig)
-        if res:
-            log("Scaffolded %s for stage '%s': %s", res.recipe, stage_name,
-                ', '.join(res.files))
-            _record_scaffold_meta(res, stage_name)   # meta.json.scaffold (audit)
-    _stage_depth += 1
-    try:
-        rc = run(goal, model, plan_file=plan_file, force=True, max_iter=max_iter)
-    ...
-```
-
-The vendored offline Vite fallback (so `vite-vitest` works air-gapped) is a frozen
-copy under `dojo/scaffolds/vite-vitest/` that `scaffold()` copies when
-`online_enabled()` is false — a few lines in `_run_recipe`, mirroring
-[scaffolding.md](scaffolding.md) §1.4.
-
-### A.2 Approach B — level-aware `fixtures.apply`
+### A.2 Approach B — level-aware `fixtures.apply` (probe only)
 
 `fixtures.apply` ([fixtures.py](../../src/mu/fixtures.py)) currently copies *all*
-of `dojo/fixtures/<id>/`. To climb the ladder, lay fixtures out as per-rung
-deltas and apply every rung **up to** the problem's `minimize` level. The agent
-already marks any pre-existing non-empty planned file done
-([agent.py](../../src/mu/agent.py):678), so given files vanish from the writer's
-job automatically — no agent change needed.
+of `dojo/fixtures/<id>/`. To climb the ladder, lay fixtures out as per-rung deltas
+and apply every rung **up to** the problem's `minimize` level:
 
 ```
 dojo/fixtures/p10/
@@ -965,30 +640,18 @@ dojo/fixtures/p10/
 # src/mu/fixtures.py
 _LADDER = ('L0', 'L1', 'L2', 'L3', 'L4')
 
-def _minimize_level(problem_id: str, catalog_path: str = 'problems-catalog.json') -> str:
-    from mu.toolchain import load_problems_catalog
-    for p in load_problems_catalog(catalog_path):
-        if p['id'] == problem_id:
-            return p.get('minimize', 'L0')
-    return 'L0'
-
-def apply(problem_id: str, work_dir: str = '.',
-          level: str | None = None) -> list[str]:
+def apply(problem_id: str, work_dir: str = '.', level: str | None = None) -> list[str]:
     """Copy a problem's committed fixtures into *work_dir*, up to *level* (the
-    problem's `minimize` rung by default). Flat layout (no L*/ subdirs) still
-    works — it's treated as a single rung. Returns the relative paths provided."""
+    problem's `minimize` rung by default). A rung-prefixed file (L2/…) applies only
+    when its rung ≤ target; an unprefixed file always applies (flat fixtures)."""
     src = fixture_dir(problem_id)
     if not src.is_dir():
         return []
     target = level or _minimize_level(problem_id)
     rungs = _LADDER[:_LADDER.index(target) + 1] if target in _LADDER else _LADDER
     provided: list[str] = []
-    for f in sorted(src.rglob('*')):
-        if not f.is_file():
-            continue
+    for f in sorted(p for p in src.rglob('*') if p.is_file()):
         rel = f.relative_to(src)
-        # A rung-prefixed file (L2/…, L3/…) is applied only when its rung is ≤ target;
-        # an unprefixed file is always applied (flat fixtures, e.g. p6-rust today).
         if rel.parts[0] in _LADDER:
             if rel.parts[0] not in rungs:
                 continue
@@ -1000,25 +663,15 @@ def apply(problem_id: str, work_dir: str = '.',
     return provided
 ```
 
-```python
-# src/mu/dojo/runner.py — apply fixtures before the agent subprocess so the
-# provided files are present when the writer starts (the measurement wiring).
-from .. import fixtures
-provided = fixtures.apply(problem_id, str(work))      # honors minimize level
-if provided:
-    print(f"Fixtures (L{fixtures._minimize_level(problem_id)}): {', '.join(provided)}")
-```
+The agent already marks any pre-existing planned file done (`agent.py:678`), so no
+agent change is needed. **Honesty (I3, I7):** every reported pass carries its rung;
+an L3 pass is never compared to L0, and these fixtures never ship on the product
+path — they exist solely to identify $\delta$.
 
-A/B is then just the catalog field: set p10's `minimize` to `L2`, `L3`, `L4` across
-runs and read where `k/4` (§A.4) jumps. **Honesty:** every reported pass carries
-its rung; an L3 pass is never compared to the L0 baseline.
+### A.3 Approach C — contract + cross-stage type-ownership reflex (S2)
 
-### A.3 Approach C — full-stack contract + a cross-stage type-ownership reflex
-
-Two pieces. First, a deterministic L1 contract injected by the architect — extend
-the `user_msg` / post-processing in `_run_architect_pass`
-([agent.py](../../src/mu/agent.py):2009) for the detected full-stack stack so
-`ARCHITECTURE.md` carries a fixed manifest + a single-owner type table:
+A deterministic L1 contract injected by the architect (`_run_architect_pass`,
+[agent.py](../../src/mu/agent.py):2009) for the detected full-stack stack:
 
 ```python
 # src/mu/agent.py — after arch_text is written, for a multilayer dotnet+node goal.
@@ -1027,7 +680,7 @@ if _is_multilayer(goal) and {'dotnet', 'node'} <= _goal_toolchains(goal):
         "\n## Type Ownership (one definition site each — do not redefine)\n"
         "- `Post` (Id:int, Title:string, Content:string) — backend/Models/Post.cs, public\n"
         "- `BlogContext : DbContext` — backend/Data/BlogContext.cs, public\n"
-        "- the test project REFERENCES these via ProjectReference; it never redeclares them\n"
+        "- the test project REFERENCES these via ProjectReference; never redeclares\n"
         "\n## Contract\n"
         "- route: GET /api/posts -> 200 JSON array of Post; seed one Title='Hello World'\n"
         "- test cmd: dotnet test backend.Tests && (cd frontend && npx vitest run)\n"
@@ -1035,25 +688,21 @@ if _is_multilayer(goal) and {'dotnet', 'node'} <= _goal_toolchains(goal):
     Path('ARCHITECTURE.md').write_text(arch_text + contract)
 ```
 
-Second — and this is what actually kills CS0101/CS0053 — a deterministic guard
-that runs before the integration gate. Follow the one-file-per-reflex pattern
-([registry.py](../../src/mu/reflexes/registry.py) `_CATALOG`,
-`src/mu/reflexes/csharp/`):
+The contract is advisory; what actually kills CS0101/CS0053 is the deterministic
+guard (one-file-per-reflex, [registry.py](../../src/mu/reflexes/registry.py)):
 
 ```python
 # src/mu/reflexes/csharp/fix_csharp_cross_stage_duplicate_types.py
 import re
 from pathlib import Path
-from ._common import *  # noqa: F401,F403
 
 _DECL = re.compile(r'(?m)^\s*(?:public\s+|internal\s+)?(?:sealed\s+)?'
                    r'(?:class|record|struct)\s+(\w+)')
 
 def fix_csharp_cross_stage_duplicate_types(project_dir: str) -> bool:
-    """Across all .cs in the project, keep one definition of each type — the one
-    under the backend source dir — and delete the duplicates the staged writer
-    re-declared elsewhere (CS0101). General: any multi-project .NET layout that
-    redefines a shared type across files. Never touches a uniquely-named type."""
+    """Keep one definition of each type — the one under the backend source dir —
+    and delete the duplicates the staged writer re-declared elsewhere (CS0101).
+    General to any multi-project .NET layout; never touches a uniquely-named type."""
     cs = [p for p in Path(project_dir).rglob('*.cs')
           if not any(s in p.parts for s in ('obj', 'bin'))]
     owners: dict[str, Path] = {}
@@ -1064,33 +713,30 @@ def fix_csharp_cross_stage_duplicate_types(project_dir: str) -> bool:
     for f in cs:
         text = f.read_text(errors='ignore')
         for name in set(_DECL.findall(text)):
-            if owners.get(name) != f:          # this file redefines an owned type
-                text = _strip_type_block(text, name)   # remove the duplicate block
+            if owners.get(name) != f:
+                text = _strip_type_block(text, name)
                 changed = True
         if changed:
             f.write_text(text)
     return changed
 ```
 
-Wire it into the staged-repair reapply (`apply_csharp_repair_reflexes`) and the
-`_inter_stage_gate` reapply path, then catalog it under `'duplicate-declaration'`
-in `registry.py` (the completeness test fails otherwise) and add an idempotency +
-a "leaves a uniquely-named type alone" regression test. CS0053 gets a sibling
-reflex that raises a type referenced by a `public` signature to `public`.
+Wire into `apply_csharp_repair_reflexes` and the `_inter_stage_gate` reapply path;
+catalog under `'duplicate-declaration'`; add idempotency + "leaves a uniquely-named
+type alone" tests. CS0053 gets a sibling that raises a type behind a `public`
+signature to `public`.
 
-### A.4 The capability model as code: per-layer `q̂`, chain solve-prob, step selection
+### A.4 Per-layer `q̂` in `measure.py`
 
-The metric is a direct read-out of §2.0. First, sample each run's per-layer
-clears (the model's `q_{iℓ}` observations), parsed from the staged gate logs:
+The metric is a direct read-out of §1. Sample each run's per-layer clears from the
+staged gate logs, then aggregate; honest only if S1 rejects vacuous passes.
 
 ```python
 # src/mu/dojo/measure.py
 _P10_LAYERS = ('backend_build', 'backend_test', 'frontend_build', 'frontend_test')
 
 def _layer_clears(session_dir: Path) -> dict[str, bool]:
-    """One run's per-layer pass/fail — the model's q_{i,l} samples. Honest only
-    if the gates reject vacuous passes (S1): a 'green' that ran no tests is not a
-    clear."""
+    """One run's per-layer pass/fail — the model's q_{i,ℓ} samples."""
     text = '\n'.join(p.read_text(errors='ignore')
                      for p in (session_dir / 'logs').glob('*.log'))
     return {
@@ -1101,173 +747,61 @@ def _layer_clears(session_dir: Path) -> dict[str, bool]:
     }
 ```
 
-Aggregate over the `N` runs into the model's quantities — per-layer `q̂`, the
-**chain** solve-prob `∏ q̂` (vs. the measured pass rate), and the **bottleneck**
-`argmin q̂` (Result 2: where the next step actually pays):
+Collect `_layer_clears` across the N runs (sessions via `sessions.latest_since`),
+build a `capability.Layers`/`Board`, and emit `p_solve`/`bottleneck`/`k_mean`
+(= $\sum\hat q$) in the `--emit-json` block next to `pass_rate`.
+
+### A.5 `capability.py` — the fitted model as one shared component (shipped)
+
+Already in tree as [`src/mu/capability.py`](../../src/mu/capability.py): a thin,
+pure layer over `observe.py` (Beta-Binomial $\hat q$) and `reflexdb.py` (efficacy
+$\beta$) that A, B, C, routing, and `practice` all call.
 
 ```python
-def _capability_summary(runs: list[dict[str, bool]]) -> dict:
-    n = len(runs) or 1
-    q = {l: sum(r[l] for r in runs) / n for l in _P10_LAYERS}   # q̂_l = clears/N
-    p_solve = math.prod(q.values())            # ∏ q̂_l  — series/chain system
-    return {
-        'q_per_layer':   q,
-        'p_solve_model': p_solve,              # model P_i; compare to measured pass_rate
-        'k_mean':        sum(q.values()),      # E[layers cleared] = Σ q̂_l (the old k/4)
-        'bottleneck':    min(q, key=q.get),    # argmin q̂_l → the layer to attack next
-    }
-```
-
-And the step-selection rule, straight from `∂P_i/∂q_{iℓ} = ∏_{ℓ'≠ℓ} q_{iℓ'}`
-(Result 2) — it scores a candidate step by its *expected* contribution to the
-chain, so a step on a layer whose siblings are still ≈0 scores ≈0 (why
-backend-only scaffolding was rejected):
-
-```python
-def expected_solve_gain(q: dict[str, float], layer: str, dq: float) -> float:
-    """Model's marginal value of a step that lifts `layer`'s q̂ by dq:
-    ΔP_solve ≈ dq · ∏_{l'≠layer} q̂_{l'}. Pick the step maximizing this per unit
-    cost (the depth-vs-breadth tradeoff, §2.0): on a 0/L problem it forces work
-    onto the bottleneck; on a near-solved one it rewards the broadest β."""
-    others = math.prod(qv for l, qv in q.items() if l != layer)
-    return dq * others
-```
-
-`measure.run` already finds the session per run (`sessions.latest_since`); collect
-`_layer_clears` across the `N` runs, emit `_capability_summary` in the
-`--emit-json` block next to `pass_rate`, and rank candidate steps with
-`expected_solve_gain`. These are the headline numbers for every arm in §2 and the
-selector for §3's "build the lever the probe named."
-
-### A.5 `capability.py` — the fitted model as one shared component (§2.0.1)
-
-A thin layer over `observe.py` (Beta-Binomial `q̂`) and `reflexdb.py` (efficacy
-`β`) that A, B, C, routing, and `practice` all call. Per-`(model, problem)` layer
-stats in; `p_solve`, `bottleneck`, a step ranking, and a route decision out.
-
-```python
-# src/mu/capability.py — fitted capability model: one measurer/selector/router.
-import math
-from dataclasses import dataclass
-from . import observe                         # Beta-Binomial Posterior (q̂ + CI)
-
-
 @dataclass(frozen=True)
-class LayerStat:
-    clears: int                               # runs that cleared this layer
-    n: int                                    # runs attempted
+class LayerStat:                 # clears out of n attempts for one layer
+    clears: int; n: int
     @property
-    def _post(self) -> "observe.Posterior":    # observe.beta_binomial -> Posterior(rate, lo, hi, n)
-        return observe.beta_binomial(self.clears, self.n)
-    @property
-    def q(self) -> float:                      # smoothed q̂ (Beta-Binomial posterior mean)
-        return self._post.rate
-    @property
-    def ci(self) -> tuple[float, float]:       # 95% credible interval — decide with fewer runs
-        p = self._post
-        return (p.lo, p.hi)
+    def q(self) -> float:        # smoothed q̂ (Beta-Binomial posterior mean)
+        return observe.beta_binomial(self.clears, self.n).rate
 
+Layers = dict[str, LayerStat]    # layer -> stat
+Board  = dict[str, Layers]       # problem id -> its layers
 
-def p_solve(layers: dict[str, LayerStat]) -> float:
-    """Chain solve-prob = ∏ q̂_l (series system) — the model's P_i."""
-    return math.prod(s.q for s in layers.values())
-
-
-def bottleneck(layers: dict[str, LayerStat]) -> str:
-    """argmin_l q̂ — the layer the next step must target (Result 2)."""
-    return min(layers, key=lambda l: layers[l].q)
-
-
-def expected_solve_gain(layers: dict[str, LayerStat], layer: str, dq: float) -> float:
-    """ΔP_solve ≈ dq · ∏_{l'≠layer} q̂  — a step's marginal value via the chain."""
-    others = math.prod(s.q for l, s in layers.items() if l != layer)
-    return dq * others
-
-
-def route(layers: dict[str, LayerStat], eps: float = 0.02) -> bool:
-    """Skip the (model, problem) when p_solve < eps — the layer-level generalization
-    of fixtures.should_skip, shared across all three LLM models."""
-    return p_solve(layers) < eps
-
-
-@dataclass(frozen=True)
-class Step:
-    name: str
-    layer: str            # the layer it lifts
-    beta: float           # efficacy Δ (partial-pooled across models; reflexdb)
-    cost: float           # median added tokens/iters
-
-
-def rank_steps(layers: dict[str, LayerStat], steps: list[Step]) -> list[tuple]:
-    """Order candidate steps by expected ΔP_solve per unit cost. headroom = β·(1−q̂)
-    is the logistic gain on the target layer; the chain factor routes it to the
-    bottleneck on a 0/L problem and to the broadest β on a near-solved one
-    (depth-vs-breadth, §2.0)."""
-    scored = []
-    for s in steps:
-        dq = s.beta * (1 - layers[s.layer].q)
-        gain = expected_solve_gain(layers, s.layer, dq)
-        scored.append((gain / max(s.cost, 1e-9), s.name, s.layer, gain))
-    return sorted(scored, reverse=True)
+def p_solve(layers):             # ∏ q̂  — chain / series system (the model's P_i)
+def bottleneck(layers):          # argmin q̂  — the layer the next step targets
+def expected_solve_gain(layers, layer, dq):   # dq · ∏ siblings — Result 2 marginal
+def route(layers, eps=0.02):     # p_solve < eps  → skip this (model, problem)
+def e_solved(board):             # Σ_i p_solve_i  — the objective the loop raises
+def portfolio_gain(board, targets, beta):     # Σ expected_solve_gain over covered (i,ℓ)
+def rank_portfolio(board, candidates):        # rank by ΔE[#solved] per unit cost
 ```
 
-**Whole-set objective and selector (provable improvement for *all* problems).** The
-board is `{problem_id: {layer: LayerStat}}`; the objective the loop monotonically
-raises is `E[#solved] = Σ_i p_solve_i`, and steps are ranked by their summed gain
-across **every problem they cover** — so a broad reflex (helps p4 *and* p10)
-outranks a p10-only lever (§0.1):
-
-```python
-Board = dict[str, dict[str, LayerStat]]        # problem_id -> {layer: LayerStat}
-
-def e_solved(board: Board) -> float:
-    """E[#solved] = Σ_i p_solve_i — the objective the loop raises monotonically."""
-    return sum(p_solve(layers) for layers in board.values())
-
-def portfolio_gain(board: Board, targets: list[tuple[str, str]], beta: float) -> float:
-    """A step's expected ΔE[#solved]: Σ expected_solve_gain over the (problem,
-    layer) pairs it covers. Summed across ALL covered problems, so breadth wins —
-    the whole-set selector, not a per-problem one."""
-    total = 0.0
-    for pid, layer in targets:
-        layers = board.get(pid)
-        if layers and layer in layers:
-            dq = beta * (1 - layers[layer].q)
-            total += expected_solve_gain(layers, layer, dq)
-    return total
-
-def rank_portfolio(board, candidates) -> list[tuple]:
-    """candidates: (name, targets, beta, cost). Rank by ΔE[#solved] per unit cost."""
-    return sorted(((portfolio_gain(board, t, b) / max(c, 1e-9), name)
-                   for name, t, b, c in candidates), reverse=True)
-```
-
-The provable-improvement gate (§5.0a) then reads off the board: ship a step iff the
-re-measured `e_solved` rose with a CI excluding 0 (**P1**) and no problem's pass
-rate regressed (**P2**).
-
-Consumers: `measure.py` builds the `Board` from `_layer_clears` over **all ten**;
-the loop (§5.0a) ranks candidates with `rank_portfolio` and tracks `e_solved` as
-the monotone ledger; **A** reads `bottleneck`/`expected_solve_gain` to scaffold only
-where it pays; **C** registers its reflex with its coverage and is ranked by
-`portfolio_gain`; **B** supplies the `δ`-jumps that calibrate the `LayerStat`s; the
-`practice` loop and `dojo run --route` call `route` for every model. One object,
-every consumer.
+`portfolio_gain` sums across **all** covered problems, so a broad reflex (helps p4
+*and* p10) outranks a p10-only lever (§0.1). The provable-improvement gate (§4.2)
+reads off the board: ship iff re-measured `e_solved` rose with a CI excluding 0
+(**P1**) and no problem's pass rate regressed (**P2**). Consumers: `measure.py`
+builds the `Board` from `_layer_clears` over all ten; the loop ranks with
+`rank_portfolio` and tracks `e_solved` as the monotone ledger; **A** reads
+`bottleneck`/`expected_solve_gain` to scaffold only where it pays; **C** registers
+its reflex with its coverage; **B** supplies the $\delta$-jumps that calibrate the
+`LayerStat`s; `practice` and `dojo run --route` call `route`. One object, every
+consumer.
 
 ---
 
-## 7. Out of scope: constrained decoding
+## 6. Out of scope: constrained decoding
 
-Grammar-/type-constrained decoding (mask tokens that break syntax or static
-types) would make structure deterministic at generation time — the most powerful
-"determinism" lever in the literature. It is **not feasible in mu today**: mu
-drives models through LM Studio's OpenAI-compatible *chat* endpoint, which exposes
-no per-token logit mask. Pursuing it would mean a different inference path
-(e.g. llama.cpp grammars) — a larger architectural change than this report's
-scope, recorded here as the long-horizon option if mu ever takes token-level
-control of generation.
+Grammar-/type-constrained decoding (mask tokens that break syntax or static types)
+would make structure deterministic at generation time — the most powerful
+determinism lever in the literature, and one that needs no pregenerated code. It is
+**not feasible in mu today**: mu drives models through LM Studio's
+OpenAI-compatible *chat* endpoint, which exposes no per-token logit mask. Pursuing
+it would mean a different inference path (e.g. llama.cpp grammars) — a larger
+architectural change than this report's scope, recorded as the long-horizon option
+if mu ever takes token-level control of generation.
 
-## 8. References
+## 7. References
 
 - [tw]: Thoughtworks — *Spec-driven development* (2025). https://www.thoughtworks.com/en-us/insights/blog/agile-engineering-practices/spec-driven-development-unpacking-2025-new-engineering-practices
 - [ghspec]: GitHub — *Spec-driven development with AI (spec-kit)*. https://github.blog/ai-and-ml/generative-ai/spec-driven-development-with-ai-get-started-with-a-new-open-source-toolkit/
@@ -1277,4 +811,4 @@ control of generation.
 - [decay]: *Constraint decay: The Fragility of LLM Agents in Backend Code Generation*, arXiv:2605.06445. https://arxiv.org/html/2605.06445
 - [fail]: *Where LLM Agents Fail and How They Can Learn From Failures*, arXiv:2509.25370. https://arxiv.org/abs/2509.25370
 - [casc]: *Hallucination Cascade: Error Propagation in Multi-Agent LLM Systems*, arXiv:2606.07937. https://arxiv.org/html/2606.07937
-- Constrained/grammar decoding (§7): *Correctness-Guaranteed Code Generation via Constrained Decoding*, arXiv:2508.15866; *Grammar-Constrained Decoding for Structured NLP Tasks*, arXiv:2305.13971.
+- Constrained/grammar decoding (§6): *Correctness-Guaranteed Code Generation via Constrained Decoding*, arXiv:2508.15866; *Grammar-Constrained Decoding for Structured NLP Tasks*, arXiv:2305.13971.
