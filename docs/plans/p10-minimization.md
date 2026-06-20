@@ -574,23 +574,24 @@ are mutually exclusive, selected by Step 1.4.
 - **Gate.** Self-consistency holds $\Rightarrow$ the board is trustworthy as ranking + ledger.
 - **Rollback.** Additive subcommand + JSON keys; drop them.
 
-- [ ] **Step 0.3 — S2: cross-stage type-ownership reflex** $\to$ `src/mu/reflexes/csharp/` *(the headline shippable; catalogued reflex, on-by-default iff it KEEPs)*
+- [x] **Step 0.3 — S2: cross-stage type-ownership reflex** $\to$ `src/mu/reflexes/csharp/` *(the headline shippable; catalogued reflex, on-by-default iff it KEEPs)* — 🟡 **code done 2026-06-20** (both reflexes + registry + `_inter_stage_gate` wiring; 9 unit tests; suite 252 green; ablation Measure/KEEP-gate run with the board)
 - **Files.** `src/mu/reflexes/csharp/fix_csharp_cross_stage_duplicate_types.py` and
   `src/mu/reflexes/csharp/fix_csharp_public_signature_accessibility.py` — the two
   reflexes; `src/mu/reflexes/registry.py` — the catalogue slot; `src/mu/agent.py` —
   the reapply wiring; new `tests/test_csharp_cross_stage_types.py`.
 - **Build:**
-  - [ ] Add `src/mu/reflexes/csharp/fix_csharp_cross_stage_duplicate_types.py` (keep the
-     backend-owned definition by sort order; strip the cross-stage duplicate type
+  - [x] Add `src/mu/reflexes/csharp/fix_csharp_cross_stage_duplicate_types.py` —
+     ownership prefers the **non-test** file (a `backend.Tests/` dir sorts *before*
+     `backend/`, so pure sort order is wrong); strip the cross-stage duplicate type
      blocks $\to$ CS0101); see §A.3.
-  - [ ] Add the CS0053 sibling
-     `src/mu/reflexes/csharp/fix_csharp_public_signature_accessibility.py` (raise a
-     type referenced by a `public` signature to `public`).
-  - [ ] In `src/mu/reflexes/registry.py`, catalogue both under `'duplicate-declaration'`
-     (the catalogue-completeness test fails otherwise).
-  - [ ] In `src/mu/agent.py`, wire both into `apply_csharp_repair_reflexes` and the
-     `_inter_stage_gate` reapply path.
-- [ ] **Tests.** Dup type across two stage files $\Rightarrow$ exactly one removed (backend kept); a
+  - [x] Add the CS0053 sibling
+     `src/mu/reflexes/csharp/fix_csharp_public_signature_accessibility.py` (raise an
+     `internal` type referenced by a `public` signature to `public`).
+  - [x] In `src/mu/reflexes/registry.py`, catalogue both (`duplicate-declaration`
+     and a new `type-visibility` slot); the catalogue-completeness test passes.
+  - [x] In `src/mu/agent.py`, wire both into the `_inter_stage_gate` (project-wide,
+     before the backend gate compiles).
+- [x] **Tests.** Dup type across two stage files $\Rightarrow$ exactly one removed (backend kept); a
   legitimately distinct same-named type in a different namespace $\Rightarrow$ **not** removed;
   the CS0053 case $\Rightarrow$ becomes `public`; idempotent (double-apply stable, I5).
 - **Accept.** Dry-run replay of archived p10 CS0101/CS0053 sessions $\Rightarrow$ the guard
@@ -879,9 +880,11 @@ def fix_csharp_cross_stage_duplicate_types(project_dir: str) -> bool:
     cs = [p for p in Path(project_dir).rglob('*.cs')
           if not any(s in p.parts for s in ('obj', 'bin'))]
     owners: dict[str, Path] = {}
-    for f in sorted(cs):                       # backend/ sorts before *Tests/
+    # Non-test files first (a `backend.Tests/` dir sorts BEFORE `backend/` because
+    # '.' < '/', so pure sort order would make the test the owner — wrong).
+    for f in sorted(cs, key=lambda p: (any('test' in s.lower() for s in p.parts), str(p))):
         for name in _DECL.findall(f.read_text(errors='ignore')):
-            owners.setdefault(name, f)         # first sort-order site = owner
+            owners.setdefault(name, f)         # first non-test site = owner
     changed = False
     for f in cs:
         text = f.read_text(errors='ignore')

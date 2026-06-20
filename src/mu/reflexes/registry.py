@@ -62,7 +62,9 @@ _CATALOG: dict[str, list] = {
     'duplicate-declaration': [
         rust.fix_rust_duplicate_use, javascript.fix_js_duplicate_require,
         javascript.fix_js_same_scope_redeclaration,
-        csharp.fix_csharp_duplicate_classes, makefile.fix_duplicate_var],
+        csharp.fix_csharp_duplicate_classes,
+        csharp.fix_csharp_cross_stage_duplicate_types, makefile.fix_duplicate_var],
+    'type-visibility': [csharp.fix_csharp_public_signature_accessibility],
     'missing-symbol-import': [
         python.fix_python_undefined_imports, python.fix_python_missing_project_imports,
         python.fix_python_missing_stdlib_imports, javascript.fix_js_missing_requires,
@@ -205,6 +207,8 @@ _ANNOTATIONS: dict = {
     python.fix_python_unindented_body:         {'artifact': 'py', 'evidence': 'p7'},
     csharp.fix_csharp_consecutive_duplicate_signatures: {'artifact': 'cs', 'evidence': 'p4'},
     csharp.fix_csharp_lambda_brace_confusion:  {'artifact': 'cs', 'evidence': 'p10'},
+    csharp.fix_csharp_cross_stage_duplicate_types: {'artifact': 'cs', 'evidence': 'p10', 'risk': 'medium'},
+    csharp.fix_csharp_public_signature_accessibility: {'artifact': 'cs', 'evidence': 'p10', 'risk': 'medium'},
     # ── go ────────────────────────────────────────────────────────────────────
     go.fix_go_missing_pkg_imports:             {'artifact': 'go'},
     go.fix_go_unused_imports:                  {'artifact': 'go'},

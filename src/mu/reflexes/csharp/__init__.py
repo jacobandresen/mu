@@ -14,6 +14,8 @@ from .fix_csharp_consecutive_duplicate_signatures import fix_csharp_consecutive_
 from .fix_csharp_package_tfm_mismatch import fix_csharp_package_tfm_mismatch
 from .fix_csharp_test_program_conflict import fix_csharp_test_program_conflict
 from .fix_csharp_lambda_brace_confusion import fix_csharp_lambda_brace_confusion
+from .fix_csharp_cross_stage_duplicate_types import fix_csharp_cross_stage_duplicate_types
+from .fix_csharp_public_signature_accessibility import fix_csharp_public_signature_accessibility
 from .apply_csharp_write_reflexes import apply_csharp_write_reflexes
 from .apply_csharp_repair_reflexes import apply_csharp_repair_reflexes
 
@@ -29,6 +31,8 @@ __all__ = [
     'fix_csharp_test_program_conflict',
     'fix_csharp_consecutive_duplicate_signatures',
     'fix_csharp_lambda_brace_confusion',
+    'fix_csharp_cross_stage_duplicate_types',
+    'fix_csharp_public_signature_accessibility',
     'apply_csharp_write_reflexes',
     'apply_csharp_repair_reflexes',
 ]

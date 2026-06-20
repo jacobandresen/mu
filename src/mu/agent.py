@@ -55,6 +55,8 @@ from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
                          fix_csharp_package_tfm_mismatch,
                          fix_csharp_test_program_conflict,
                          fix_csharp_xunit_packages,
+                         fix_csharp_cross_stage_duplicate_types,
+                         fix_csharp_public_signature_accessibility,
                          fix_jest_config_js,
                          fix_jest_esm,
                          fix_jest_no_tests_found,
@@ -2139,6 +2141,18 @@ def _inter_stage_gate(plan_file: str, goal: str, model: str) -> int:
     command and no test files, that is a hard failure rather than a silent skip.
     """
     p = parse(plan_file)
+
+    # S2 (plan Step 0.3): before the backend gate compiles, resolve cross-stage
+    # type-ownership errors deterministically — the test project re-declaring a
+    # backend type (CS0101) or a public API exposing an internal type (CS0053) —
+    # so the coordination cascade can't reach the compiler. Project-wide and
+    # idempotent; a no-op on single-project layouts.
+    proj = os.getcwd()
+    if _fired(fix_csharp_cross_stage_duplicate_types, proj):
+        log("Inter-stage gate: removed cross-stage duplicate C# type(s).")
+    if _fired(fix_csharp_public_signature_accessibility, proj):
+        log("Inter-stage gate: raised internal type(s) exposed by a public API to public.")
+
     test_cmd = p.test_command.strip() if p.test_command else ''
 
     if not test_cmd:
