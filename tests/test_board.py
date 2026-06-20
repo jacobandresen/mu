@@ -4,7 +4,8 @@ logs (a missing/garbled log reads as "not cleared", never a crash) and check the
 board's self-consistency wiring.
 """
 from mu import capability
-from mu.dojo.measure import _layer_clears, _p10_layer_clears, _problem_layers
+from mu.dojo.measure import (_layer_clears, _p10_layer_clears, _problem_layers,
+                            _raw_solved)
 
 _P10 = ('backend_build', 'backend_test', 'frontend_build', 'frontend_test')
 
@@ -110,3 +111,15 @@ def test_board_p10_chain_is_product():
     layers = {l: capability.LayerStat(clears=0, n=10) for l in _P10}  # all-failing
     assert capability.p_solve(layers) < 0.5         # chain of low layers ~ 0
     assert capability.bottleneck(layers) in _P10
+
+
+def test_raw_solved_reconstructs_observed_not_smoothed():
+    # the L0 board shape (3b): only p1 solved 4/5, everything else 0 -> raw == 0.8,
+    # while the smoothed e_solved is biased high by the uniform prior over 9 zeros.
+    board = {
+        "p1": {"solved": capability.LayerStat(4, 5)},
+        **{f"p{i}": {"solved": capability.LayerStat(0, 5)} for i in range(2, 10)},
+        "p10": {l: capability.LayerStat(0, 5) for l in _P10},
+    }
+    assert abs(_raw_solved(board) - 0.8) < 1e-9          # matches observed solved
+    assert capability.e_solved(board) > _raw_solved(board)  # smoothing is biased high

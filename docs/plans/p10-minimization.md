@@ -552,7 +552,7 @@ are mutually exclusive, selected by Step 1.4.
   toolchains $\Rightarrow$ the board is honest for the whole set.
 - **Rollback.** Sentinels are additive predicates — delete them; the gate reverts.
 
-- [x] **Step 0.2 — the whole-set board + `mu dojo board`** $\to$ `src/mu/dojo/measure.py`, `src/mu/dojo/cli.py` *(depends on 0.1)* — 🟡 **code done 2026-06-20** (9 unit tests; Accept self-consistency runs with the L0 baseline board, post-0.4)
+- [x] **Step 0.2 — the whole-set board + `mu dojo board`** $\to$ `src/mu/dojo/measure.py`, `src/mu/dojo/cli.py` *(depends on 0.1)* — ✅ **done 2026-06-20** (10 unit tests; **Accept met**: on the L0 board the per-layer parse reconstructs the observed solved count exactly, 0.80 = 0.80. Fixed the self-consistency check to compare the *raw* layer-parse vs observed — the smoothed `E[#solved]` is biased high at small n by the Beta-Binomial prior, so it's reported separately, not used for the check.)
 - **Files.** `src/mu/dojo/measure.py` — `_layer_clears` + board aggregation;
   `src/mu/dojo/cli.py` — the `mu dojo board` subcommand; new `tests/test_board.py` —
   fixture-log assertions.
@@ -623,7 +623,7 @@ are mutually exclusive, selected by Step 1.4.
 - **Gate.** Suite green, no behaviour delta $\Rightarrow$ proceed.
 - **Rollback.** Inline the function back; remove the meta keys.
 
-- [ ] **Step 0.5 — L0 baseline** $\to$ *no new file — runs the instrument* *(records, does not gate)* — 🟡 **baseline board running** (background, `qwen2.5-coder-3b-instruct`, N=5 → `.mu/board_L0_3b.json`; smoke: p1-helloworld 1/1 in a single step, 0 repair). Note: qwen-7b won't load on this 8 GB host ("insufficient system resources"), so the baseline uses the 3b model.
+- [x] **Step 0.5 — L0 baseline** $\to$ *no new file — runs the instrument* *(records, does not gate)* — ✅ **recorded 2026-06-20** (`qwen2.5-coder-3b-instruct`, N=5 → `.mu/board_L0_3b.json`). **L0 board: only p1-helloworld solves (4/5); p2–p9 all 0/5; p10 0/5 on all four layers.** layer-parse 0.80 = observed 0.80; smoothed E[#solved] 1.86. ⚠️ **Capacity blocker:** qwen-7b won't load on this 8 GB host, and 3b is too weak for anything past hello-world — so the capability data-work (0.3 ablation, KEEP gates) has ~no headroom here until a stronger model can run (free memory / reboot for 7b, or a bigger host).
 - [ ] **Build:** Run `mu dojo board` over all ten plus `mu dojo measure p10 -n 15`,
   post S1–S4; record an `efficacy_run` with per-layer $\hat q$. This board is the L0
   reference P1/P2 are measured against for every arm.

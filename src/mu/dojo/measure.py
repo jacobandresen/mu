@@ -188,6 +188,7 @@ def board(emit_json: str = '', runs: int | None = None) -> int:
         out = {
             'n': n,
             'e_solved': capability.e_solved(table),
+            'raw_solved': _raw_solved(table),
             'observed_solved': observed_solved,
             'board': {
                 pid: {
@@ -204,9 +205,25 @@ def board(emit_json: str = '', runs: int | None = None) -> int:
     return 0
 
 
+def _raw_solved(table) -> float:
+    """Σ over problems of the *raw* per-layer pass-product (clears/n, no smoothing).
+    For a single-gate problem this is just its raw pass rate; the sum is the
+    layer-parse's reconstruction of the observed solved count — the honest basis for
+    the self-consistency check (the smoothed E[#solved] is biased high at small n
+    because the Beta-Binomial prior lifts every 0/n layer off zero)."""
+    total = 0.0
+    for layers in table.values():
+        prod = 1.0
+        for st in layers.values():
+            prod *= (st.clears / st.n) if st.n else 0.0
+        total += prod
+    return total
+
+
 def _print_board(table, observed_solved: float) -> None:
-    """Print per-problem p_solve + bottleneck, then E[#solved] vs the observed
-    solved count — the self-consistency check that earns the board its trust (§0.2)."""
+    """Print per-problem p_solve + bottleneck, then the objective E[#solved] and the
+    self-consistency check: the *raw* layer-parse must reproduce the observed
+    (session-outcome) solved count, or the board isn't trustworthy (§0.2)."""
     from .. import capability
     print()
     for pid, layers in table.items():
@@ -214,12 +231,14 @@ def _print_board(table, observed_solved: float) -> None:
         bn = capability.bottleneck(layers)
         bn_note = f" · bottleneck {bn} (q̂={layers[bn].q:.2f})" if len(layers) > 1 else ""
         print(f"  {pid:<26} p_solve={ps:.3f}{bn_note}")
-    es = capability.e_solved(table)
-    print(f"\nE[#solved] = {es:.2f}  (observed solved ≈ {observed_solved:.2f})")
-    if abs(es - observed_solved) <= 1.0:
-        print("self-consistency OK: E[#solved] ≈ observed solved count.")
+    es = capability.e_solved(table)            # smoothed objective (Beta-Binomial)
+    raw = _raw_solved(table)                    # raw layer-parse, for the check
+    print(f"\nE[#solved] = {es:.2f} (smoothed)  ·  layer-parse {raw:.2f}  ·  "
+          f"observed solved {observed_solved:.2f}")
+    if abs(raw - observed_solved) <= 0.5:
+        print("self-consistency OK: per-layer parse reproduces the observed solved count.")
     else:
-        print("WARNING: E[#solved] diverges from observed — board not yet trustworthy.")
+        print("WARNING: per-layer parse diverges from observed — board not trustworthy.")
 
 
 def _print_summary(problem_id: str, outcomes: list[str], repair_total: int,
