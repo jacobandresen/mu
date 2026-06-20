@@ -520,6 +520,32 @@ def plan(goal: str, model: str = '', target_dir: str = '', force: bool = False,
     return 0
 
 
+def reconcile_provided(plan_file: str, p: "Plan",
+                       owned_paths: "set[str] | None" = None) -> "Plan":
+    """Mark *provided* files done so the writer skips them — it owns the rest and
+    must neither rewrite nor redeclare the provided set (the one routine S3 that
+    fixtures, scaffolds, and the contract all share).
+
+    ``owned_paths=None`` is the legacy fixture-detection: any pre-existing
+    non-empty planned file is treated as provided (byte-identical to before — I1).
+    With an explicit set, exactly those paths are marked. Returns the re-parsed
+    plan if anything changed, else *p* unchanged."""
+    marked = False
+    for t in p.tasks:
+        if t.done:
+            continue
+        if owned_paths is not None:
+            provided = t.file_path in owned_paths
+        else:
+            provided = (Path(t.file_path).exists()
+                        and Path(t.file_path).stat().st_size > 0)
+        if provided:
+            mark_task_done(plan_file, t.file_path)
+            log("Provided fixture: %s — skipping (not rewritten).", t.file_path)
+            marked = True
+    return parse(plan_file) if marked else p
+
+
 def run(goal: str, model: str = '', target_dir: str = '',
         max_iter: int = 10, force: bool = False, show_result: bool = False,
         plan_file: str = 'PLAN.md') -> int:
@@ -671,19 +697,11 @@ def run(goal: str, model: str = '', target_dir: str = '',
         else:
             log("Skipping contextual skills (constrained token budget: %d tokens).", max_prompt_tokens())
 
-        # Provided fixtures: a task whose file already exists (non-empty) in the
-        # work dir was supplied (e.g. a correct Makefile copied in by fixture
-        # mode — DOJO.md § Problem-space minimization, L2+). Not the model's job — mark it
-        # done so the writer skips it. This is how a fixture removes a whole
-        # failure class: the model never writes (and fails) the provided file.
-        marked = False
-        for t in p.tasks:
-            if not t.done and Path(t.file_path).exists() and Path(t.file_path).stat().st_size > 0:
-                mark_task_done(plan_file, t.file_path)
-                log("Provided fixture: %s — skipping (not rewritten).", t.file_path)
-                marked = True
-        if marked:
-            p = parse(plan_file)
+        # Provided files: anything supplied to the work dir (a fixture, a scaffold,
+        # a contract-owned file) is not the model's job — mark it done so the writer
+        # skips it (and, with S2, can't redeclare it). One routine; see
+        # reconcile_provided. owned_paths=None keeps the legacy fixture-detection.
+        p = reconcile_provided(plan_file, p)
 
         for i in range(1, max_iter + 1):
             task = next_task(p)

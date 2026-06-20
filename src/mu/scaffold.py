@@ -123,6 +123,14 @@ RECIPES: tuple[Recipe, ...] = (
 )
 
 
+def is_fullstack_dotnet_vue(sig: Signal) -> bool:
+    """A staged full-stack goal: a .NET backend **and** a Vite/Vue frontend (p10's
+    shape). The shared capability check (S4) that gates the full-stack contract and
+    the four-layer board — keyed on toolchains/keywords, never a problem id."""
+    return ("dotnet" in sig.toolchains and "node" in sig.toolchains
+            and any(k in sig.haystack for k in ("vue", "vite")))
+
+
 def detect(sig: Signal) -> Optional[Recipe]:
     """The first recipe whose capability predicate matches, or None.
 

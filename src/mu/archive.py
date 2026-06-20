@@ -160,6 +160,11 @@ class AgentSession:
             'max_iterations': self.max_iter,
             'exit_code': exit_code,
             'degeneration_refusals': degen_refusals,
+            # S4 level record (plan Step 0.4): the minimization rung this run used,
+            # so no statistic is ever silently compared across levels (I3). 'L0' =
+            # the open problem (no fixtures); fixture/scaffold modes set these.
+            'minimize': os.environ.get('MU_MINIMIZE_LEVEL', 'L0'),
+            'scaffold': os.environ.get('MU_SCAFFOLD_RECIPE') or None,
             **utility.as_dict(),
         }
         try:

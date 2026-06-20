@@ -605,17 +605,17 @@ are mutually exclusive, selected by Step 1.4.
 - **Rollback.** Catalogued reflex — the ablation path removes it; default-disable is
   a one-line registry flip.
 
-- [ ] **Step 0.4 — S3/S4: one reconciliation routine + detector + level record** $\to$ `src/mu/agent.py`, `src/mu/scaffold.py` *(behaviour-preserving refactor)*
+- [x] **Step 0.4 — S3/S4: one reconciliation routine + detector + level record** $\to$ `src/mu/agent.py`, `src/mu/scaffold.py` *(behaviour-preserving refactor)* — ✅ **done 2026-06-20** (6 unit tests; suite 258 green — legacy path byte-identical, I1 confirmed)
 - **Files.** `src/mu/agent.py` — `reconcile_provided` + the `meta.json` writes;
   `src/mu/scaffold.py` — `is_fullstack_dotnet_vue`; new `tests/test_reconcile.py`.
 - **Build:**
-  - [ ] In `src/mu/agent.py`, factor the `agent.py:~678` "mark a provided file done"
-     logic into `reconcile_provided(plan, owned_paths)` (the model owns the rest and
-     may neither rewrite nor redeclare the owned set).
-  - [ ] In `src/mu/scaffold.py`, add `is_fullstack_dotnet_vue(signal)`.
-  - [ ] In `src/mu/agent.py`, write `meta.json.minimize` (and a `meta.json.scaffold`
-     slot) on every run.
-- [ ] **Tests.** Provided files marked done; with S2, the model cannot re-add a provided
+  - [x] In `src/mu/agent.py`, factor the `agent.py:~678` "mark a provided file done"
+     logic into `reconcile_provided(plan_file, p, owned_paths=None)` (the model owns
+     the rest and may neither rewrite nor redeclare the owned set).
+  - [x] In `src/mu/scaffold.py`, add `is_fullstack_dotnet_vue(signal)`.
+  - [x] In `src/mu/agent.py` / `src/mu/archive.py`, write `meta.json.minimize` (and a
+     `meta.json.scaffold` slot) on every run (env-driven; `L0` default).
+- [x] **Tests.** Provided files marked done; with S2, the model cannot re-add a provided
   type; the detector fires on a synthetic full-stack goal but not on p1; `meta.json`
   carries the level.
 - **Accept.** With `owned_paths=∅` the refactor is byte-identical (I1); the full
