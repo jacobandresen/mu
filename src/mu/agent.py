@@ -2476,14 +2476,59 @@ def _make_vacuous(test_cmd: str, log_file: str) -> bool:
     return bool(_MAKE_NOTHING_RE.search(out))
 
 
+def _vacuous_log(out: str) -> bool:
+    """True when test output shows a *vacuous pass* — the command exited 0 but no
+    test actually ran (the p7-flask false pass, generalized to every dojo
+    toolchain). Conservative by design: each sentinel marks "no tests ran", and a
+    partial run where *some* tests executed is never flagged (so a genuine pass is
+    never reclassified). Pure on the log text; see ``_vacuous_pass`` for the file
+    wrapper and ``_make_vacuous`` for the make case."""
+    # pytest / unittest: nothing collected, or the summary says no tests ran.
+    if re.search(r'\bno tests ran\b', out):
+        return True
+    if re.search(r'collected 0 items\b', out) and not re.search(r'collected [1-9]', out):
+        return True
+    # jest "No tests found"; vitest "No test files found".
+    if 'No tests found' in out or 'No test files found' in out:
+        return True
+    # cargo test: every test binary reported 0 tests (no non-zero "running N tests").
+    if re.search(r'running 0 tests', out) and not re.search(r'running [1-9]\d* tests?', out):
+        return True
+    # go test: only "[no test files]" / "no tests to run" packages, none tested ok.
+    if re.search(r'\[no test files\]', out) and not re.search(r'(?m)^ok\s', out):
+        return True
+    if 'no tests to run' in out and not re.search(r'(?m)^ok\s', out):
+        return True
+    # dotnet test: a build that failed under a 0 exit; no test discovered; zero total.
+    if 'Build FAILED' in out and 'Build succeeded' not in out:
+        return True
+    if 'No test is available' in out and not re.search(r'Passed:\s*[1-9]', out):
+        return True
+    if re.search(r'Total tests:\s*0\b', out):
+        return True
+    return False
+
+
+def _vacuous_pass(test_cmd: str, log_file: str) -> bool:
+    """True when a 0-exit test command did no work. Combines the make-only
+    ``_make_vacuous`` (scoped to all-make commands) with the toolchain sentinels
+    in ``_vacuous_log`` (pytest/go/cargo/dotnet/jest/vitest)."""
+    if _make_vacuous(test_cmd, log_file):
+        return True
+    try:
+        return _vacuous_log(Path(log_file).read_text(errors='ignore'))
+    except OSError:
+        return False
+
+
 def _test_passed(test_cmd: str, log_file: str, env: dict | None = None) -> bool:
     """Like ``_run_cmd`` but for *test* gates: a passing exit code counts only
-    when work happened — a vacuous make run (``_make_vacuous``) is a failure.
-    Keep ``_run_cmd`` for lint/build steps."""
+    when work happened — a vacuous run (``_vacuous_pass``: make did nothing, or no
+    test of any toolchain ran) is a failure. Keep ``_run_cmd`` for lint/build steps."""
     ok = _run_cmd(test_cmd, log_file, env)
-    if ok and _make_vacuous(test_cmd, log_file):
-        log("Test command made no progress (make: Nothing to be done) — no "
-            "tests ran; treating as a failure, not a pass.")
+    if ok and _vacuous_pass(test_cmd, log_file):
+        log("Test command exited 0 but no test ran (vacuous pass) — treating as a "
+            "failure, not a pass.")
         return False
     return ok
 

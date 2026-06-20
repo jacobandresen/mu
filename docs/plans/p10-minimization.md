@@ -530,18 +530,18 @@ are mutually exclusive, selected by Step 1.4.
 
 #### Phase 0 — the board + the broad no-regret levers
 
-- [ ] **Step 0.1 — S1: honest per-layer gates for every toolchain** $\to$ `src/mu/agent.py` *(no flag — only tightens gate truth; the p7-class fix)*
+- [x] **Step 0.1 — S1: honest per-layer gates for every toolchain** $\to$ `src/mu/agent.py` *(no flag — only tightens gate truth; the p7-class fix)* — ✅ **done 2026-06-20** (`_vacuous_log`/`_vacuous_pass` added; 27 unit tests; full suite 234 green; archive-replay Accept runs next dojo cycle)
 - **Files.** `src/mu/agent.py` — the gate logic (`_make_vacuous`, `_test_passed`);
   new `tests/test_vacuous_all_toolchains.py` — the regression tests.
 - **Build:**
-  - [ ] In `src/mu/agent.py`, extend the `_make_vacuous` predicate family with one
+  - [x] In `src/mu/agent.py`, extend the `_make_vacuous` predicate family with one
      sentinel matcher per toolchain: pytest/unittest `collected 0 items` / `no tests
      ran`; `go test` `no test files`; `cargo test` `running 0 tests`; `dotnet test`
      0-total (`Failed: 0, Passed: 0`), `No test is available`, or `Build FAILED` with
      process exit 0; `jest`/`vitest` `No test files found` / `Tests: 0 passed`.
-  - [ ] In `src/mu/agent.py`, route *every* per-problem and staged test gate through
+  - [x] In `src/mu/agent.py`, route *every* per-problem and staged test gate through
      `_test_passed` so the vacuous predicate is applied uniformly.
-- [ ] **Tests.** Per toolchain: (a) a vacuous sentinel log $\Rightarrow$ `_test_passed` False; (b) a
+- [x] **Tests.** Per toolchain: (a) a vacuous sentinel log $\Rightarrow$ `_test_passed` False; (b) a
   genuine green log $\Rightarrow$ True (no false-negative); (c) a genuine failing log $\Rightarrow$ False.
 - **Accept.** Replay every archived `tests-final.log` across all ten problems:
   **zero** genuine passes reclassified as failures; every "0 tests" / "nothing to be
