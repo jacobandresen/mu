@@ -1,7 +1,7 @@
 # Plan: minimizing & de-risking the p10 problem space
 
 _The **objective is to solve more of the ten dojo problems** — formally to raise
-$E[\text{\#solved}] = \sum_i P_i$ (stretch $P_\text{all}=\prod_i P_i$).
+$E[N_{\text{solved}}] = \sum_i P_i$ (stretch $P_{\text{all}}=\prod_i P_i$).
 **p10-dotnet-vue-blog** is the *worked example* — the dojo's one persistently
 0-pass problem, because it exercises every mechanism — but the capability model
 (§1), the `reduce()` loop (§2.1), and the broad levers (honest gates S1, the
@@ -17,7 +17,7 @@ trimmed 2026-06-20._
 
 ## 0. Objective and principle
 
-### 0.1 Optimise `E[#solved]` over the set, not `P_10` in isolation
+### 0.1 Optimise `E[N_solved]` over the set, not `P_10` in isolation
 
 The capability model (§1) gives the marginal value of a step on problem $i$,
 layer $\ell$:
@@ -37,10 +37,10 @@ Current measured rates (recent archive; p7 ≈80% post the false-pass fix):
 |---|---|---|
 | p1, p3, p6 (100%), p9 (94%) | **p8 42%, p7 ~80%, p4 66%, p2 71%, p5 89%** | **p10 0%** |
 
-So the program that maximises `E[#solved]` is a **portfolio**: (1) **broad levers
+So the program that maximises `E[N_solved]` is a **portfolio**: (1) **broad levers
 first** — a general reflex/skill lifts several problems at once (S1, S2, the
 `reduce()` loop); (2) **then the steep mid-tier** — lifting p8 42→70% adds ≈0.28
-to `E[#solved]` cheaply, more than dragging p10 0→>0 at high cost; (3) **p10 as
+to `E[N_solved]` cheaply, more than dragging p10 0→>0 at high cost; (3) **p10 as
 the frontier** — invest only via levers that also help others, until stacked
 reductions drag its `q` into the steep region. The selector (§A.5 `rank_portfolio`)
 ranks every candidate by its *summed* expected gain across the problems it covers,
@@ -156,8 +156,8 @@ $$z_{i\ell} = \theta\, a_\ell \;-\; \delta_{i\ell} \;+\; \sum_k \beta_k\, x_{ki\
 | $\gamma V_{i\ell}$ | variance penalty (degeneration, planner noise) | guards, seed, prompt-cache |
 | $a_\ell$ | layer discrimination | (structural) |
 
-**Objective.** $P_i = \prod_\ell q_{i\ell}$; $\;E[\text{\#solved}] = \sum_i P_i$;
-$\;P_\text{all} = \prod_i P_i$. All three are strictly increasing in every
+**Objective.** $P_i = \prod_\ell q_{i\ell}$; $\;E[N_{\text{solved}}] = \sum_i P_i$;
+$\;P_{\text{all}} = \prod_i P_i$. All three are strictly increasing in every
 $q_{i\ell}$.
 
 ### 1.2 Three results
@@ -167,7 +167,7 @@ increases in $\theta$ and each $\beta_k$ (with $x\ge0$), decreases in $\delta$ a
 $V$; $\sigma$ is strictly increasing. So any step that raises $\theta$, adds a
 $\beta_k\ge0$, lowers a $\delta$, or lowers a $V$ — *without lowering another
 layer's $z$* — strictly increases the affected $q_{i\ell}$, hence $P_i$,
-$E[\text{\#solved}]$, $P_\text{all}$. That is **no-regret**: a step is no-regret
+$E[N_{\text{solved}}]$, $P_{\text{all}}$. That is **no-regret**: a step is no-regret
 iff $\Delta z_{j\ell'}\ge0$ everywhere.
 
 **Result 2 — the chain makes the *weakest* layer decisive (and explains the
@@ -207,7 +207,7 @@ reflexes, not a bigger model.
    real capability gain.
 2. **Generality vs. risk.** A step with $\beta>0$ on its target but $\beta<0$
    elsewhere (overfit, wrong-deletion) lowers some $q$. Ship iff net
-   $\Delta E[\text{\#solved}] = \sum_\text{helped} - \sum_\text{hurt} > 0$ and no
+   $\Delta E[N_{\text{solved}}] = \sum_{\text{helped}} - \sum_{\text{hurt}} > 0$ and no
    control layer regresses.
 3. **Variance vs. cost.** Lowering $V$ raises $q$ but costs tokens; $\sigma$
    saturates as $q\to1$. Ship while $\Delta q\cdot(\partial P/\partial q)/\Delta T >$ threshold.
@@ -299,7 +299,7 @@ Four checkpoints the harness reads from stage logs:
 continuous score that *moves* while binary pass is pinned at 0, and that
 **localizes** where each lever helps. The **board** (§A.5) generalizes this to all
 ten: per-layer $\hat q$, per-problem $p\_solve$, the bottleneck, and
-$E[\text{\#solved}]$ with a CI.
+$E[N_{\text{solved}}]$ with a CI.
 
 ---
 
@@ -431,7 +431,7 @@ B leads to A or C, nothing built is wasted.
 ## 4. Implementation: a provable, whole-set loop
 
 The plan is **not** "fix p10." It is a loop that **provably raises
-$E[\text{\#solved}]$ across all ten**, one shipped step at a time, with p10 handled
+$E[N_{\text{solved}}]$ across all ten**, one shipped step at a time, with p10 handled
 as whatever candidates happen to cover it (rarely the first target, §0.1).
 
 ### 4.1 Invariants every step preserves
@@ -464,20 +464,20 @@ Rollback.**
 **Proof obligation.** A candidate step $k$ is **shipped** iff the dojo measurement
 shows, via the existing Beta-Binomial / `sz5_gate` machinery:
 
-- **(P1) it raises the set:** $\Delta E[\text{\#solved}]$ has a 95% CI lower bound
+- **(P1) it raises the set:** $\Delta E[N_{\text{solved}}]$ has a 95% CI lower bound
   **> 0**; and
 - **(P2) it regresses nothing:** every problem's pass-rate Δ has a CI lower bound
   **≥ −ε** (ε = 0.05) — controls p1/p2/p5/p6 *and* every covered problem.
 
-By Result 1, a step meeting **P1 ∧ P2** strictly increases $E[\text{\#solved}]$.
-So the shipped sequence makes $E[\text{\#solved}]$ a **monotone-increasing ledger**:
+By Result 1, a step meeting **P1 ∧ P2** strictly increases $E[N_{\text{solved}}]$.
+So the shipped sequence makes $E[N_{\text{solved}}]$ a **monotone-increasing ledger**:
 every KEEP is a *proven* gain across the set; every step that cannot prove P1∧P2 is
 reverted.
 
 **The loop (each pass ships ≤1 proven step):**
 
 1. **Measure the board** — all ten at N (§A.5): per-layer $\hat q$, $p\_solve$,
-   $E[\text{\#solved}]$ with CIs. S1 makes $\hat q$ unbiased.
+   $E[N_{\text{solved}}]$ with CIs. S1 makes $\hat q$ unbiased.
 2. **Generate candidates** — from the board's bottleneck layers ($\arg\min\hat q$)
    and the KB's recurring *cross-problem* error classes; each carries an estimated
    $\beta$ and coverage $x$.
@@ -504,7 +504,7 @@ reverted.
   reclassified. *Rollback:* additive predicates; delete them.
 - **0.2 The whole-set board.** Per-problem `_layer_clears` + `board`/`e_solved`
   (§A.4–A.5); a `mu dojo board` subcommand. *Accept:* set-level self-consistency —
-  $E[\text{\#solved}]$ ≈ observed solved count within CI; each $p\_solve_i$ ≈ that
+  $E[N_{\text{solved}}]$ ≈ observed solved count within CI; each $p\_solve_i$ ≈ that
   problem's measured pass rate.
 - **0.3 S2 cross-stage type-ownership guard** (general capability, ship-worthy
   alone). `fix_csharp_cross_stage_duplicate_types` + a CS0053 sibling (§A.3).
@@ -571,11 +571,11 @@ path per memory `agent-self-minimization`.
 
 ### 4.5 Statistical power & cost
 
-The loop proves **P1** on $E[\text{\#solved}]$ — a *sum* over ten, whose CI is
+The loop proves **P1** on $E[N_{\text{solved}}]$ — a *sum* over ten, whose CI is
 tighter than any single problem's — so a broad lever adding ~0.1–0.3 is detectable
 at **N≈10–15 per problem**, whereas a binary pass-rate shift 0→0.2 needs ≈N=50; the
 continuous per-layer $\hat q$ detects the shift even earlier (Result 3). Every gate
-keys on $\hat q$/$E[\text{\#solved}]$ first, confirms with pass-rate. Budget: a
+keys on $\hat q$/$E[N_{\text{solved}}]$ first, confirms with pass-rate. Budget: a
 problem ≈ 60–300 s/run on the 8 GB M2 ⇒ a full **board** (ten × 15) ≈ half a day; a
 per-step ablation re-runs only the **covered** problems plus controls. Reuse
 `efficacy_run`/Beta-Binomial rather than re-rolling stats.
@@ -774,7 +774,7 @@ def expected_solve_gain(layers, layer, dq):   # dq · ∏ siblings — Result 2 
 def route(layers, eps=0.02):     # p_solve < eps  → skip this (model, problem)
 def e_solved(board):             # Σ_i p_solve_i  — the objective the loop raises
 def portfolio_gain(board, targets, beta):     # Σ expected_solve_gain over covered (i,ℓ)
-def rank_portfolio(board, candidates):        # rank by ΔE[#solved] per unit cost
+def rank_portfolio(board, candidates):        # rank by ΔE[N_solved] per unit cost
 ```
 
 `portfolio_gain` sums across **all** covered problems, so a broad reflex (helps p4
