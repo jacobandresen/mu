@@ -1,17 +1,17 @@
 # Plan: minimizing & de-risking the p10 problem space
 
-_The **objective is to solve more of the ten dojo problems** — formally to raise
-$E[N_{\text{solved}}] = \sum_i P_i$ (stretch $P_{\text{all}}=\prod_i P_i$).
+**Objective:** solve more of the ten dojo problems — formally, raise
+$E[N_{\text{solved}}] = \sum_i P_i$ (stretch $P_{\text{all}} = \prod_i P_i$).
 **p10-dotnet-vue-blog** is the *worked example* — the dojo's one persistently
 0-pass problem, because it exercises every mechanism — but the capability model
 (§1), the `reduce()` loop (§2.1), and the broad levers (honest gates S1, the
 cross-stage reflex S2) are built to lift the **whole set**, and §0.1 shows the
-highest-EV targets are usually **not** p10._
+highest-EV targets are usually **not** p10.
 
-_The binding constraint on this work is a principle (§0.2): **mu must not rely on
-fixtures or pregenerated code.** Anything we hand the agent moves p10's *number*
-without making the *agent* better. Status: **proposed**. Written 2026-06-19,
-trimmed 2026-06-20._
+**The binding constraint** is a principle (§0.2): **mu must not rely on fixtures
+or pregenerated code.** Anything we hand the agent moves p10's *number* without
+making the *agent* better. Status: **proposed / in progress** (§4.3 is a live
+checklist). Written 2026-06-19, trimmed 2026-06-20.
 
 ---
 
@@ -137,7 +137,8 @@ mu's own minimization ladder ([DOJO.md](../../DOJO.md)) is the local name for th
 
 mu's staged, gated architecture gives the model for free. A problem $i$ is
 verified by $L_i$ independent gates — its **layers**. p10 has $L=4$ (backend
-build, backend test, frontend build, frontend test); a trivial problem has $L=1$.
+build, backend test, frontend build, frontend test); a trivial problem — the
+hello-world **p1** (`p1-helloworld`) — has $L=1$, so it clears in a single step.
 mu solves $i$ iff it clears **every** layer — a *series system* in reliability
 terms.
 
@@ -327,6 +328,15 @@ The levers above are not separate features — they are the **moves of one
 capability mu should own**: a `reduce()` pass that runs before the writer on any
 goal `detect_complexity` flags as hard/multi-layer.
 
+> **Easy problems stay one-shot (the p1 expectation).** `reduce()` is
+> **complexity-gated**: a trivial, single-layer goal ($L=1$) — the canonical case is
+> **p1** (`p1-helloworld`), one file, one gate — is *not* flagged, skips reduction
+> entirely, and is **solved fast in a single step**: no self-scaffold, no contract,
+> no slicing, no extra round-trips. The decomposition machinery is reserved for the
+> hard, multi-layer goals (p10); it must never add latency or steps to hello-world or
+> any easy/control problem. Enforced by I1 (flags-off $\Rightarrow$ byte-identical) and
+> I4 (no control regression on p1/p2/p5/p6).
+
 | External lever (today) | Internalized as a mu capability |
 |---|---|
 | A — we scaffold from a template | **mu self-scaffolds**: detects the stack and *invokes the toolchain's own generator* (`dotnet new`, `npm create vite`) — mu's own output, no copied blob |
@@ -508,28 +518,30 @@ reverted.
    to terminate because steepness (Result 3) drives marginal gains down as
    $\hat q\to1$.
 
-### 4.3 The steps, fully specified
+### 4.3 The steps — live checklist
 
-Each step's heading carries the **file(s) the code goes into**, then lists
-**Files** (file $\to$ responsibility), an actionable **Build** checklist (each item
-names its file), and **Tests / Accept / Measure / Gate / Rollback** (§4.1). Steps
-0.1–0.5 and 1.1–1.4 are the recommended near-term work and run **regardless** of the
-probe; 2a and 2b are mutually exclusive, selected by Step 1.4.
+**This section is a live tracker** — tick `- [ ]` $\to$ `- [x]` on GitHub as each
+item lands. Each step is a milestone checkbox carrying its **target file(s)**; under it
+sit **Files** (file $\to$ responsibility), an actionable **Build** checklist (each
+action is its own checkbox and names its file), a **Tests** checkbox, and the
+**Accept / Measure / Gate / Rollback** criteria (§4.1). Steps 0.1–0.5 and 1.1–1.4
+are the recommended near-term work and run **regardless** of the probe; 2a and 2b
+are mutually exclusive, selected by Step 1.4.
 
 #### Phase 0 — the board + the broad no-regret levers
 
-**Step 0.1 — S1: honest per-layer gates for every toolchain** $\to$ `src/mu/agent.py` *(no flag — only tightens gate truth; the p7-class fix)*
+- [ ] **Step 0.1 — S1: honest per-layer gates for every toolchain** $\to$ `src/mu/agent.py` *(no flag — only tightens gate truth; the p7-class fix)*
 - **Files.** `src/mu/agent.py` — the gate logic (`_make_vacuous`, `_test_passed`);
   new `tests/test_vacuous_all_toolchains.py` — the regression tests.
-- **Build (do).**
-  1. In `src/mu/agent.py`, extend the `_make_vacuous` predicate family with one
+- **Build:**
+  - [ ] In `src/mu/agent.py`, extend the `_make_vacuous` predicate family with one
      sentinel matcher per toolchain: pytest/unittest `collected 0 items` / `no tests
      ran`; `go test` `no test files`; `cargo test` `running 0 tests`; `dotnet test`
      0-total (`Failed: 0, Passed: 0`), `No test is available`, or `Build FAILED` with
      process exit 0; `jest`/`vitest` `No test files found` / `Tests: 0 passed`.
-  2. In `src/mu/agent.py`, route *every* per-problem and staged test gate through
+  - [ ] In `src/mu/agent.py`, route *every* per-problem and staged test gate through
      `_test_passed` so the vacuous predicate is applied uniformly.
-- **Tests.** Per toolchain: (a) a vacuous sentinel log $\Rightarrow$ `_test_passed` False; (b) a
+- [ ] **Tests.** Per toolchain: (a) a vacuous sentinel log $\Rightarrow$ `_test_passed` False; (b) a
   genuine green log $\Rightarrow$ True (no false-negative); (c) a genuine failing log $\Rightarrow$ False.
 - **Accept.** Replay every archived `tests-final.log` across all ten problems:
   **zero** genuine passes reclassified as failures; every "0 tests" / "nothing to be
@@ -540,19 +552,19 @@ probe; 2a and 2b are mutually exclusive, selected by Step 1.4.
   toolchains $\Rightarrow$ the board is honest for the whole set.
 - **Rollback.** Sentinels are additive predicates — delete them; the gate reverts.
 
-**Step 0.2 — the whole-set board + `mu dojo board`** $\to$ `src/mu/dojo/measure.py`, `src/mu/dojo/cli.py` *(depends on 0.1)*
+- [ ] **Step 0.2 — the whole-set board + `mu dojo board`** $\to$ `src/mu/dojo/measure.py`, `src/mu/dojo/cli.py` *(depends on 0.1)*
 - **Files.** `src/mu/dojo/measure.py` — `_layer_clears` + board aggregation;
   `src/mu/dojo/cli.py` — the `mu dojo board` subcommand; new `tests/test_board.py` —
   fixture-log assertions.
-- **Build (do).**
-  1. In `src/mu/dojo/measure.py`, add `_layer_clears(session_dir)` (§A.4) — each
+- **Build:**
+  - [ ] In `src/mu/dojo/measure.py`, add `_layer_clears(session_dir)` (§A.4) — each
      problem declares its own layers (a trivial problem has one).
-  2. In `src/mu/dojo/measure.py`, aggregate the N runs into a `capability.Board` and
+  - [ ] In `src/mu/dojo/measure.py`, aggregate the N runs into a `capability.Board` and
      emit, for all ten: per-layer $\hat q$ (+CI), per-problem `p_solve`, the
      `bottleneck`, and `e_solved(board)` (+CI).
-  3. In `src/mu/dojo/cli.py`, add a `mu dojo board` subcommand that runs the set,
+  - [ ] In `src/mu/dojo/cli.py`, add a `mu dojo board` subcommand that runs the set,
      prints the table, and writes the JSON the loop reads.
-- **Tests.** Exact per-layer booleans on committed fixture logs per toolchain; a
+- [ ] **Tests.** Exact per-layer booleans on committed fixture logs per toolchain; a
   missing/garbled log $\Rightarrow$ "not cleared", never a crash.
 - **Accept.** Set-level self-consistency: `e_solved` ($\sum$ `p_solve`) $\approx$ the observed
   count of solved problems within CI, and each `p_solve_i` $\approx$ that problem's measured
@@ -562,23 +574,23 @@ probe; 2a and 2b are mutually exclusive, selected by Step 1.4.
 - **Gate.** Self-consistency holds $\Rightarrow$ the board is trustworthy as ranking + ledger.
 - **Rollback.** Additive subcommand + JSON keys; drop them.
 
-**Step 0.3 — S2: cross-stage type-ownership reflex** $\to$ `src/mu/reflexes/csharp/` *(the headline shippable; catalogued reflex, on-by-default iff it KEEPs)*
+- [ ] **Step 0.3 — S2: cross-stage type-ownership reflex** $\to$ `src/mu/reflexes/csharp/` *(the headline shippable; catalogued reflex, on-by-default iff it KEEPs)*
 - **Files.** `src/mu/reflexes/csharp/fix_csharp_cross_stage_duplicate_types.py` and
   `src/mu/reflexes/csharp/fix_csharp_public_signature_accessibility.py` — the two
   reflexes; `src/mu/reflexes/registry.py` — the catalogue slot; `src/mu/agent.py` —
   the reapply wiring; new `tests/test_csharp_cross_stage_types.py`.
-- **Build (do).**
-  1. Add `src/mu/reflexes/csharp/fix_csharp_cross_stage_duplicate_types.py` (keep the
+- **Build:**
+  - [ ] Add `src/mu/reflexes/csharp/fix_csharp_cross_stage_duplicate_types.py` (keep the
      backend-owned definition by sort order; strip the cross-stage duplicate type
      blocks $\to$ CS0101); see §A.3.
-  2. Add the CS0053 sibling
+  - [ ] Add the CS0053 sibling
      `src/mu/reflexes/csharp/fix_csharp_public_signature_accessibility.py` (raise a
      type referenced by a `public` signature to `public`).
-  3. In `src/mu/reflexes/registry.py`, catalogue both under `'duplicate-declaration'`
+  - [ ] In `src/mu/reflexes/registry.py`, catalogue both under `'duplicate-declaration'`
      (the catalogue-completeness test fails otherwise).
-  4. In `src/mu/agent.py`, wire both into `apply_csharp_repair_reflexes` and the
+  - [ ] In `src/mu/agent.py`, wire both into `apply_csharp_repair_reflexes` and the
      `_inter_stage_gate` reapply path.
-- **Tests.** Dup type across two stage files $\Rightarrow$ exactly one removed (backend kept); a
+- [ ] **Tests.** Dup type across two stage files $\Rightarrow$ exactly one removed (backend kept); a
   legitimately distinct same-named type in a different namespace $\Rightarrow$ **not** removed;
   the CS0053 case $\Rightarrow$ becomes `public`; idempotent (double-apply stable, I5).
 - **Accept.** Dry-run replay of archived p10 CS0101/CS0053 sessions $\Rightarrow$ the guard
@@ -592,17 +604,17 @@ probe; 2a and 2b are mutually exclusive, selected by Step 1.4.
 - **Rollback.** Catalogued reflex — the ablation path removes it; default-disable is
   a one-line registry flip.
 
-**Step 0.4 — S3/S4: one reconciliation routine + detector + level record** $\to$ `src/mu/agent.py`, `src/mu/scaffold.py` *(behaviour-preserving refactor)*
+- [ ] **Step 0.4 — S3/S4: one reconciliation routine + detector + level record** $\to$ `src/mu/agent.py`, `src/mu/scaffold.py` *(behaviour-preserving refactor)*
 - **Files.** `src/mu/agent.py` — `reconcile_provided` + the `meta.json` writes;
   `src/mu/scaffold.py` — `is_fullstack_dotnet_vue`; new `tests/test_reconcile.py`.
-- **Build (do).**
-  1. In `src/mu/agent.py`, factor the `agent.py:~678` "mark a provided file done"
+- **Build:**
+  - [ ] In `src/mu/agent.py`, factor the `agent.py:~678` "mark a provided file done"
      logic into `reconcile_provided(plan, owned_paths)` (the model owns the rest and
      may neither rewrite nor redeclare the owned set).
-  2. In `src/mu/scaffold.py`, add `is_fullstack_dotnet_vue(signal)`.
-  3. In `src/mu/agent.py`, write `meta.json.minimize` (and a `meta.json.scaffold`
+  - [ ] In `src/mu/scaffold.py`, add `is_fullstack_dotnet_vue(signal)`.
+  - [ ] In `src/mu/agent.py`, write `meta.json.minimize` (and a `meta.json.scaffold`
      slot) on every run.
-- **Tests.** Provided files marked done; with S2, the model cannot re-add a provided
+- [ ] **Tests.** Provided files marked done; with S2, the model cannot re-add a provided
   type; the detector fires on a synthetic full-stack goal but not on p1; `meta.json`
   carries the level.
 - **Accept.** With `owned_paths=∅` the refactor is byte-identical (I1); the full
@@ -610,44 +622,44 @@ probe; 2a and 2b are mutually exclusive, selected by Step 1.4.
 - **Gate.** Suite green, no behaviour delta $\Rightarrow$ proceed.
 - **Rollback.** Inline the function back; remove the meta keys.
 
-**Step 0.5 — L0 baseline** $\to$ *no new file — runs the instrument* *(records, does not gate)*
-- **Build (do).** Run `mu dojo board` over all ten plus `mu dojo measure p10 -n 15`,
+- [ ] **Step 0.5 — L0 baseline** $\to$ *no new file — runs the instrument* *(records, does not gate)*
+- [ ] **Build:** Run `mu dojo board` over all ten plus `mu dojo measure p10 -n 15`,
   post S1–S4; record an `efficacy_run` with per-layer $\hat q$. This board is the L0
   reference P1/P2 are measured against for every arm.
 
 #### Phase 1 — Approach B as the $\delta$-probe (instrumental; never shipped, I7)
 
-**Step 1.1 — author the fixture rung-deltas** $\to$ `dojo/fixtures/p10/`
+- [ ] **Step 1.1 — author the fixture rung-deltas** $\to$ `dojo/fixtures/p10/`
 - **Files.** `dojo/fixtures/p10/L2/…`, `dojo/fixtures/p10/L3/…`,
   `dojo/fixtures/p10/L4/…` (committed via the `.gitignore` golden-file exception
   fixtures already use).
-- **Build (do).** Hand-author `dojo/fixtures/p10/{L2,L3,L4}/` as *correct*, offline,
+- [ ] **Build:** Hand-author `dojo/fixtures/p10/{L2,L3,L4}/` as *correct*, offline,
   dependency-free boilerplate, each rung the delta over the one below (§A.2 layout).
 - **Accept.** Built once by hand: each rung, applied over the rungs below it, yields
   a tree that builds/tests by construction.
 - **Rollback.** Delete the directory; `minimize` returns to L0.
 
-**Step 1.2 — level-aware `fixtures.apply`** $\to$ `src/mu/fixtures.py`, `src/mu/dojo/runner.py`
+- [ ] **Step 1.2 — level-aware `fixtures.apply`** $\to$ `src/mu/fixtures.py`, `src/mu/dojo/runner.py`
 - **Files.** `src/mu/fixtures.py` — the level-aware `apply`; `src/mu/dojo/runner.py` —
   the apply hook; new `tests/test_fixtures_levels.py`.
-- **Build (do).**
-  1. In `src/mu/fixtures.py`, make `apply` rung-aware (§A.2): apply every rung up to
+- **Build:**
+  - [ ] In `src/mu/fixtures.py`, make `apply` rung-aware (§A.2): apply every rung up to
      the problem's `minimize` level; rung-prefixed files apply only when their rung
      $\le$ target, unprefixed files always apply (keeps flat fixtures like p6-rust
      working).
-  2. In `src/mu/dojo/runner.py`, call `fixtures.apply` before the agent subprocess.
-- **Tests.** Right subset per rung; idempotent; flat/unset level $\Rightarrow$ today's
+  - [ ] In `src/mu/dojo/runner.py`, call `fixtures.apply` before the agent subprocess.
+- [ ] **Tests.** Right subset per rung; idempotent; flat/unset level $\Rightarrow$ today's
   behaviour (I1); off $\Rightarrow$ no-op.
 - **Accept.** Applying L3 lays exactly L2$\cup$L3; an L4 run lays L2$\cup$L3$\cup$L4.
 - **Rollback.** Single-rung copy is the existing path; revert the function.
 
-**Step 1.3 — measure the staircase** $\to$ `problems-catalog.json` (set `minimize`); no new code
-- **Build (do) / Measure.** Set p10's `minimize` field (in `problems-catalog.json`)
+- [ ] **Step 1.3 — measure the staircase** $\to$ `problems-catalog.json` (set `minimize`); no new code
+- [ ] **Build / measure:** Set p10's `minimize` field (in `problems-catalog.json`)
   to L2, then L3, then L4 across runs; `mu dojo measure p10 -n 15` at each; record
   per-layer $\hat q$ and mean $k/4$ with bootstrap CI at each rung, plus the L0 board
   from 0.5. Every figure carries its rung (I3).
 
-**Step 1.4 — identify $\delta$ and read the decision gate** $\to$ *no new file — analysis*
+- [ ] **Step 1.4 — identify $\delta$ and read the decision gate** $\to$ *no new file — analysis*
 
 **Compute.** $\hat\delta_\ell \approx \operatorname{logit}\hat q_\ell|_{\text{rung that pins }\ell} - \operatorname{logit}\hat q_\ell|_{\text{rung below}}$;
 bottleneck $= \arg\min_\ell \hat q_\ell$ at L0/L2. **Decision gate (pre-registered, I6):**
@@ -663,59 +675,59 @@ minimization lever ships" and stop.
 
 #### Phase 2 — build exactly one lever (selected by 1.4), then calibrate
 
-**Step 2a — Approach A: stage-aware self-scaffold** $\to$ `src/mu/scaffold.py`, `src/mu/agent.py` *(only if 1.4 said "structure"; flag `MU_SCAFFOLD`)*
+- [ ] **Step 2a — Approach A: stage-aware self-scaffold** $\to$ `src/mu/scaffold.py`, `src/mu/agent.py` *(only if 1.4 said "structure"; flag `MU_SCAFFOLD`)*
 - **Files.** `src/mu/scaffold.py` — stage-aware `detect` + generator invocation;
   `src/mu/agent.py` — the per-stage hook in `run_staged`; `dojo/scaffolds/vite-vitest/` —
   vendored offline fallback; new `tests/test_scaffold_stage.py`.
-- **Build (do).**
-  1. In `src/mu/scaffold.py`, make detection stage-aware: `detect(Signal, stage)`
+- **Build:**
+  - [ ] In `src/mu/scaffold.py`, make detection stage-aware: `detect(Signal, stage)`
      (§A.1).
-  2. In `src/mu/agent.py`, at the top of each `run_staged` session **before**
+  - [ ] In `src/mu/agent.py`, at the top of each `run_staged` session **before**
      `ground_plan`, have mu invoke the toolchain's own generator (`dotnet new
      webapi`+EF on backend, `dotnet new xunit` on integration, `npm create vite` on
      frontend) — mu's own output (I7) — and record `meta.json.scaffold`.
-  3. In `src/mu/scaffold.py`, copy the vendored `dojo/scaffolds/vite-vitest/` only
+  - [ ] In `src/mu/scaffold.py`, copy the vendored `dojo/scaffolds/vite-vitest/` only
      when offline (I2; prefer the tool-invoked path, §0.2 tension).
-- **Tests.** Stage-aware detection (frontend stage $\Rightarrow$ vite, not webapi); offline
+- [ ] **Tests.** Stage-aware detection (frontend stage $\Rightarrow$ vite, not webapi); offline
   guarantee (network blocked $\Rightarrow$ vendored or baseline, no crash); scaffold-then-ground
   reconciliation (no `dotnet new` exit-73 collision); off $\Rightarrow$ no-op (I1).
 - **Measure / Gate.** A/B vs the 0.5 L0 baseline + controls; **KEEP iff P1$\wedge$P2**
   (§4.2) and §2.3 (p10 pass-rate CI lo > 0 or $k/4$ $\uparrow$ with CI$\not\ni$0).
 - **Rollback.** `MU_SCAFFOLD` off restores baseline.
 
-**Step 2b — Approach C: contract + S5 test skills** $\to$ `src/mu/agent.py` (+ `src/mu/reflexes/`) *(only if 1.4 said "coordination + test"; contract flagged)*
+- [ ] **Step 2b — Approach C: contract + S5 test skills** $\to$ `src/mu/agent.py` (+ `src/mu/reflexes/`) *(only if 1.4 said "coordination + test"; contract flagged)*
 - **Files.** `src/mu/agent.py` — the contract injection in `_run_architect_pass`
   (reuses the S2 guard from 0.3, no new reflex needed for the backstop); **S5**
   test-authoring skills as new reflexes under `src/mu/reflexes/csharp/`
   (WebApplicationFactory) and `src/mu/reflexes/javascript/` (Vitest fetch-mock), or
   as writer/architect prompt additions in `src/mu/agent.py`; new
   `tests/test_contract.py`.
-- **Build (do).**
-  1. In `src/mu/agent.py`, inject the full-stack contract in `_run_architect_pass`
+- **Build:**
+  - [ ] In `src/mu/agent.py`, inject the full-stack contract in `_run_architect_pass`
      for the detected stack (manifest + route + JSON shape + test cmd + single-owner
      type table; §A.3), capability-keyed. It **reuses S2** (shipped in 0.3) as the
      deterministic backstop — contract advisory, guard enforcing.
-  2. Add **S5** test-authoring skills (a `WebApplicationFactory` integration-test
+  - [ ] Add **S5** test-authoring skills (a `WebApplicationFactory` integration-test
      skill in `src/mu/reflexes/csharp/`, a Vitest fetch-mock skill in
      `src/mu/reflexes/javascript/`) iff 1.4 localized the ceiling to test logic.
-- **Tests.** Contract injected only for full-stack goals; the S2 backstop fires when
+- [ ] **Tests.** Contract injected only for full-stack goals; the S2 backstop fires when
   the model violates the type ledger; the skills load for the right stack.
 - **Measure / Gate.** A/B vs baseline + controls (esp. **p4**); **KEEP iff P1$\wedge$P2**.
 - **Rollback.** Contract flag off; S2 stays (it's no-regret).
 
-**Step 2c — calibrate the model** $\to$ `src/mu/dojo/measure.py` (reads `src/mu/capability.py`) *(do before declaring 2a/2b shipped)*
-- **Check.** In `src/mu/dojo/measure.py` (querying `src/mu/capability.py`), compare
+- [ ] **Step 2c — calibrate the model** $\to$ `src/mu/dojo/measure.py` (reads `src/mu/capability.py`) *(do before declaring 2a/2b shipped)*
+- [ ] **Check.** In `src/mu/dojo/measure.py` (querying `src/mu/capability.py`), compare
   the model's **predicted** `expected_solve_gain` (pre-ship fit) with the
   **measured** $\Delta$`p_solve`. If $|\text{predicted}-\text{measured}|$ exceeds the
   measurement CI, the model is miscalibrated $\to$ do **not** trust its rankings:
   widen N, refit (§1.4), re-derive the next step. Keeps §1 a falsifiable predictor.
 
 #### Phase 3 — record & generalize $\to$ docs + `TODO.md`
-Update `docs/problems/p10-dotnet-vue-blog.md`,
-`docs/challenges/csharp-aspnet-scaffolding.md`, `TODO.md`, and this plan's results
-table; **every figure carries its L-level** (I3). Promote any *general* capability
-that earned KEEP (S2; a contract/self-scaffold `reduce()` step) toward the product
-path per memory `agent-self-minimization`.
+- [ ] Update `docs/problems/p10-dotnet-vue-blog.md`,
+  `docs/challenges/csharp-aspnet-scaffolding.md`, `TODO.md`, and this plan's results
+  table; **every figure carries its L-level** (I3).
+- [ ] Promote any *general* capability that earned KEEP (S2; a contract/self-scaffold
+  `reduce()` step) toward the product path per memory `agent-self-minimization`.
 
 ### 4.4 Risk register
 
