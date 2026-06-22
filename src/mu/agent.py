@@ -716,8 +716,10 @@ def run(goal: str, model: str = '', target_dir: str = '',
                 p = parse(plan_file)
                 current_plan = p
             # Incremental bottom-up build: remember what's built/verified so a later
-            # slice rests on earlier ones and nothing is built or tested twice.
-            ledger = incremental.BuildLedger.from_plan(p)
+            # slice rests on earlier ones and nothing is built or tested twice. Inside
+            # a staged run, share the run-wide ledger so the inter-stage gate sees it.
+            ledger = _staged_ledger if _staged_ledger is not None \
+                else incremental.BuildLedger.from_plan(p)
 
         for i in range(1, max_iter + 1):
             task = next_task(p)
@@ -2163,11 +2165,18 @@ def _run_architect_pass(goal: str, model: str, timeout: int) -> list[str]:
 # (see run(): may_escalate) so staged runs cannot re-architect recursively.
 _stage_depth = 0
 
+# A BuildLedger shared across the stages of one staged run (set only under
+# MU_BUILD_ORDER). It lets each stage's run() and the inter-stage gate share one
+# memory of what's been verified, so a backend state the backend stage already
+# proved green is not tested again at the gate (cross-stage "not built twice").
+# None outside a staged run ⇒ run() falls back to a fresh per-run ledger.
+_staged_ledger = None
+
 
 def run_staged(goal: str, model: str = '', target_dir: str = '',
                max_iter: int = 10) -> int:
     """Execute staged plan files sequentially with a hard backend→frontend gate."""
-    global _stage_depth
+    global _stage_depth, _staged_ledger
     if not model:
         model = os.environ.get('MU_AGENT_MODEL', '') or _select_model()
         if not model:
@@ -2182,30 +2191,37 @@ def run_staged(goal: str, model: str = '', target_dir: str = '',
         log("run_staged: no stage plan files found.")
         return 1
 
-    for i, (stage_name, plan_file) in enumerate(active):
-        log("=== Stage %d/%d: %s (%s) ===", i + 1, len(active), stage_name, plan_file)
-        print(f"\n{'='*60}\n  Stage {i+1}/{len(active)}: {stage_name}\n{'='*60}\n",
-              flush=True)
+    # One ledger across the staged run so stages and the inter-stage gate share a
+    # memory of what's verified (cross-stage no-double-build). Only under the flag.
+    if os.environ.get('MU_BUILD_ORDER') == '1':
+        _staged_ledger = incremental.BuildLedger()
+    try:
+        for i, (stage_name, plan_file) in enumerate(active):
+            log("=== Stage %d/%d: %s (%s) ===", i + 1, len(active), stage_name, plan_file)
+            print(f"\n{'='*60}\n  Stage {i+1}/{len(active)}: {stage_name}\n{'='*60}\n",
+                  flush=True)
 
-        _stage_depth += 1
-        try:
-            rc = run(goal, model, plan_file=plan_file, force=True, max_iter=max_iter)
-        finally:
-            _stage_depth -= 1
-        if rc != 0:
-            log("Stage '%s' failed (rc=%d) — halting staged execution.", stage_name, rc)
-            return rc
+            _stage_depth += 1
+            try:
+                rc = run(goal, model, plan_file=plan_file, force=True, max_iter=max_iter)
+            finally:
+                _stage_depth -= 1
+            if rc != 0:
+                log("Stage '%s' failed (rc=%d) — halting staged execution.", stage_name, rc)
+                return rc
 
-        # Explicit backend→frontend gate: backend tests must pass before frontend begins.
-        next_stages = active[i + 1:]
-        if stage_name == 'backend' and any(n == 'frontend' for n, _ in next_stages):
-            gate_rc = _inter_stage_gate(plan_file, goal, model)
-            if gate_rc != 0:
-                log("Backend→Frontend gate FAILED — frontend stage will NOT run.")
-                return gate_rc
-            log("Backend gate PASSED — proceeding to frontend.")
+            # Explicit backend→frontend gate: backend tests must pass before frontend begins.
+            next_stages = active[i + 1:]
+            if stage_name == 'backend' and any(n == 'frontend' for n, _ in next_stages):
+                gate_rc = _inter_stage_gate(plan_file, goal, model)
+                if gate_rc != 0:
+                    log("Backend→Frontend gate FAILED — frontend stage will NOT run.")
+                    return gate_rc
+                log("Backend gate PASSED — proceeding to frontend.")
 
-    return 0
+        return 0
+    finally:
+        _staged_ledger = None
 
 
 def _inter_stage_gate(plan_file: str, goal: str, model: str) -> int:
@@ -2240,7 +2256,17 @@ def _inter_stage_gate(plan_file: str, goal: str, model: str) -> int:
             return 3
 
     gate_log = os.path.join(LOG_DIR, 'tests-backend-gate.log')
+    # Cross-stage no-double-build: if the backend stage already proved this exact
+    # state green, don't run its tests again here (only under MU_BUILD_ORDER, with a
+    # shared staged ledger — else this is skipped and the gate behaves as before).
+    _bkey = (incremental.gate_key(incremental.gate_paths(p), test_cmd)
+             if _staged_ledger is not None else None)
+    if _staged_ledger is not None and _staged_ledger.was_gated(_bkey):
+        log("Inter-stage gate: backend already verified green this state — not testing twice.")
+        return 0
     if _test_passed(test_cmd, gate_log):
+        if _staged_ledger is not None:
+            _staged_ledger.record_gate(_bkey)
         return 0
 
     log("Inter-stage gate: backend tests failing — attempting repair before frontend.")
