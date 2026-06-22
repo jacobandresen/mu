@@ -199,6 +199,150 @@ def has_pending_build_file(p: Plan) -> bool:
     return any(not t.done and is_build_file(t.file_path) for t in p.tasks)
 
 
+# ── dependency build order (design criterion: build bottom-up) ─────────────────
+# A complex plan must be built smallest-part-first: a module that is *called by*
+# another is written before its caller, and tests come after the code they verify
+# (cascade control — an early mistake can't compound). We can't read imports at
+# plan time (no source yet), so we approximate the dependency DAG with file-role
+# layers. Lower rank = fewer prerequisites = built earlier.
+#
+#   0  manifests / build files   prerequisites of every compile+install
+#   1  declarations              headers, type/model/schema — depended-upon
+#   2  core modules              library/domain code (the default)
+#   3  wiring / entry points     main, app, routes — they CALL layers 1–2
+#   4  tests                     verify the code, so they run last
+#
+# The Makefile sits at rank 0 (set up early, never a dangling final task) — the
+# criterion also asks it be woven incrementally, handled by ground_plan, not here.
+
+_HEADER_EXTS = {'.h', '.hpp', '.hh', '.hxx', '.pyi'}
+_ENTRY_STEMS = {'main', 'program', 'index', 'app', 'server', 'cli',
+                '__main__', 'startup', 'wsgi', 'asgi'}
+_WIRING_HINTS = {'controller', 'route', 'router', 'handler', 'endpoint',
+                 'middleware', 'view'}
+_DECL_HINTS = {'model', 'schema', 'entity', 'type', 'interface', 'dto',
+               'domain', 'contract', 'context'}
+# decl words clear enough to spot in freeform task descriptions (drop the short
+# ambiguous ones — 'type' would match 'prototype' in prose).
+_DECL_DESC_HINTS = ('model', 'schema', 'entity', 'interface', 'domain', 'context')
+_TEST_DIR_RE = re.compile(r'(?i)(^|[._-])tests?$')
+
+
+def _tokens(name: str) -> set[str]:
+    """Lowercased word tokens of a filename stem, split on separators and
+    camelCase: 'BlogContext'→{blog,context}, 'user_controller'→{user,controller}."""
+    return {w.lower() for w in re.findall(r'[A-Za-z][a-z0-9]*|[0-9]+', name)}
+
+
+def _tok_hits(tokens: set, hints: set) -> bool:
+    """True if any token matches a hint, plural-tolerant: models→model, routes→route."""
+    return any(t in hints or t.rstrip('s') in hints for t in tokens)
+
+
+def _seg_hits(parts, hints: set) -> bool:
+    """True if any directory segment matches a hint (plural-tolerant: routes→route)."""
+    return _tok_hits({seg.lower() for seg in parts}, hints)
+
+
+def _looks_like_test(path: str) -> bool:
+    """Broader test detection than is_test_file, for ordering only: also catches
+    xUnit-style `FooTests.cs`, a `Backend.Tests/` project dir, and `*.test.`/
+    `*.spec.` JS/TS specs that the strict predicate misses."""
+    name = Path(path).name.lower()
+    stem = Path(path).stem.lower()
+    if is_test_file(path) or '.test.' in name or '.spec.' in name:
+        return True
+    if stem.endswith('test') or stem.endswith('tests'):
+        return True
+    return any(_TEST_DIR_RE.search(seg) for seg in Path(path).parts[:-1])
+
+
+def _is_manifest(name: str) -> bool:
+    n = name.lower()
+    if n in {b.lower() for b in _BUILD_NAMES}:
+        return True
+    return (n.endswith('.csproj') or n.endswith('.sln') or n.endswith('.fsproj')
+            or (n.startswith('requirements') and n.endswith('.txt'))
+            or (n.startswith('tsconfig') and n.endswith('.json'))
+            or n in {'vite.config.ts', 'vite.config.js', 'vitest.config.ts',
+                     'vitest.config.js', 'jest.config.js', 'jest.config.ts',
+                     'go.sum', 'cmakelists.txt', 'meson.build'})
+
+
+def build_rank(task: Task) -> int:
+    """The dependency build layer (0–4, earlier first) for one task. Pure and
+    deterministic; see the table above. First matching rule wins; a filename
+    signal outranks a directory signal (the file's own name is more specific)."""
+    path = task.file_path
+    name = Path(path).name
+    stem = Path(path).stem.lower()
+    ext = Path(path).suffix.lower()
+    desc = (task.description or '').lower()
+    tokens = _tokens(Path(path).stem)
+    parent_parts = Path(path).parts[:-1]
+
+    if _looks_like_test(path):
+        return 4
+    if name.lower() == 'makefile' or _is_manifest(name):
+        return 0
+    if ext in _HEADER_EXTS:
+        return 1
+    # filename signals (most specific to the file's own role)
+    if stem in _ENTRY_STEMS or _tok_hits(tokens, _WIRING_HINTS):
+        return 3
+    if _tok_hits(tokens, _DECL_HINTS) or any(h in desc for h in _DECL_DESC_HINTS):
+        return 1
+    # directory signals (a routes/ or models/ dir tells the role when the name doesn't)
+    if _seg_hits(parent_parts, _WIRING_HINTS):
+        return 3
+    if _seg_hits(parent_parts, _DECL_HINTS):
+        return 1
+    return 2
+
+
+def build_order(tasks: list[Task]) -> list[Task]:
+    """Return *tasks* reordered bottom-up by dependency layer (build_rank), stable
+    within a layer (planner order preserved). Pure — does not mutate the input."""
+    return [t for _, t in sorted(enumerate(tasks),
+                                 key=lambda it: (build_rank(it[1]), it[0]))]
+
+
+def reorder_plan(plan_path: str) -> list[str]:
+    """Rewrite the ``## Files`` checklist of a PLAN.md in dependency build order
+    (build_order): manifests + callee modules first, tests last. Preserves each
+    task line's *exact* text (status `[ ]`/`[x]`/`[~]`, description) and the
+    position of any non-task lines in the section — only the task lines are
+    permuted among their own slots. Idempotent: a plan already in build order is
+    left byte-identical. Returns the new file-path order, or [] if nothing moved.
+    """
+    try:
+        lines = Path(plan_path).read_text().splitlines(keepends=True)
+    except OSError:
+        return []
+    start = next((i + 1 for i, ln in enumerate(lines)
+                  if re.match(r'^##\s+Files\s*$', ln.rstrip('\n'))), None)
+    if start is None:
+        return []
+    end = next((j for j in range(start, len(lines)) if lines[j].startswith('## ')),
+               len(lines))
+    slots, entries = [], []                    # entries: (original_line, Task)
+    for k in range(start, end):
+        parsed = parse_content(lines[k]).tasks  # reuse the canonical line parser
+        if parsed:
+            slots.append(k)
+            entries.append((lines[k], parsed[0]))
+    if len(entries) < 2:
+        return []
+    order = sorted(range(len(entries)),
+                   key=lambda idx: (build_rank(entries[idx][1]), idx))
+    if order == list(range(len(entries))):
+        return []                              # already in build order — no-op
+    for slot, idx in zip(slots, order):
+        lines[slot] = entries[idx][0]
+    Path(plan_path).write_text(''.join(lines))
+    return [entries[idx][1].file_path for idx in order]
+
+
 def strip_thinking_artifacts(path: str) -> bool:
     try:
         data = Path(path).read_text()

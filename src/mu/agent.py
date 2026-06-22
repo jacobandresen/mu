@@ -40,7 +40,7 @@ from mu.plan import (Plan, _EXT_LANGUAGE, check_goal_alignment, clear_challenges
                      is_build_file, is_test_file, mark_task_done, next_task,
                      normalize_embedded_files,
                      normalize_test_command, parse, parse_content,
-                     pending_source_files,
+                     pending_source_files, reorder_plan,
                      plan_languages, record_challenge, record_failed_repair,
                      relevant_files_context,
                      repair_history, strip_thinking_artifacts, tasks_remaining,
@@ -702,6 +702,17 @@ def run(goal: str, model: str = '', target_dir: str = '',
         # skips it (and, with S2, can't redeclare it). One routine; see
         # reconcile_provided. owned_paths=None keeps the legacy fixture-detection.
         p = reconcile_provided(plan_file, p)
+
+        # Design criterion: build a complex plan bottom-up — reorder the checklist
+        # so manifests and callee modules are written before their callers and the
+        # tests that verify them (cascade control: an early mistake can't compound).
+        # Gated (MU_BUILD_ORDER=1); off ⇒ the plan order is untouched (I1).
+        if os.environ.get('MU_BUILD_ORDER') == '1':
+            new_order = reorder_plan(plan_file)
+            if new_order:
+                log("Reordered plan bottom-up: %s", ' → '.join(new_order))
+                p = parse(plan_file)
+                current_plan = p
 
         for i in range(1, max_iter + 1):
             task = next_task(p)
