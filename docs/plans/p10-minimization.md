@@ -574,7 +574,7 @@ are mutually exclusive, selected by Step 1.4.
 - **Gate.** Self-consistency holds $\Rightarrow$ the board is trustworthy as ranking + ledger.
 - **Rollback.** Additive subcommand + JSON keys; drop them.
 
-- [x] **Step 0.3 — S2: cross-stage type-ownership reflex** $\to$ `src/mu/reflexes/csharp/` *(the headline shippable; catalogued reflex, on-by-default iff it KEEPs)* — 🟡 **code done 2026-06-20** (both reflexes + registry + `_inter_stage_gate` wiring; 9 unit tests; suite 252 green; ablation Measure/KEEP-gate run with the board)
+- [x] **Step 0.3 — S2: cross-stage type-ownership reflex** $\to$ `src/mu/reflexes/csharp/` *(the headline shippable; catalogued reflex, on-by-default iff it KEEPs)* — 🟡 **code done 2026-06-20; KEEP-gate ablation RUNNING 2026-06-22** on the sweep-winner **qwen-7b** at **N=15** (4 arms p10/p4 × on/off; pre-reg `.mu/abl_s2_prereg.md`, orchestrator `.mu/abl_s2_run.sh`, auto-verdict `.mu/abl_s2_verdict.md`). Two instrument fixes shipped first (commit `b27effb`): `noted`/_fired now honors `MU_DISABLE_REFLEX` (the `_inter_stage_gate` S2 calls bypassed `run_reflexes`, so the ablation was a no-op there), and `mu dojo measure` emits per-layer q̂/p_solve/bottleneck for multilayer p10 (the gate keys on backend-layer q̂ Δ). Headline gate = p10 backend_build q̂ Δ CI lo > 0; control = p4 no regression (powered form, §4.5).
 - **Files.** `src/mu/reflexes/csharp/fix_csharp_cross_stage_duplicate_types.py` and
   `src/mu/reflexes/csharp/fix_csharp_public_signature_accessibility.py` — the two
   reflexes; `src/mu/reflexes/registry.py` — the catalogue slot; `src/mu/agent.py` —
@@ -623,7 +623,7 @@ are mutually exclusive, selected by Step 1.4.
 - **Gate.** Suite green, no behaviour delta $\Rightarrow$ proceed.
 - **Rollback.** Inline the function back; remove the meta keys.
 
-- [x] **Step 0.5 — L0 baseline** $\to$ *no new file — runs the instrument* *(records, does not gate)* — ✅ **recorded 2026-06-20** (`qwen2.5-coder-3b-instruct`, N=5 → `.mu/board_L0_3b.json`). **L0 board: only p1-helloworld solves (4/5); p2–p9 all 0/5; p10 0/5 on all four layers.** layer-parse 0.80 = observed 0.80; smoothed E[#solved] 1.86. ⚠️ **Capacity blocker:** qwen-7b won't load on this 8 GB host, and 3b is too weak for anything past hello-world — so the capability data-work (0.3 ablation, KEEP gates) has ~no headroom here until a stronger model can run (free memory / reboot for 7b, or a bigger host).
+- [x] **Step 0.5 — L0 baseline** $\to$ *no new file — runs the instrument* *(records, does not gate)* — ✅ **recorded 2026-06-20** (`qwen2.5-coder-3b-instruct`, N=5 → `.mu/board_L0_3b.json`). **L0 board: only p1-helloworld solves (4/5); p2–p9 all 0/5; p10 0/5 on all four layers.** layer-parse 0.80 = observed 0.80; smoothed E[#solved] 1.86. ⚠️ ~~**Capacity blocker:** qwen-7b won't load on this 8 GB host~~ **RESOLVED 2026-06-22:** the blocker was the Q4_K_M quant (~4.7 GB); the **Q3_K_L** quant (4.09 GB resident) fits and runs. A full 8 GB model sweep (commit `74f38c8`, `docs/quantization-and-the-stack.md`) picked **qwen2.5-coder-7b-instruct Q3_K_L** as the empirical winner — **7/10** solved; the real L0 reference is now `.mu/board_L0_7b.json` (p10 0/5, bottleneck `backend_build` q̂=0.14), superseding the 3b board. The 0.3 ablation/KEEP gates now have real headroom and are running here.
 - [ ] **Build:** Run `mu dojo board` over all ten plus `mu dojo measure p10 -n 15`,
   post S1–S4; record an `efficacy_run` with per-layer $\hat q$. This board is the L0
   reference P1/P2 are measured against for every arm.
