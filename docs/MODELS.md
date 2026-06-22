@@ -7,13 +7,15 @@ multi-file), not HumanEval.
 
 ## Recommendation
 
-| Model | VRAM | Role |
+| Model | Resident | Role |
 |---|---|---|
-| `ibm/granite-4.1-3b` | ~2 GB | **Primary** — fits a Pi and 8 GB; 128K context; the dojo's default guest |
-| `qwen2.5-coder-7b-instruct` | ~4.5 GB | **Runner-up for 8 GB** — stronger code specialist, tighter context budget |
+| `qwen2.5-coder-7b-instruct` **Q3_K_L** | 4.09 GB | **Primary on 8 GB** — measured **7.0/10** on the L0 board, the best that runs here (see trials below). Pin the served id `qwen2.5-coder-7b-instruct` |
+| `ibm/granite-4.1-3b` | ~2 GB | **Lightweight fallback** — fits a Pi; 128K context; but only ~2.75/10 here, too weak past simple problems |
 
-Bigger machines can run bigger models (e.g. Devstral-Small at 16/32 GB), but mu is tuned
-and measured on the two above; everything below assumes the 8 GB envelope.
+The 7B **Q4_K_M** (~4.7 GB) does **not** fit (it exhausts RAM); **Q3_K_L** (3.8 GB on
+disk) is the quant that runs. Models >~4.1 GB resident hit a GPU `Compute error` on 8 GB
+(see trials). Bigger machines can run bigger models (e.g. Devstral-Small at 16/32 GB),
+but mu is tuned and measured on the above; everything below assumes the 8 GB envelope.
 
 ## Integration
 
@@ -43,6 +45,59 @@ Other settings: **temperature** is `0.1` (low enough for stable structured outpu
 is the 8 GB sweet spot (`Q8_0` won't fit alongside a useful context). Above ~8 K context on
 8 GB the host runs near-zero free RAM with active swap → slow generation and repair-loop
 timeouts.
+
+## Model trials on the M2 8 GB host (2026-06-20)
+
+Empirical load/fit/capability log for *this specific 8 GB M2*, to settle which model
+the dojo (p10 plan) should run on. LM Studio guardrails are **off**
+(`modelLoadingGuardrails.mode=off`, `customThresholdBytes≈7 GB`), so a refusal to load
+is genuine RAM exhaustion, not a policy block. All loads via
+`lms load <id> -c 6000 --gpu max`.
+
+| Model (quant) | Disk | Resident | Loads on 8 GB? | p1 smoke | Notes |
+|---|---|---|---|---|---|
+| qwen2.5-coder-**7b** Q4_K_M (~4.7 GB) | — | — | **No** — "insufficient resources" | — | the *documented blocker*; not currently on disk |
+| qwen2.5-coder-**7b** **Q3_K_L** | 3.8 GB | **3.81 GiB** | **Yes** (~15 s load) | **PASS, 47 s** | ~1 GB swap, stable; **the fit-capable 7b** |
+| qwen2.5-coder-**7b** Q2_K | 2.8 GB | ~2.9 GiB (est.) | Yes (untested capability) | — | smaller fallback; Q2 quality degraded — only if Q3_K_L proves too heavy |
+| qwen2.5-coder-**3b** Q4_K_M (current pin) | 2.1 GB | ~2.1 GiB | Yes | PASS | **too weak past hello-world** — L0 board (N=5) solved only p1 |
+| ibm/granite-4.1-3b | 2.1 GB | ~2.1 GiB | Yes | PASS | prior primary; same 3b-class ceiling |
+
+**Findings.**
+- The "7B won't load on 8 GB" note (in `.zshrc`, README, and line 35 above) was the
+  **Q4_K_M** (~4.7 GB). The **Q3_K_L** quant (3.8 GB) *does* fit — 3.81 GiB resident,
+  loads in ~15 s, p1 end-to-end in 47 s, ~1 GB swap and stable. So the choice is **not**
+  "3b vs nothing" — a real 7b *is* runnable here, one quant step down from Q4.
+- **Model-id gotcha:** `client.chat` passes `MU_AGENT_MODEL` **verbatim** to
+  `/v1/models`, so the pin must equal the id LM Studio serves. LM Studio uses the **bare**
+  name (`qwen2.5-coder-7b-instruct`) when it's unique, but **org-prefixes on collision**:
+  while a second 7b (the `qwen/…` Q2_K) was also present, both showed as
+  `lmstudio-community/…` and `qwen/…`. With only the Q3_K_L kept, the served id is the bare
+  `qwen2.5-coder-7b-instruct` — that's the pin. Always check `curl localhost:1234/v1/models`.
+- **Capability comparison — L0 board, N=5 over all ten problems** (`E[#solved]` =
+  observed problems solved /10):
+
+  | Model | Quant | Resident | observed /10 | Runs on 8 GB? |
+  |---|---|---|---|---|
+  | **qwen2.5-coder-7b** | **Q3_K_L** | 4.09 GB | **7.0** ✅ winner | yes |
+  | seed-coder-8b | Q3_K_S | 3.80 GB | 5.6 | yes |
+  | granite-4.1-3b | Q4 | 2.10 GB | ~2.75 (partial) | yes but crawls @8192 |
+  | qwen2.5-coder-3b | Q4 | 2.10 GB | 0.8 | yes |
+  | qwen3-8b | Q4 | 4.43 GB | — | **no — Compute error** |
+  | granite-3.3-8b | Q3_K_L | 4.35 GB | — | **no — Compute error** |
+
+- **The 8 GB GPU ceiling (key finding).** Models **>~4.1 GB resident fail every
+  inference** with LM Studio `400 {"error":"Compute error."}` at full Metal offload
+  (`--gpu max`): the weights + KV + compute graph exceed the GPU budget, so the model
+  *loads* but cannot *run*. qwen3-8b (4.43 GB) and granite-3.3-8b (4.35 GB) both hit
+  this; lowering ctx 6000→4096 did **not** help (it's the weight buffers, not KV).
+  They *do* run at **partial offload** (`--gpu 0.5`, layers on CPU) but that's 5–10×
+  slower — impractical for the dojo. So **~4.1 GB resident is the hard runnable
+  ceiling here**, and qwen2.5-coder-7b Q3_K_L is the largest/strongest model under it.
+- seed-coder-8b (the SWE-bench-Verified leader at 8B) *runs* but lands at 5.6/10 —
+  notably it scores **0/5 on p3-sdl2 and p7-flask** (weaker on those toolchains),
+  confirming the headline benchmark doesn't map directly to this multi-language,
+  tool-use, multi-file dojo. **Recommendation: pin `qwen2.5-coder-7b-instruct`
+  (Q3_K_L) — served id `qwen2.5-coder-7b-instruct`.**
 
 ## Per-model profiles
 
