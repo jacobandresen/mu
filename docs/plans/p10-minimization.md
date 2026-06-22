@@ -381,6 +381,17 @@ own weight even if every lever is later dropped:
    correct Vitest fetch-mock. All levers top out one layer short without these (B
    only crosses it by *pinning* the tests at L3 — the diagnostic that tells you
    whether S5 is worth writing).
+6. **S6 — Bottom-up dependency build order (general, no-regret).** Build the plan
+   smallest-part-first: a module *called by* another is written before its caller,
+   manifests first, tests last — the cascade-control lever (§0.4) that stops an
+   early mistake from compounding, and the design criterion behind the `reduce()`
+   loop's vertical slices (§2.1). Unlike the structural levers it is **not** p10-
+   specific: it reorders *any* multi-file plan, so by the portfolio argument (§0.1)
+   it covers the steep mid-tier (p2/p4/p7/p8) as well as p10's coordination layer.
+   Shipped flag-gated (`MU_BUILD_ORDER`, `plan.build_rank`/`build_order`/
+   `reorder_plan`); the remaining slices are the **incremental Makefile** (woven per
+   step, never a trailing task) and **per-slice test gating** (build+test each module
+   as it lands). No-regret: off ⇒ byte-identical (I1).
 
 ### 2.3 Decision rubric (pre-registered, weighted)
 
@@ -627,6 +638,17 @@ are mutually exclusive, selected by Step 1.4.
 - [ ] **Build:** Run `mu dojo board` over all ten plus `mu dojo measure p10 -n 15`,
   post S1–S4; record an `efficacy_run` with per-layer $\hat q$. This board is the L0
   reference P1/P2 are measured against for every arm.
+
+- [x] **Step 0.6 — S6: bottom-up dependency build order** $\to$ `src/mu/plan.py`, `src/mu/agent.py` *(general no-regret lever; flag `MU_BUILD_ORDER`)* — 🟡 **slice 1+2 done 2026-06-22** (commit `54ffb3f`): `build_rank`/`build_order`/`reorder_plan` + gated wiring after grounding; **15 unit tests**, suite 280 green; off ⇒ byte-identical (I1).
+- **Files.** `src/mu/plan.py` — `build_rank` (per-task layer), `build_order` (stable reorder), `reorder_plan` (rewrite `## Files`); `src/mu/agent.py` — gated call after `reconcile_provided`; `tests/test_build_order.py`.
+- **Build:**
+  - [x] `plan.build_rank`: 0 manifests/Makefile · 1 headers + type/model/schema decls · 2 core modules · 3 wiring/entry · 4 tests — camelCase/separator stem tokenisation + directory-role hints, plural-tolerant.
+  - [x] `plan.reorder_plan`: rewrite the checklist in build order, preserving each line's status + description and any non-task lines; idempotent.
+  - [x] `agent`: `reorder_plan` after grounding/reconcile, gated `MU_BUILD_ORDER=1`.
+  - [ ] **incremental Makefile** (woven per build step, never a trailing task) — next slice; touches `ground_plan`'s Makefile synthesis.
+  - [ ] **per-slice test gating** (build+test each module as it lands) — next slice.
+- **Measure / Gate.** A/B `mu dojo measure` with `MU_BUILD_ORDER` on vs off across the multi-file problems (p2/p3/p4/p7/p8/p9/p10) + controls; KEEP iff $\Delta E[N_{\text{solved}}]$ CI lo **> 0** (P1) ∧ no control regression (P2). **Deferred until the 7b is free** (the S2 ablation owns it now).
+- **Rollback.** `MU_BUILD_ORDER` off restores baseline (already the default).
 
 #### Phase 1 — Approach B as the $\delta$-probe (instrumental; never shipped, I7)
 
