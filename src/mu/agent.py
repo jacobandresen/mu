@@ -2473,19 +2473,53 @@ def _lint_command(file_path: str, p: Plan) -> str:
     return ''
 
 
+def _kill_process_group(pgid: int) -> None:
+    """SIGTERM then SIGKILL an entire process group, swallowing the error when the
+    group is already gone.
+
+    *pgid* must be the pid of a session/group leader created via
+    ``start_new_session`` — that way the signal only ever reaches that command's
+    own group and never mu's. Idempotent.
+    """
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(pgid, sig)
+        except (ProcessLookupError, OSError):
+            return
+
+
 def _run_cmd(cmd: str, log_file: str, env: dict | None = None) -> bool:
     """Run a shell command, capturing stdout/stderr to ``log_file``.
 
     ``env`` optionally supplies environment variables (e.g., a modified ``PATH``
     to point at a temporary virtual‑env). If ``env`` is ``None`` the current
     process environment is used.
+
+    The command runs in its **own session/process group** (``start_new_session``)
+    and that whole group is torn down when the command returns or times out.
+    Without this, a test/build command that launches a server or a non-terminating
+    binary (``dotnet run``, a dev server, a hung executable) leaks orphaned
+    processes that keep running after the agent exits — pinning files so work-dir
+    cleanup fails, and holding RAM. The group kill fires even on success, since a
+    passing test can leave a daemon behind.
     """
     os.makedirs(os.path.dirname(log_file) or '.', exist_ok=True)
     try:
         with open(log_file, 'w') as f:
-            return subprocess.run(['bash', '-c', cmd], stdout=f, stderr=f,
-                                  timeout=120, env=env).returncode == 0
-    except (subprocess.TimeoutExpired, OSError):
+            p = subprocess.Popen(['bash', '-c', cmd], stdout=f, stderr=f,
+                                 env=env, start_new_session=True)
+            try:
+                rc = p.wait(timeout=120)
+            except subprocess.TimeoutExpired:
+                rc = None
+            finally:
+                _kill_process_group(p.pid)
+                try:
+                    p.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    pass
+            return rc == 0
+    except OSError:
         return False
 
 

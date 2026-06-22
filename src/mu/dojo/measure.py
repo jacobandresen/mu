@@ -32,6 +32,19 @@ def _goal(problem_id: str) -> str:
     sys.exit(f"measure: unknown problem id: {problem_id}")
 
 
+def _rmwork(path: Path) -> None:
+    """Remove a dojo work dir, tolerating undeletable entries (e.g. a node_modules
+    tree whose read-only files make ``shutil.rmtree`` raise 'Directory not empty'
+    mid-walk). A measurement board must never crash on cleanup — fall back to a
+    forced ``rm -rf`` and otherwise swallow the error."""
+    if not path.exists():
+        return
+    shutil.rmtree(path, ignore_errors=True)
+    if path.exists():
+        subprocess.run(['rm', '-rf', str(path)],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 def run(problem_id: str, emit_json: str = '') -> int:
     augment_path()
     n = int(os.environ.get('N', '5'))
@@ -51,9 +64,8 @@ def run(problem_id: str, emit_json: str = '') -> int:
     repair_total = 0
     try:
         for i in range(1, n + 1):
-            if work.exists():
-                shutil.rmtree(work)
-            work.mkdir(parents=True)
+            _rmwork(work)
+            work.mkdir(parents=True, exist_ok=True)
 
             marker = now()
             subprocess.run(mu_cmd() + ['agent', goal, '--dir', str(work)],
@@ -67,8 +79,7 @@ def run(problem_id: str, emit_json: str = '') -> int:
             mark = 'PASS' if outcome == 'success' else outcome
             print(f"  run {i}/{n}: {mark:<8} repair_iters={repair}")
     finally:
-        if work.exists():
-            shutil.rmtree(work)
+        _rmwork(work)
 
     print()
     ok, stoch = _print_summary(problem_id, outcomes, repair_total, n, seed)
@@ -161,9 +172,8 @@ def board(emit_json: str = '', runs: int | None = None) -> int:
         work = Path('dojo') / pid
         try:
             for i in range(1, n + 1):
-                if work.exists():
-                    shutil.rmtree(work)
-                work.mkdir(parents=True)
+                _rmwork(work)
+                work.mkdir(parents=True, exist_ok=True)
                 marker = now()
                 subprocess.run(mu_cmd() + ['agent', goal, '--dir', str(work)],
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -174,8 +184,7 @@ def board(emit_json: str = '', runs: int | None = None) -> int:
                     if lc.get(l):
                         clears[l] += 1
         finally:
-            if work.exists():
-                shutil.rmtree(work)
+            _rmwork(work)
         table[pid] = {l: capability.LayerStat(clears=clears[l], n=n) for l in layers}
         observed_solved += solved / n if n else 0.0
         print(f"  {pid:<26} solved {solved}/{n} · "
