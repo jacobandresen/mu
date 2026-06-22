@@ -2232,16 +2232,20 @@ def _inter_stage_gate(plan_file: str, goal: str, model: str) -> int:
     """
     p = parse(plan_file)
 
-    # S2 (plan Step 0.3): before the backend gate compiles, resolve cross-stage
-    # type-ownership errors deterministically — the test project re-declaring a
-    # backend type (CS0101) or a public API exposing an internal type (CS0053) —
-    # so the coordination cascade can't reach the compiler. Project-wide and
-    # idempotent; a no-op on single-project layouts.
-    proj = os.getcwd()
-    if _fired(fix_csharp_cross_stage_duplicate_types, proj):
-        log("Inter-stage gate: removed cross-stage duplicate C# type(s).")
-    if _fired(fix_csharp_public_signature_accessibility, proj):
-        log("Inter-stage gate: raised internal type(s) exposed by a public API to public.")
+    # S2 (plan Step 0.3): cross-stage type-ownership fixers — CS0101 (test project
+    # re-declares a backend type) and CS0053 (public API exposes an internal type).
+    # DISABLED BY DEFAULT: the pre-registered KEEP ablation (2026-06-22, qwen-7b,
+    # N=15) found NO effect — p10 is 0/15 on every layer with S2 on OR off (its
+    # backend fails well before these errors, the broader ceiling §0.3 predicted),
+    # while p4 was unharmed. Per the gate, dropped to opt-in (MU_S2_TYPE_REFLEXES=1)
+    # for re-evaluation once the backend builds. The reflexes are correct and
+    # harmless — retained, just not auto-run (default = the ablation's OFF arm).
+    if os.environ.get('MU_S2_TYPE_REFLEXES') == '1':
+        proj = os.getcwd()
+        if _fired(fix_csharp_cross_stage_duplicate_types, proj):
+            log("Inter-stage gate: removed cross-stage duplicate C# type(s).")
+        if _fired(fix_csharp_public_signature_accessibility, proj):
+            log("Inter-stage gate: raised internal type(s) exposed by a public API to public.")
 
     test_cmd = p.test_command.strip() if p.test_command else ''
 
