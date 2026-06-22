@@ -45,6 +45,7 @@ from mu.plan import (Plan, _EXT_LANGUAGE, check_goal_alignment, clear_challenges
                      relevant_files_context,
                      repair_history, strip_thinking_artifacts, tasks_remaining,
                      write_sketches)
+from mu import incremental
 from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
                          fix_go_trailing_dot,
                          apply_plan_spec_reflexes, run_reflexes,
@@ -707,12 +708,16 @@ def run(goal: str, model: str = '', target_dir: str = '',
         # so manifests and callee modules are written before their callers and the
         # tests that verify them (cascade control: an early mistake can't compound).
         # Gated (MU_BUILD_ORDER=1); off ⇒ the plan order is untouched (I1).
+        ledger = None
         if os.environ.get('MU_BUILD_ORDER') == '1':
             new_order = reorder_plan(plan_file)
             if new_order:
                 log("Reordered plan bottom-up: %s", ' → '.join(new_order))
                 p = parse(plan_file)
                 current_plan = p
+            # Incremental bottom-up build: remember what's built/verified so a later
+            # slice rests on earlier ones and nothing is built or tested twice.
+            ledger = incremental.BuildLedger.from_plan(p)
 
         for i in range(1, max_iter + 1):
             task = next_task(p)
@@ -830,35 +835,67 @@ def run(goal: str, model: str = '', target_dir: str = '',
                 else:
                     log("Lint passed: %s", task.file_path)
 
+            # Incremental Makefile: as each source slice lands (and passes lint),
+            # weave its cheap unit check into a growing `make check` target — the
+            # Makefile built one step per slice, never an up-front blob or trailing
+            # task. Idempotent + ledger-tracked, so a slice's check is never added
+            # twice. Gated; off ⇒ ledger is None and this is skipped (I1).
+            if (ledger is not None and not is_test_file(task.file_path)
+                    and not is_build_file(task.file_path)):
+                ledger.record_built(task.file_path)
+                check = incremental.unit_check_command(task.file_path)
+                if check and Path('Makefile').exists():
+                    try:
+                        mk = Path('Makefile').read_text()
+                        woven = incremental.append_check(mk, check)
+                        if woven != mk:
+                            Path('Makefile').write_text(woven)
+                            ledger.record_target('check')
+                            log("Incremental Makefile: wove `%s` into `make check`.", check)
+                    except OSError:
+                        pass
+
             test_cmd = p.test_command
             if test_cmd and is_test_file(task.file_path) and not has_pending_build_file(p):
-                test_log = os.path.join(LOG_DIR, f"tests-iter-{i:02d}.log")
-                if not _test_passed(test_cmd, test_log):
-                    log("Tests failing after %s — invoking repair.", task.file_path)
-                    record_challenge(
-                        f"tests failed after writing {task.file_path}",
-                        _tail_file(test_log, 5), plan_file=plan_file)
-                    ok, iters = _run_test_repair_loop(model, test_cmd, test_log, p,
-                                                      auto_system, writer_timeout, goal,
-                                                      plan_file)
-                    sess.repair_iters += max(iters, 0)
-                    if not ok:
-                        if iters == REPAIR_ESCALATE and not _architect_escalated and may_escalate:
-                            _architect_escalated = True
-                            log("Repair stuck — escalating to architect mode.")
-                            print("==> [mu-agent] Repair loop stalled. Escalating to architect.",
-                                  flush=True)
-                            stages = _run_architect_pass(goal, model, planner_timeout)
-                            if len(stages) > 1:
-                                return run_staged(goal, model, max_iter=max_iter)
-                            log("Architect produced %d stage(s) — cannot escalate further.",
-                                len(stages))
-                        log("Tests still failing after repair for %s.", task.file_path)
-                        record_failed_repair(f"test repair after writing {task.file_path}",
-                                             _tail_file(test_log, 5), plan_file)
-                        sess.fail_reason = f'tests still failing after repair for {task.file_path}'
-                        exit_code = 3
-                        return exit_code
+                # Don't re-test a build state already verified green this run — the
+                # per-slice gate and the final gate would otherwise run the same
+                # `make test` twice (the ledger's no-double-build).
+                _gkey = (incremental.gate_key(incremental.gate_paths(p), test_cmd)
+                         if ledger is not None else None)
+                if ledger is not None and ledger.was_gated(_gkey):
+                    log("Slice gate: %s already green this state — not testing twice.", test_cmd)
+                else:
+                    test_log = os.path.join(LOG_DIR, f"tests-iter-{i:02d}.log")
+                    if not _test_passed(test_cmd, test_log):
+                        log("Tests failing after %s — invoking repair.", task.file_path)
+                        record_challenge(
+                            f"tests failed after writing {task.file_path}",
+                            _tail_file(test_log, 5), plan_file=plan_file)
+                        ok, iters = _run_test_repair_loop(model, test_cmd, test_log, p,
+                                                          auto_system, writer_timeout, goal,
+                                                          plan_file)
+                        sess.repair_iters += max(iters, 0)
+                        if not ok:
+                            if iters == REPAIR_ESCALATE and not _architect_escalated and may_escalate:
+                                _architect_escalated = True
+                                log("Repair stuck — escalating to architect mode.")
+                                print("==> [mu-agent] Repair loop stalled. Escalating to architect.",
+                                      flush=True)
+                                stages = _run_architect_pass(goal, model, planner_timeout)
+                                if len(stages) > 1:
+                                    return run_staged(goal, model, max_iter=max_iter)
+                                log("Architect produced %d stage(s) — cannot escalate further.",
+                                    len(stages))
+                            log("Tests still failing after repair for %s.", task.file_path)
+                            record_failed_repair(f"test repair after writing {task.file_path}",
+                                                 _tail_file(test_log, 5), plan_file)
+                            sess.fail_reason = f'tests still failing after repair for {task.file_path}'
+                            exit_code = 3
+                            return exit_code
+                    # green (passed, or repaired) — record so the final gate skips it
+                    if ledger is not None:
+                        ledger.record_gate(
+                            incremental.gate_key(incremental.gate_paths(p), test_cmd))
 
             mark_task_done(plan_file, task.file_path)
             log("Marked done: %s", task.file_path)
@@ -871,8 +908,16 @@ def run(goal: str, model: str = '', target_dir: str = '',
             current_plan = p
 
         if not tasks_remaining(p):
-            err, iters = _final_test_gate(model, p, auto_system, writer_timeout, goal,
-                                          plan_file)
+            # Skip the final gate when the per-slice gate already verified this exact
+            # build state green — don't run the suite twice (the ledger).
+            if (ledger is not None and p.test_command and ledger.was_gated(
+                    incremental.gate_key(incremental.gate_paths(p), p.test_command))):
+                log("Final gate: composition already verified green this state — "
+                    "not testing twice.")
+                err, iters = '', 0
+            else:
+                err, iters = _final_test_gate(model, p, auto_system, writer_timeout, goal,
+                                              plan_file)
             sess.repair_iters += max(iters, 0)
             if err:
                 if iters == REPAIR_ESCALATE and not _architect_escalated and may_escalate:
