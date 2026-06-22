@@ -57,7 +57,15 @@ def noted(fn, *args) -> bool:
     reached firings.jsonl and the reflex KB was blind to most actual reflex
     activity. Never raises: a crashing reflex counts as not-fired so the
     chain continues.
+
+    Honors the ``MU_DISABLE_REFLEX`` ablation set: a disabled reflex is treated
+    as not-fired and never invoked, so an ablation (``mu dojo measure --disable``)
+    is effective at *every* direct call site (e.g. the ``_inter_stage_gate`` S2
+    reflexes), not just the ``run_reflexes`` chains. Empty by default, so normal
+    runs are byte-identical (I1).
     """
+    if getattr(fn, '__name__', '') in disabled_reflexes():
+        return False
     try:
         changed = bool(fn(*args))
     except Exception:

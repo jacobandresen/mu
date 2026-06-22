@@ -92,6 +92,57 @@ def test_empty_env_is_noop():
             os.environ['MU_DISABLE_REFLEX'] = prev
 
 
+# --- the `noted`/_fired direct-call path (e.g. agent's _inter_stage_gate S2) ---
+# These call sites bypass run_reflexes, so the ablation must be enforced inside
+# `noted` itself — otherwise `mu dojo measure --disable` would silently compare
+# enabled-vs-enabled at those sites (the bug that would have invalidated the S2
+# ablation).
+
+def _noted_with(disable, fn, *args):
+    from mu.reflexes.core import noted
+    prev = os.environ.get('MU_DISABLE_REFLEX')
+    reset_firings()
+    if disable is not None:
+        os.environ['MU_DISABLE_REFLEX'] = disable
+    else:
+        os.environ.pop('MU_DISABLE_REFLEX', None)
+    try:
+        return noted(fn, *args), {f['reflex_id'] for f in get_firings()}
+    finally:
+        if prev is None:
+            os.environ.pop('MU_DISABLE_REFLEX', None)
+        else:
+            os.environ['MU_DISABLE_REFLEX'] = prev
+
+
+def test_noted_runs_when_not_disabled(tmp_path):
+    target = tmp_path / 'work.txt'
+    target.write_text('seed')
+    fired, recorded = _noted_with(None, fix_marker_a, str(target))
+    # fix_marker_a returns None (falsy) so `noted` reports "not changed", but it
+    # still ran — the file was mutated and nothing was skipped.
+    assert 'AAA' in target.read_text()
+
+
+def test_noted_skips_disabled_reflex(tmp_path):
+    target = tmp_path / 'work.txt'
+    target.write_text('seed')
+    fired, recorded = _noted_with('fix_marker_a', fix_marker_a, str(target))
+    assert target.read_text() == 'seed'   # disabled → reflex never invoked
+    assert fired is False
+    assert recorded == set()
+
+
+def test_noted_disable_is_per_reflex(tmp_path):
+    """Disabling one reflex must not suppress another at the same call site."""
+    target = tmp_path / 'work.txt'
+    target.write_text('seed')
+    _noted_with('fix_marker_a', fix_marker_a, str(target))   # off
+    _noted_with('fix_marker_a', fix_marker_b, str(target))   # still on
+    assert 'AAA' not in target.read_text()
+    assert 'BBB' in target.read_text()
+
+
 if __name__ == '__main__':  # standalone runner (no pytest needed)
     import tempfile
     failures = 0

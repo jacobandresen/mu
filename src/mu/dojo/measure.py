@@ -24,12 +24,16 @@ from .env import augment_path, mu_cmd
 from .sessions import now
 
 
-def _goal(problem_id: str) -> str:
+def _problem(problem_id: str) -> dict:
     from mu.toolchain import load_problems_catalog
     for p in load_problems_catalog(None):
         if p['id'] == problem_id:
-            return p['goal']
+            return p
     sys.exit(f"measure: unknown problem id: {problem_id}")
+
+
+def _goal(problem_id: str) -> str:
+    return _problem(problem_id)['goal']
 
 
 def _rmwork(path: Path) -> None:
@@ -49,7 +53,9 @@ def run(problem_id: str, emit_json: str = '') -> int:
     augment_path()
     n = int(os.environ.get('N', '5'))
     seed = os.environ.get('MU_SEED', '')
-    goal = _goal(problem_id)
+    problem = _problem(problem_id)
+    goal = problem['goal']
+    layers = _problem_layers(problem)
 
     subprocess.run(mu_cmd() + ['model', 'warm'],
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -62,6 +68,7 @@ def run(problem_id: str, emit_json: str = '') -> int:
 
     outcomes: list[str] = []
     repair_total = 0
+    layer_clears = {l: 0 for l in layers}
     try:
         for i in range(1, n + 1):
             _rmwork(work)
@@ -76,16 +83,30 @@ def run(problem_id: str, emit_json: str = '') -> int:
             repair = s.repair_iters if s else 0
             outcomes.append(outcome)
             repair_total += repair
+            lc = _layer_clears(problem, s)
+            for l in layers:
+                if lc.get(l):
+                    layer_clears[l] += 1
             mark = 'PASS' if outcome == 'success' else outcome
-            print(f"  run {i}/{n}: {mark:<8} repair_iters={repair}")
+            layer_note = ('  ' + ' '.join(f"{l}={'✓' if lc.get(l) else '·'}"
+                                          for l in layers)) if len(layers) > 1 else ''
+            print(f"  run {i}/{n}: {mark:<8} repair_iters={repair}{layer_note}")
     finally:
         _rmwork(work)
 
     print()
     ok, stoch = _print_summary(problem_id, outcomes, repair_total, n, seed)
+    if len(layers) > 1:
+        from .. import capability
+        stats = {l: capability.LayerStat(clears=layer_clears[l], n=n) for l in layers}
+        bn = capability.bottleneck(stats)
+        print("  per-layer q̂: " + ' · '.join(
+            f"{l} {layer_clears[l]}/{n} (q̂={stats[l].q:.2f})" for l in layers)
+            + f"  · bottleneck {bn}")
 
     if emit_json:
         import datetime, json as _json
+        from .. import capability
         result = {
             'problem_id': problem_id,
             'seed': seed,
@@ -97,6 +118,15 @@ def run(problem_id: str, emit_json: str = '') -> int:
             'stochasticity': stoch,
             'ts': datetime.datetime.now().isoformat(timespec='seconds'),
         }
+        if len(layers) > 1:
+            stats = {l: capability.LayerStat(clears=layer_clears[l], n=n) for l in layers}
+            result['layers'] = {
+                l: {'clears': layer_clears[l], 'n': n,
+                    'q': round(stats[l].q, 4), 'ci': [round(c, 4) for c in stats[l].ci]}
+                for l in layers
+            }
+            result['p_solve'] = round(capability.p_solve(stats), 4)
+            result['bottleneck'] = capability.bottleneck(stats)
         Path(emit_json).write_text(_json.dumps(result, indent=2))
         print(f"Result written to {emit_json}")
 
