@@ -639,15 +639,14 @@ are mutually exclusive, selected by Step 1.4.
   post S1–S4; record an `efficacy_run` with per-layer $\hat q$. This board is the L0
   reference P1/P2 are measured against for every arm.
 
-- [x] **Step 0.6 — S6: bottom-up dependency build order** $\to$ `src/mu/plan.py`, `src/mu/agent.py` *(general no-regret lever; flag `MU_BUILD_ORDER`)* — 🟡 **slice 1+2 done 2026-06-22** (commit `54ffb3f`): `build_rank`/`build_order`/`reorder_plan` + gated wiring after grounding; **15 unit tests**, suite 280 green; off ⇒ byte-identical (I1).
-- **Files.** `src/mu/plan.py` — `build_rank` (per-task layer), `build_order` (stable reorder), `reorder_plan` (rewrite `## Files`); `src/mu/agent.py` — gated call after `reconcile_provided`; `tests/test_build_order.py`.
+- [x] **Step 0.6 — S6: bottom-up dependency build order** $\to$ `src/mu/plan.py`, `src/mu/incremental.py`, `src/mu/agent.py` *(general no-regret lever; flag `MU_BUILD_ORDER`)* — 🟡 **slices 1–4 done 2026-06-22** (commits `54ffb3f`, `a198241`): ordering + incremental Makefile + per-slice gate dedup; **26 unit tests** (`test_build_order` 15 + `test_incremental` 11), suite 291 green; off ⇒ byte-identical (I1).
+- **Files.** `src/mu/plan.py` — `build_rank`/`build_order`/`reorder_plan`; `src/mu/incremental.py` — `BuildLedger`, Makefile weaving (`add_target`/`append_check`), `unit_check_command`, `gate_key`/`verifiable_now`; `src/mu/agent.py` — gated wiring; `tests/test_build_order.py`, `tests/test_incremental.py`.
 - **Build:**
-  - [x] `plan.build_rank`: 0 manifests/Makefile · 1 headers + type/model/schema decls · 2 core modules · 3 wiring/entry · 4 tests — camelCase/separator stem tokenisation + directory-role hints, plural-tolerant.
-  - [x] `plan.reorder_plan`: rewrite the checklist in build order, preserving each line's status + description and any non-task lines; idempotent.
-  - [x] `agent`: `reorder_plan` after grounding/reconcile, gated `MU_BUILD_ORDER=1`.
-  - [ ] **incremental Makefile** (woven per build step, never a trailing task) — next slice; touches `ground_plan`'s Makefile synthesis.
-  - [ ] **per-slice test gating** (build+test each module as it lands) — next slice.
-- **Measure / Gate.** A/B `mu dojo measure` with `MU_BUILD_ORDER` on vs off across the multi-file problems (p2/p3/p4/p7/p8/p9/p10) + controls; KEEP iff $\Delta E[N_{\text{solved}}]$ CI lo **> 0** (P1) ∧ no control regression (P2). **Deferred until the 7b is free** (the S2 ablation owns it now).
+  - [x] **Ordering** — `plan.build_rank` (0 manifests/Makefile · 1 headers+type/model/schema decls · 2 core · 3 wiring/entry · 4 tests; camelCase/separator tokenisation + dir-role hints, plural-tolerant), `build_order`, `reorder_plan` (rewrite `## Files`, preserves status+desc+non-task lines, idempotent), wired after grounding/reconcile.
+  - [x] **Incremental Makefile** — `incremental.append_check` weaves each source slice's cheap unit check (`py_compile`/`cc -fsyntax-only`) into a growing `make check` target as it passes lint; idempotent + ledger-tracked, so never a trailing/up-front blob and never woven twice.
+  - [x] **Per-slice gate + no-double-build** — `BuildLedger` records each (command, mtime-keyed build-state) gate; the per-iteration test gate and the final gate share it, so an already-green state is not tested twice (the "each slice knows what's built earlier" requirement). Forward-dep-safe via `verifiable_now`.
+  - [ ] **`run_staged` (p10) wiring** — follow-up; this slice covers the single-`run` path.
+- **Measure / Gate.** A/B `mu dojo measure` with `MU_BUILD_ORDER` on vs off across the multi-file problems (p2/p3/p7/p8/p9) + controls; KEEP iff $\Delta E[N_{\text{solved}}]$ CI lo **> 0** (P1) ∧ no control regression (P2). **Deferred until the 7b is free** (the S2 ablation owns it now).
 - **Rollback.** `MU_BUILD_ORDER` off restores baseline (already the default).
 
 #### Phase 1 — Approach B as the $\delta$-probe (instrumental; never shipped, I7)
