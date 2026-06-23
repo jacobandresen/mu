@@ -653,10 +653,22 @@ are mutually exclusive, selected by Step 1.4.
   timing fix, not a gated lever):** redirect whenever `<dir>` resolves to no `.csproj`
   (absent / a file / csproj-less dir), leaving a real `tests/*.csproj` untouched
   (`plan.py`, 5 tests in `tests/test_dotnet_test_dir_redirect.py`; suite 300 green).
-  **A/B pending** (`mu dojo measure p10 -n 15` on/off + p2/p4 controls) to confirm it
-  lifts `backend_build` $\hat q$ without control regression (P1∧P2). If MSB1003
-  clears, re-scan to expose the *next* `backend_build` error (CS0101/CS0246) — the
-  data that finally aims Phase 1's B-probe at the true binding rung.
+  **A/B DONE 2026-06-23** (qwen-7b, N=15, p10 ON/OFF + p4 control, `.mu/abl_msb_verdict.md`;
+  prereg `.mu/abl_msb_prereg.md`, OFF arm = parent `plan.py` swapped by git). **The fix
+  works mechanically — MSB1003 eliminated 10/15 → 0/15** (ON-arm first-errors carry
+  zero MSB1003; every run now reaches `Determining projects to restore…`, i.e. `dotnet
+  test` resolves a project and the build *enters compilation*). But **`backend_build`
+  stays 0/15** (Δq̂ −0.001, Gate 1 FAIL; p4 control PASS 13/15 vs 12/15) — the bottleneck
+  **moved one layer deeper**, exactly the S2 lesson (Result 2/3). New `backend_build`
+  first-errors (ON arm): **CS0246 ×6** (dominant: *"the type `Program` could not be
+  found"* — the `WebApplicationFactory` test can't see the minimal-API `Program`) +
+  **CS0101 ×6** (duplicate types) + CS1026/CS1513 ×2. **Fix RETAINED (no-regret).**
+  **Decisive corollary:** S2's null ablation was a *masking* artifact — MSB1003 fired
+  before CS0101 ever arose; now CS0101 is reachable (6/15), so **S2 warrants
+  re-evaluation**, and a new **CS0246 `Program`-visibility** fix (add `public partial
+  class Program {}` to the API for `WebApplicationFactory` — S5 test-authoring) is the
+  other half of the now-exposed coordination layer. These two are the aimed candidates
+  for the next loop pass / Phase 1 probe.
 
 - [x] **Step 0.6 — S6: bottom-up dependency build order** $\to$ `src/mu/plan.py`, `src/mu/incremental.py`, `src/mu/agent.py` *(general no-regret lever; flag `MU_BUILD_ORDER`)* — 🟡 **slices 1–4 done 2026-06-22** (commits `54ffb3f`, `a198241`): ordering + incremental Makefile + per-slice gate dedup; **26 unit tests** (`test_build_order` 15 + `test_incremental` 11), suite 291 green; off ⇒ byte-identical (I1).
 - **Files.** `src/mu/plan.py` — `build_rank`/`build_order`/`reorder_plan`; `src/mu/incremental.py` — `BuildLedger`, Makefile weaving (`add_target`/`append_check`), `unit_check_command`, `gate_key`/`verifiable_now`; `src/mu/agent.py` — gated wiring; `tests/test_build_order.py`, `tests/test_incremental.py`.
