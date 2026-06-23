@@ -638,6 +638,25 @@ are mutually exclusive, selected by Step 1.4.
 - [ ] **Build:** Run `mu dojo board` over all ten plus `mu dojo measure p10 -n 15`,
   post S1–S4; record an `efficacy_run` with per-layer $\hat q$. This board is the L0
   reference P1/P2 are measured against for every arm.
+- **Backend-build bottleneck diagnosis (2026-06-23).** Archive scan of the 12 most
+  recent 7b p10 sessions (the loop's step-2 "candidate from $\arg\min\hat q$" =
+  `backend_build`) gives the *first* gate error: **MSB1003 ×8**, CS0101 ×3, CS0246
+  ×1 — **refreshing §0.3's stale CS0101-led table**: on the 7b winner the bottleneck
+  *within* `backend_build` is **structure (where `dotnet test` runs)**, not
+  cross-stage types — the direct reason S2 (0.3) showed no effect. **Root cause:** the
+  model authors `## Test Command: dotnet test tests/` (a conventional separate xUnit
+  project) but the writer builds a *single* root project and never creates
+  `tests/*.csproj`; `normalize_test_command`'s `dotnet test <dir>`→root redirect
+  (`plan.py:428`) **only fired when `tests/` already existed** (`arg_path.is_dir()`),
+  but it runs at *grounding* time — before the writer creates `tests/` — so it no-oped
+  and the stale command reached the gate as MSB1003. **Fix (no-regret normalizer
+  timing fix, not a gated lever):** redirect whenever `<dir>` resolves to no `.csproj`
+  (absent / a file / csproj-less dir), leaving a real `tests/*.csproj` untouched
+  (`plan.py`, 5 tests in `tests/test_dotnet_test_dir_redirect.py`; suite 300 green).
+  **A/B pending** (`mu dojo measure p10 -n 15` on/off + p2/p4 controls) to confirm it
+  lifts `backend_build` $\hat q$ without control regression (P1∧P2). If MSB1003
+  clears, re-scan to expose the *next* `backend_build` error (CS0101/CS0246) — the
+  data that finally aims Phase 1's B-probe at the true binding rung.
 
 - [x] **Step 0.6 — S6: bottom-up dependency build order** $\to$ `src/mu/plan.py`, `src/mu/incremental.py`, `src/mu/agent.py` *(general no-regret lever; flag `MU_BUILD_ORDER`)* — 🟡 **slices 1–4 done 2026-06-22** (commits `54ffb3f`, `a198241`): ordering + incremental Makefile + per-slice gate dedup; **26 unit tests** (`test_build_order` 15 + `test_incremental` 11), suite 291 green; off ⇒ byte-identical (I1).
 - **Files.** `src/mu/plan.py` — `build_rank`/`build_order`/`reorder_plan`; `src/mu/incremental.py` — `BuildLedger`, Makefile weaving (`add_target`/`append_check`), `unit_check_command`, `gate_key`/`verifiable_now`; `src/mu/agent.py` — gated wiring; `tests/test_build_order.py`, `tests/test_incremental.py`.

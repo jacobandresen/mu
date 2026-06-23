@@ -425,15 +425,20 @@ def normalize_test_command(path: str) -> bool:
             else:
                 # No .csproj at all — strip the bad path so dotnet auto-discovers
                 updated = _set_test_command(updated, f'{m.group(1)}{m.group(3)}')
-    # dotnet test <dir> (no .csproj inside dir) — redirect to root project file.
-    # Fires when the LLM writes `dotnet test tests/` but tests/ has no .csproj.
+    # dotnet test <dir> that resolves to no project file — redirect to the root
+    # project (or bare `dotnet test` for auto-discovery). Fires when the LLM writes
+    # `dotnet test tests/` but tests/ holds only .cs files, OR doesn't exist yet at
+    # grounding time (the writer creates it later without a .csproj) — the dominant
+    # p10 MSB1003 bottleneck. `glob` on a missing or non-dir path is empty, so the
+    # single check covers "dir absent", "path is a file", and "dir without .csproj";
+    # an existing dir that *does* hold a .csproj is left untouched.
     # fix_csharp_xunit_packages will add xunit to the root csproj during reapply().
     p3 = parse_content(updated)
     if p3.test_command:
         m3 = re.match(r'dotnet\s+test\s+([^\s-]\S*)\s*$', p3.test_command)
         if m3 and not m3.group(1).endswith('.csproj'):
             arg_path = Path(m3.group(1).rstrip('/'))
-            if arg_path.is_dir() and not list(arg_path.glob('*.csproj')):
+            if not list(arg_path.glob('*.csproj')):
                 real = sorted(Path('.').glob('*.csproj'))
                 if real:
                     updated = _set_test_command(updated, f'dotnet test {real[0]}')
