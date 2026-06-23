@@ -700,6 +700,31 @@ def ground_plan(plan_path: str, p: Plan) -> list[str]:
         except OSError:
             pass
 
+    # Level 2b — ASP.NET API completeness. A minimal-API goal whose integration test
+    # references `Program`/WebApplicationFactory needs an entry-point file, or the host
+    # type never exists and the test fails to compile (CS0246 — the dominant
+    # backend_build first-error once MSB1003 is cleared, archive scan 2026-06-23). The
+    # architect routinely plans Models/DbContext/Controllers but omits the entry point.
+    # We add the *task* — the writer authors the code (no pregenerated code, §0.2) — at
+    # the top of ## Files so it is written before the test under default order.
+    # Gated behind MU_ASPNET_ENTRYPOINT (I1: off ⇒ byte-identical).
+    _entry_names = {'program.cs', 'startup.cs', 'app.cs', 'host.cs', 'main.cs'}
+    if (os.environ.get('MU_ASPNET_ENTRYPOINT') == '1'
+            and '.cs' in exts and needs_ef
+            and not any(n in _entry_names for n in names)
+            and '] Program.cs' not in text):
+        entry_desc = (
+            'minimal API entry point: build the WebApplication host, register EF Core '
+            '(SQLite) + the DbContext, map GET /api/posts returning the seeded posts '
+            "(seed one Title='Hello World'); end the file with "
+            '`public partial class Program { }` so WebApplicationFactory<Program> in '
+            'the tests can reference it')
+        text = text.replace(
+            '## Files\n', f'## Files\n- [ ] Program.cs — {entry_desc}\n', 1)
+        changes.append('ASP.NET: added Program.cs entry-point task '
+                       '(WebApplicationFactory needs a Program host)')
+        p = parse_content(text)
+
     # Level 3 — a dotnet run command must target a project, not a source file.
     if _dotnet_run_malformed(p.test_command):
         text = _set_test_command(text, 'dotnet run')
