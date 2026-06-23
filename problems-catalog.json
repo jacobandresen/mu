@@ -91,6 +91,16 @@
       ],
       "difficulty": "hard",
       "minimize": "L0"
+    },
+    {
+      "id": "p11-foucault-sdl2",
+      "goal": "build a Foucault pendulum demo in C using SDL2. Open an SDL2 window and animate a Foucault pendulum: a bob swinging from a pivot whose plane of oscillation slowly precesses over time, redrawing the scene each frame. Run for a fixed number of frames (e.g. 600) and then exit cleanly returning 0, so the program terminates on its own without user input. Use sdl2-config in the Makefile to set the SDL2 compiler and linker flags.",
+      "toolchains": [
+        "clang",
+        "sdl2"
+      ],
+      "difficulty": "hard",
+      "minimize": "L0"
     }
   ]
 }
