@@ -65,7 +65,7 @@ Declared in `pyproject.toml`; installed automatically by pip or pipx. Dependenci
 
 ## Dojo
 
-The dojo stress-tests mu against a fixed problem set of eleven goals spanning C, Python, Go, Rust, C#, Node, full-stack TypeScript, and SDL2 graphics. Problems are defined in `problems-catalog.json`; only problems whose toolchains are installed are run.
+The dojo stress-tests mu against a fixed problem set of twelve goals spanning C, Python, Go, Rust, C#, Node, full-stack TypeScript, and SDL2 graphics/physics. Problems are defined in `problems-catalog.json`; only problems whose toolchains are installed are run.
 
 ```sh
 mu dojo run               # run all available problems once

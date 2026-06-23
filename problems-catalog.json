@@ -101,6 +101,16 @@
       ],
       "difficulty": "hard",
       "minimize": "L0"
+    },
+    {
+      "id": "p12-physics-sdl2",
+      "goal": "build a 2D physics demo in C using SDL2 illustrating gravity and collision detection. Spawn several falling items of different shapes - balls and boxes - that rotate as they fall. Each frame, apply gravity, advance positions and rotation, and detect collisions between items and with the ground and walls. On each collision, compute a new velocity direction and spin for the items involved, reducing their speed and spin a little each time (damping) so energy decreases over time. Animate every frame in an SDL2 window. The simulation ends when all items have come to rest lying still on the ground, at which point the program exits cleanly returning 0 (damping guarantees it settles, so it terminates without user input). Use sdl2-config in the Makefile to set the SDL2 compiler and linker flags.",
+      "toolchains": [
+        "clang",
+        "sdl2"
+      ],
+      "difficulty": "hard",
+      "minimize": "L0"
     }
   ]
 }
