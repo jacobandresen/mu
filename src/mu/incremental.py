@@ -50,33 +50,44 @@ def has_target(text: str, name: str) -> bool:
     return name in makefile_targets(text)
 
 
-def _ensure_phony(text: str, name: str) -> str:
-    """Register *name* as a .PHONY prerequisite (extend an existing line or add one)."""
+def _extend_phony(text: str, name: str) -> tuple[str, bool]:
+    """Add *name* to an EXISTING .PHONY line, in place. Returns (text, handled);
+    handled is False when there is no .PHONY line to extend — in which case the
+    caller appends a fresh `.PHONY: name` at the END (never prepends to the top:
+    a top-of-file .PHONY made a makefile reflex tab-indent the following variable
+    assignments, breaking $(CFLAGS) — the p3-sdl2 regression)."""
     lines = text.splitlines(keepends=True)
     for i, ln in enumerate(lines):
         if ln.lstrip().startswith('.PHONY:'):
             if name in ln.split(':', 1)[1].split():
-                return text
+                return text, True
             lines[i] = ln.rstrip('\n').rstrip() + f' {name}\n'
-            return ''.join(lines)
-    return f'.PHONY: {name}\n' + text
+            return ''.join(lines), True
+    return text, False
 
 
 def add_target(text: str, name: str, recipe, *, prereqs=(), phony=False) -> str:
     """Append a target with *recipe* (a str or a list of recipe lines) if it is
     absent. Idempotent: an existing target is left untouched. Recipe lines get a
-    leading tab; with phony=True the target is registered in .PHONY."""
+    leading tab. With phony=True the target is registered in .PHONY — extending an
+    existing .PHONY line in place, else adding `.PHONY: name` with the target block
+    at the END so the file's existing structure (top-level variable assignments)
+    is never disturbed."""
     if has_target(text, name):
         return text
     recipe_lines = [recipe] if isinstance(recipe, str) else list(recipe)
     body = ''.join(f'\t{ln}\n' for ln in recipe_lines)
     prereq_str = (' ' + ' '.join(prereqs)) if prereqs else ''
-    out = _ensure_phony(text, name) if phony else text
+    out, phony_prefix = text, ''
+    if phony:
+        out, handled = _extend_phony(out, name)
+        if not handled:
+            phony_prefix = f'.PHONY: {name}\n'
     if out and not out.endswith('\n'):
         out += '\n'
     if out and not out.endswith('\n\n'):
         out += '\n'
-    return out + f'{name}:{prereq_str}\n{body}'
+    return out + phony_prefix + f'{name}:{prereq_str}\n{body}'
 
 
 def append_check(text: str, recipe_line: str, target: str = 'check') -> str:

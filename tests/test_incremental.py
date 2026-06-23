@@ -54,6 +54,21 @@ def test_append_check_creates_then_accretes_then_dedups():
     assert inc.append_check(s2, 'cc -fsyntax-only -I. main.c') == s2
 
 
+def test_append_check_preserves_top_variable_assignments():
+    # Regression (p3-sdl2): weaving must NOT prepend .PHONY to the top, which made a
+    # makefile reflex tab-indent the CFLAGS/LDFLAGS assignments → $(CFLAGS) empty →
+    # `cc -o main main.c` with no sdl2 flags → 'SDL2/SDL.h not found'.
+    mk = ("CFLAGS  = $(shell sdl2-config --cflags)\n"
+          "LDFLAGS = $(shell sdl2-config --libs)\n\n"
+          "all: main\n\nmain: main.c\n\tcc $(CFLAGS) -o main main.c $(LDFLAGS)\n")
+    out = inc.append_check(mk, 'cc -fsyntax-only -I. main.c')
+    assert out.startswith('CFLAGS  = $(shell sdl2-config --cflags)\n')  # top untouched
+    assert '\n\tCFLAGS' not in out and '\n\tLDFLAGS' not in out          # never indented
+    assert 'check:' in out and '.PHONY: check' in out                   # target still woven
+    # the real recipe's flags survive intact
+    assert 'cc $(CFLAGS) -o main main.c $(LDFLAGS)' in out
+
+
 def test_append_check_inserts_within_recipe_not_after_next_target():
     mk = "check:\n\tcc -fsyntax-only a.c\nall:\n\tcc -o app *.c\n"
     out = inc.append_check(mk, 'cc -fsyntax-only b.c')
