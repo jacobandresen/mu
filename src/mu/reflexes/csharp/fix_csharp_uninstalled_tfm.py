@@ -3,7 +3,6 @@ import re
 import subprocess
 from functools import lru_cache
 from pathlib import Path
-from mu.reflexes.core import noted
 
 from ._common import *  # noqa: F401,F403
 
@@ -26,8 +25,8 @@ def _installed_sdk_major() -> int | None:
 # Microsoft.* runtime-versioned packages AND EntityFrameworkCore (which the sibling
 # fix_csharp_package_tfm_mismatch misses): all version in lockstep with the runtime.
 _PKG_MAJOR_RE = re.compile(
-    r'<PackageReference\s+Include="(?:Microsoft\.(?:AspNetCore|Extensions|EntityFrameworkCore)'
-    r'[^"]*|Microsoft\.EntityFrameworkCore)"\s+Version="(\d+)')
+    r'<PackageReference\s+Include="Microsoft\.(?:AspNetCore|Extensions|EntityFrameworkCore)'
+    r'[^"]*"\s+Version="(\d+)')
 
 
 def fix_csharp_uninstalled_tfm(project_dir: str) -> bool:
@@ -75,9 +74,14 @@ def fix_csharp_uninstalled_tfm(project_dir: str) -> bool:
         if tfm_major >= sdk_major:
             continue  # already at/above the installed SDK — nothing to raise
         pkg_majors = [int(m) for m in _PKG_MAJOR_RE.findall(text)]
-        max_pkg = max(pkg_majors, default=0)
-        if max_pkg <= tfm_major or max_pkg > sdk_major:
-            continue  # no offending package, or a package even newer than our SDK
+        # Offending packages the installed SDK can actually satisfy: major above the
+        # current TFM but no higher than the SDK. A package newer than our SDK can't
+        # be satisfied by any raise, so it must neither justify nor *block* the fix —
+        # the sibling fix_csharp_package_tfm_mismatch lowers those afterwards.
+        satisfiable = [m for m in pkg_majors if tfm_major < m <= sdk_major]
+        if not satisfiable:
+            continue
+        max_pkg = max(satisfiable)
 
         new_text = re.sub(
             r'(<TargetFramework>\s*)net\d+\.0(\s*</TargetFramework>)',
@@ -90,9 +94,10 @@ def fix_csharp_uninstalled_tfm(project_dir: str) -> bool:
                 r'\g<1>\n    '
                 r'<AllowMissingPrunePackageData>true</AllowMissingPrunePackageData>',
                 new_text, count=1)
-        if new_text != text:
-            csproj.write_text(new_text)
-            print(f"==> [mu-agent] Reflex: raised TargetFramework net{tfm_major}.0 → "
-                  f"net{sdk_major}.0 (installed SDK; packages required ≥ net{max_pkg}.0) in {csproj}")
-            changed = True
+        # The raise always changes the text (tfm_major < sdk_major is guaranteed
+        # above), so no new_text != text guard is needed here.
+        csproj.write_text(new_text)
+        print(f"==> [mu-agent] Reflex: raised TargetFramework net{tfm_major}.0 → "
+              f"net{sdk_major}.0 (installed SDK; packages required ≥ net{max_pkg}.0) in {csproj}")
+        changed = True
     return changed

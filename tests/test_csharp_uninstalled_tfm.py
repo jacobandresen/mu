@@ -104,13 +104,28 @@ def test_no_offending_package_left_alone(monkeypatch, gate_on, tmp_path: Path):
 
 
 def test_package_newer_than_sdk_left_alone(monkeypatch, gate_on, tmp_path: Path):
-    """If a package needs a framework newer than our SDK, raising can't satisfy it."""
+    """If EVERY offending package needs a framework newer than our SDK, raising
+    can't satisfy any of them, so leave the file alone."""
     _patch_sdk(monkeypatch, 8)
-    # Package (net9) needs a framework newer than the installed SDK (net8); the
-    # max_pkg > sdk_major guard must leave it alone rather than raise to net8.
+    # Both packages (net9) need a framework newer than the installed SDK (net8);
+    # with no satisfiable offender, the reflex must not raise to net8.
     (tmp_path / 'app.csproj').write_text(
         CSPROJ_NET5_EFCORE8.replace('Version="8.0.0"', 'Version="9.0.0"'))
     assert not fix_csharp_uninstalled_tfm(str(tmp_path))
+
+
+def test_mixed_satisfiable_and_too_new_still_raises(monkeypatch, gate_on, tmp_path: Path):
+    """A satisfiable offender (EFCore 8 ≤ SDK 10) must still trigger the raise even
+    when an unrelated package (AspNetCore 11) is newer than the SDK — the too-new
+    package is left for the sibling to lower, not a reason to skip the whole file."""
+    _patch_sdk(monkeypatch, 10)
+    (tmp_path / 'app.csproj').write_text(
+        CSPROJ_NET5_EFCORE8.replace(
+            'Microsoft.AspNetCore.Mvc.Testing" Version="8.0.0"',
+            'Microsoft.AspNetCore.Mvc.Testing" Version="11.0.0"'))
+    assert fix_csharp_uninstalled_tfm(str(tmp_path))
+    text = (tmp_path / 'app.csproj').read_text()
+    assert '<TargetFramework>net10.0</TargetFramework>' in text
 
 
 def test_unknown_sdk_left_alone(monkeypatch, gate_on, tmp_path: Path):
