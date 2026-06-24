@@ -1,4 +1,4 @@
-.PHONY: install deps venv
+.PHONY: install deps venv setup-host
 
 # Create a local .venv and install mu in editable mode with dev extras.
 # Symlinks .venv/bin/mu into ~/.local/bin so `mu` is on PATH without
@@ -18,3 +18,9 @@ venv:
 deps: venv
 
 install: venv
+
+# Tune mu's model to this machine's GPU: probe VRAM, then write MU_AGENT_MODEL
+# and (on a roomy card) MU_NUM_CTX to ~/.zshrc.mu. Standalone — re-run after a
+# hardware change. Assumes LM Studio already serves the Qwen2.5-Coder model.
+setup-host:
+	@./scripts/setup-host.sh

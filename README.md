@@ -59,6 +59,28 @@ mu agent "write a Flask REST API with SQLite and pytest tests" --dir myproject
 
 **LM Studio** is not a toolchain — download it from [lmstudio.ai](https://lmstudio.ai), load a model, and start the local server. mu connects to `http://localhost:1234` by default (override with `MU_LMSTUDIO_HOST`).
 
+## Model selection
+
+mu picks its model with two env vars: `MU_AGENT_MODEL` (the LM Studio model id to
+talk to) and `MU_NUM_CTX` (KV-cache context, default 6000). Pinning `MU_AGENT_MODEL`
+matters — without it mu auto-selects the first `/v1/models` entry, which can be a
+model too large to load.
+
+`make setup-host` sets both for this machine: it probes the GPU and writes
+`~/.zshrc.mu` (machine-local, outside the repo) — the 7B
+(`qwen2.5-coder-7b-instruct`) with `MU_NUM_CTX=12288` on a discrete NVIDIA card
+with ≥6 GB VRAM, the snappier 3B on everything else. Re-run after a hardware change.
+
+`~/.zshrc.mu` only takes effect if your shell sources it. Add to `~/.zshrc` (or
+`~/.bashrc`):
+
+```sh
+[ -r "$HOME/.zshrc.mu" ] && source "$HOME/.zshrc.mu"
+```
+
+(The selection thresholds mirror those in the [dotfiles](https://github.com/jacobandresen/dotfiles)
+`setup-host`, which pins pi's model the same way so mu and pi share one local model.)
+
 ## Python dependencies
 
 Declared in `pyproject.toml`; installed automatically by pip or pipx. Dependencies: `lmstudio`, `httpx`, `inquirerpy`, `pyflakes`, `autoflake`. All pure-Python.
