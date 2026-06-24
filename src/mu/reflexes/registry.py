@@ -84,7 +84,8 @@ _CATALOG: dict[str, list] = {
         javascript.fix_jest_no_tests_found, javascript.fix_jest_esm, javascript.fix_jest_config_js,
         javascript.fix_vitest_watch_mode, javascript.fix_vitest_globals,
         makefile.fix_makefile_missing_test_target, makefile.fix_dotnet_test_cwd,
-        csharp.fix_csharp_xunit_packages, csharp.fix_csharp_package_tfm_mismatch,
+        csharp.fix_csharp_xunit_packages, csharp.fix_csharp_uninstalled_tfm,
+        csharp.fix_csharp_package_tfm_mismatch,
         csharp.fix_csharp_test_program_conflict],
     'brace-paren-balance': [
         core.fix_json_unclosed_brackets, csharp.fix_csharp_missing_braces,
@@ -203,6 +204,7 @@ _ANNOTATIONS: dict = {
     csharp.fix_csharp_missing_using:           {'artifact': 'cs'},
     csharp.fix_csharp_xunit_packages:          {'artifact': 'csproj', 'evidence': 'p10'},
     csharp.fix_csharp_package_tfm_mismatch:    {'artifact': 'csproj', 'evidence': 'p4'},
+    csharp.fix_csharp_uninstalled_tfm:         {'artifact': 'csproj', 'evidence': 'p10'},
     csharp.fix_csharp_test_program_conflict:   {'artifact': 'csproj', 'evidence': 'p4'},
     python.fix_python_unindented_body:         {'artifact': 'py', 'evidence': 'p7'},
     csharp.fix_csharp_consecutive_duplicate_signatures: {'artifact': 'cs', 'evidence': 'p4'},

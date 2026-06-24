@@ -54,6 +54,7 @@ from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
                          apply_rust_source_reflexes,
                          fix_csharp_missing_using,
                          fix_csharp_package_tfm_mismatch,
+                         fix_csharp_uninstalled_tfm,
                          fix_csharp_test_program_conflict,
                          fix_csharp_xunit_packages,
                          fix_csharp_cross_stage_duplicate_types,
@@ -1411,6 +1412,11 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
             log("Repair reapply: added xunit packages to .csproj.")
         if _fired(fix_csharp_test_program_conflict, os.getcwd()):
             log("Repair reapply: disabled test SDK auto entry point (CS0017).")
+        # Raise an uninstalled TFM to the installed SDK *before* the sibling below
+        # would needlessly downgrade the other Microsoft.* packages to net5 (gated,
+        # default-off — MU_TFM_GROUNDING).
+        if _fired(fix_csharp_uninstalled_tfm, os.getcwd()):
+            log("Repair reapply: raised uninstalled TargetFramework to the installed SDK.")
         if _fired(fix_csharp_package_tfm_mismatch, os.getcwd()):
             log("Repair reapply: aligned Microsoft.* package majors with the TFM.")
         # If any package.json exists but its node_modules is absent, run npm install.
@@ -1719,6 +1725,9 @@ def _apply_write_reflexes_inner(file_path: str, test_command: str = '') -> None:
         log("Applied C# write reflexes to %s.", file_path)
 
     if file_path.endswith('.csproj'):
+        # TFM-raise before the package-lower sibling (gated, default-off).
+        if _fired(fix_csharp_uninstalled_tfm, str(Path(file_path).parent) or '.'):
+            log("Raised uninstalled TargetFramework to the installed SDK in %s.", file_path)
         if _fired(fix_csharp_package_tfm_mismatch, str(Path(file_path).parent) or '.'):
             log("Aligned Microsoft.* package majors with the TFM in %s.", file_path)
 
