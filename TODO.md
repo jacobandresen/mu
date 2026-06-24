@@ -36,58 +36,16 @@ qwen2.5-coder-7b).
 
 ## Done (recent)
 
-- **False-pass honesty fix + p7 Makefile grounding (2026-06-19).** Archive mining found
-  p7-flask was being scored **success** ~9× while running zero tests: the planner names
-  `make test` with no Makefile, `ground_plan` Level 2b synthesized a **C** `cc -o main main.c`
-  template (Python project!), the makefile reflexes hoisted the bogus rule out, and
-  `make test` printed `make: Nothing to be done for 'test'.` → exit 0 → the gate certified a
-  pass though nothing ran. Two fixes, both regression-tested:
-  - **plan.py** — Level 2b's `cc -o` fallback now fires only when the plan has real C/C++
-    sources; a Python project falls through to Level 4a (the venv Makefile with a real
-    `test:` target). Verified live: p7 now genuinely passes (`1 passed` from pytest).
-  - **agent.py** — `_test_passed`/`_make_vacuous` reject a make-only test command that
-    reports "Nothing to be done" (no work ran) at all four test-gate sites. `make && ./bin`
-    (p1/p3) is gated by the binary's own exit code and is left untouched. A test gate must
-    witness tests execute. (`test_ground_plan_makefile.py`, `test_vacuous_make_gate.py`.)
-- **p8 jest-globals: node-invoked spec (2026-06-19).** Extended `fix_package_json_bare_jest`
-  to also rewrite `"test": "node todo.test.js"` → `npx jest --forceExit` (jest globals are
-  undefined under bare node → "ReferenceError: it is not defined"). (`test_jest_node_invocation.py`.)
+p10 lever A/Bs (MSB1003, entry-point, S2, build-order, TFM) are logged in
+[`docs/ablations.md`](docs/ablations.md). Full narrative for each item below is in git
+history + `docs/challenges/`; kept here as a one-line index.
 
-- **Round 7 (2026-06-13), telemetry-driven.** `fix_csharp_test_program_conflict` (CS0017
-  test-SDK second `Main`); `fix_python_unindented_body` (lint-driven, ast-rollback);
-  test-gate creates a missing `Cargo.toml`; jest-globals diagnose hint. Reflex telemetry:
-  complete `firings.jsonl` (`core.noted` wraps all direct call sites), `reflex_diffs.jsonl`,
-  `repair_trace.jsonl`. **Crash fix:** round-7 reflexes were wired into `agent.py` but not
-  imported → NameError crashed every problem's repair loop (wasted run 8); fixed + AST guard
-  (`test_agent_reflex_imports`) + launcher preflight (test suite + live smoke before any 8 h run).
-
-- **`fix_inline_recipe` ablation (2026-06-11, TODO #1) — KEEP.** 3 seeds × 5 runs on
-  p7-flask, baseline vs `--disable fix_inline_recipe`, 245 post-oscillation-fix sessions in
-  the archive. Per-seed Δ (disabled − baseline): −0.20, 0.00, 0.00; mean Δ −0.067;
-  `sz5_gate` False (95% CI includes 0). Disabling did not help — the only pass in 30 runs
-  was a baseline run — so the old net-negative signal (P=0.54 [0.45,0.63] vs base 0.67,
-  n=113) was the oscillation itself, fixed by the `declared | _KNOWN_TARGETS` guard.
-  Recorded in `efficacy_run` (3 rows) and `reflex.efficacy` = −0.067.
-  Note: p7-flask fresh-plan pass rate measured far below the old 0.67 base rate (1/15
-  baseline) — that base rate mixed plan-regen runs; don't compare across measurement modes.
-
-- **"Jest ESM" bucket resolved (2026-06-11)** — the 18-session "Jest: ESM/CJS parse error"
-  bucket was *mislabeled*: diagnose's banner rule ("Jest encountered an unexpected token")
-  matched before the Babel `SyntaxError` detail line, so every Jest parse failure — none of
-  which were actually ESM — got the ESM label. Three fixes:
-  - `diagnose.py` weak-rule mechanism: banner hints survive only when no specific grammar
-    matched; added a generic Babel `SyntaxError: file: msg (L:C)` rule and a real-ESM rule
-    (`Cannot use import statement outside a module`). Replayed against all 19 archived
-    banner sessions: each now distills to its specific cause.
-  - `fix_js_same_scope_redeclaration` — the dominant real pattern (10+ sessions):
-    `const todos = readTodos();` re-declared mid-test-block. Converts the re-declaration to
-    an assignment and promotes the first decl to `let`; brace-depth scope tracking leaves
-    legal shadowing alone. (`fix_js_duplicate_const` only handled *consecutive* duplicates.)
-  - `fix_js_dot_bracket_access` — `).[0].id` member access (2 sessions); deletes the stray
-    dot, leaves `?.[` / `...[` alone.
-- **Oscillation fix** — `fix_inline_recipe` guard extended to `declared | _KNOWN_TARGETS`; regression test added
-- **`fix_dotnet_test_cwd` extended** — handles `dotnet test tests/` where `tests/` has no `.csproj` (MSB1003, 67 sessions)
-- **`fix_js_duplicate_const`** — removes consecutive duplicate const/let in test files
-- **`fix_js_program_parse_guard`** — wraps `program.parse(process.argv)` with `require.main === module`
-- **Reflex KB** — catalog + schema + model profiles + Beta-Binomial posteriors + ablation + combination report + shared-core refactor + validation tests (iters 1–5)
-- **Repair-loop degeneration → architect escalation** — same distilled error ≥2 passes → `_run_architect_pass()`
+- **False-pass honesty + p7 Makefile grounding (2026-06-19)** — p7-flask was scored success ~9× while running zero tests (`make test` → "Nothing to be done" → exit 0). `plan.py`: Level 2b `cc -o` fallback fires only with real C/C++ sources; `agent.py`: test gates reject "Nothing to be done" make commands. (`test_ground_plan_makefile.py`, `test_vacuous_make_gate.py`.)
+- **p8 jest-globals node-invoked spec (2026-06-19)** — `fix_package_json_bare_jest` also rewrites `"test": "node x.test.js"` → `npx jest --forceExit`. (`test_jest_node_invocation.py`.)
+- **Round 7 (2026-06-13), telemetry-driven** — `fix_csharp_test_program_conflict` (CS0017), `fix_python_unindented_body`, test-gate creates missing `Cargo.toml`. Reflex telemetry: `firings.jsonl`/`reflex_diffs.jsonl`/`repair_trace.jsonl`. Crash fix: unimported round-7 reflexes NameError'd the repair loop → AST guard `test_agent_reflex_imports` + launcher preflight.
+- **`fix_inline_recipe` ablation (2026-06-11) — KEEP** — disabling didn't help (mean Δ −0.067, CI includes 0); the old net-negative signal was the oscillation, fixed by the `declared | _KNOWN_TARGETS` guard.
+- **"Jest ESM" bucket resolved (2026-06-11)** — bucket was mislabeled (banner rule matched before the Babel detail). `diagnose.py` weak-rule mechanism + `fix_js_same_scope_redeclaration` + `fix_js_dot_bracket_access`.
+- **`fix_dotnet_test_cwd` extended** — `dotnet test tests/` with no `.csproj` (MSB1003).
+- **`fix_js_duplicate_const`** / **`fix_js_program_parse_guard`** — consecutive dup const/let in tests; `require.main === module` guard.
+- **Reflex KB** — catalog + schema + profiles + Beta-Binomial posteriors + ablation + combination report + shared-core refactor (iters 1–5).
+- **Repair-loop degeneration → architect escalation** — same distilled error ≥2 passes → `_run_architect_pass()`.

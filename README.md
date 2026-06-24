@@ -106,4 +106,4 @@ problem links to its own page: statement, what it builds, last-run errors and to
 and the reflexes that carry it. Recurring failure classes are catalogued in
 [docs/challenges/](docs/challenges/README.md).
 
-See [DOJO.md](DOJO.md) for the problem set, the training loop, and open problems. See [TODO.md](TODO.md) for the ranked improvement backlog.
+See [DOJO.md](DOJO.md) for the problem set, the training loop, and open problems. See [TODO.md](TODO.md) for the ranked improvement backlog, and [docs/ablations.md](docs/ablations.md) for the log of behaviour levers tried and their A/B verdicts.

@@ -531,6 +531,11 @@ reverted.
 
 ### 4.3 The steps — live checklist
 
+> **Ablation results live in [`docs/ablations.md`](../ablations.md)** — the canonical
+> log of every lever tried, its A/B numbers, and its verdict (SHIPPED / UNDER TEST /
+> PARKED / DROPPED). This checklist tracks *work items*; that file is the *results
+> ledger*. Don't duplicate verdict prose here — link to it.
+
 **This section is a live tracker** — tick `- [ ]` $\to$ `- [x]` on GitHub as each
 item lands. Each step is a milestone checkbox carrying its **target file(s)**; under it
 sit **Files** (file $\to$ responsibility), an actionable **Build** checklist (each
@@ -585,7 +590,7 @@ are mutually exclusive, selected by Step 1.4.
 - **Gate.** Self-consistency holds $\Rightarrow$ the board is trustworthy as ranking + ledger.
 - **Rollback.** Additive subcommand + JSON keys; drop them.
 
-- [x] **Step 0.3 — S2: cross-stage type-ownership reflex** $\to$ `src/mu/reflexes/csharp/` *(the headline shippable; catalogued reflex, on-by-default iff it KEEPs)* — ✅ **ablation done 2026-06-22 → verdict DROP to disabled-by-default** (qwen-7b, N=15, 4 arms; `.mu/abl_s2_verdict.md`). **p10 = 0/15 on every layer with S2 ON *and* OFF** — Gate 1 (backend_build Δq̂ CI lo > 0) FAILS (Δ≈−0.001, lo=−0.166): the cross-stage fixers have **no effect** because p10's backend fails well before CS0101/CS0053 — exactly the broader ceiling §0.3 predicted (Result 2/3: every p10 layer ≈0, so one reflex buys ≈nothing). Control p4 unharmed (ON 15/15 vs OFF 14/15, Gate 2 PASS). **Action (commit pending):** the two `_fired` calls in `_inter_stage_gate` are now gated behind opt-in `MU_S2_TYPE_REFLEXES=1` (default off = the ablation's OFF arm = pre-S2 baseline); reflexes retained (correct + harmless), to re-evaluate once the backend builds. Two instrument fixes shipped first (commit `b27effb`): `noted`/_fired now honors `MU_DISABLE_REFLEX` (the gate's S2 calls bypassed `run_reflexes`, so the ablation would have been a no-op there), and `mu dojo measure` emits per-layer q̂/p_solve/bottleneck for multilayer p10. **Lesson:** the next p10 lever must attack whatever fails the backend build *first* (re-measure the bottleneck within backend_build), not cross-stage types.
+- [x] **Step 0.3 — S2: cross-stage type-ownership reflex** $\to$ `src/mu/reflexes/csharp/` *(catalogued reflex, on-by-default iff it KEEPs)* — ✅ **ablation done → PARKED behind `MU_S2_TYPE_REFLEXES` (default off).** p10 0/15 ON=OFF, Gate 1 FAIL; p4 unharmed. Re-eval (`abl_s2b`) after the MSB1003 fix still 0/15=0/15. Full numbers + the NU1202-wall reframing: **[`docs/ablations.md`](../ablations.md)**. Instrument fixes shipped first (`b27effb`): `noted`/`_fired` honor `MU_DISABLE_REFLEX`; `mu dojo measure` emits per-layer q̂. **Lesson:** the next p10 lever must attack whatever fails the backend build *first*, not cross-stage types.
 - **Files.** `src/mu/reflexes/csharp/fix_csharp_cross_stage_duplicate_types.py` and
   `src/mu/reflexes/csharp/fix_csharp_public_signature_accessibility.py` — the two
   reflexes; `src/mu/reflexes/registry.py` — the catalogue slot; `src/mu/agent.py` —
