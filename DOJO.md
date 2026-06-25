@@ -86,8 +86,8 @@ for fixes, and [docs/ablations.md](docs/ablations.md) for behaviour-lever A/B ve
 
 Every run records token usage to the session archive. `tokens.jsonl` holds one record per
 LLM call (`phase`, `task_file`, `prompt_tokens`, `generated_tokens`, `ts`); `meta.json` adds
-`total_prompt_tokens`, `total_generated_tokens`, and `tokens_by_phase`. `mu token-report`
-aggregates them into `token_usage.md`.
+`total_prompt_tokens`, `total_generated_tokens`, and `tokens_by_phase`, which the session
+summary and the reflex KB (`mu kb`) read.
 
 The **writer** dominates (multi-turn, accumulating history); skills are ~40% of prompt
 tokens; the **repair loop** re-sends project context plus a growing history each iteration,

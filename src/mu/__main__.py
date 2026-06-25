@@ -11,7 +11,6 @@ from pathlib import Path
 from mu import __version__
 from mu import agent
 from mu import client
-from mu import theme as _theme
 
 
 def _extend_path() -> None:
@@ -121,32 +120,12 @@ def main() -> int:
                            help='Specific session IDs to reflect on; '
                                 'overrides --limit when given')
 
-    token_report_p = sub.add_parser('token-report',
-                                    help='Summarise token usage across all sessions and write token_usage.md')
-    token_report_p.add_argument('--output', default='token_usage.md', metavar='FILE',
-                                help='Output file (default: token_usage.md)')
-    token_report_p.add_argument('--sessions', default='',
-                                help='Session archive dir (default: ~/.mu/sessions)')
-
     kb_p = sub.add_parser('kb',
                           help='Build/show the reflex knowledge base (catalog + model profiles)')
     kb_p.add_argument('--sessions', default='',
                       help='Session archive dir (default: ~/.mu/sessions)')
 
     sub.add_parser('version', help='Print version')
-
-    theme_p = sub.add_parser('theme', help='Pick and apply a base16 colour scheme')
-    theme_sub = theme_p.add_subparsers(dest='theme_subcmd')
-    theme_list_p = theme_sub.add_parser('list', help=argparse.SUPPRESS)
-    theme_list_p.add_argument('dir')
-    theme_preview_p = theme_sub.add_parser('preview', help=argparse.SUPPRESS)
-    theme_preview_p.add_argument('yaml_path')
-    theme_set_p = theme_sub.add_parser('set', help=argparse.SUPPRESS)
-    theme_set_p.add_argument('config_path')
-    theme_set_p.add_argument('scheme_name')
-    theme_setclaude_p = theme_sub.add_parser('set-claude', help=argparse.SUPPRESS)
-    theme_setclaude_p.add_argument('settings_path')
-    theme_setclaude_p.add_argument('yaml_path')
 
     args = parser.parse_args()
     if not args.command:
@@ -163,10 +142,8 @@ def main() -> int:
         'architect': _cmd_architect,
         'iterate': _cmd_iterate,
         'reflect': _cmd_reflect,
-        'token-report': _cmd_token_report,
         'kb': _cmd_kb,
         'version': _cmd_version,
-        'theme': _cmd_theme,
     }
     return dispatch[args.command](args) or 0
 
@@ -735,7 +712,7 @@ def _cmd_reflect(args) -> int:
                            session_ids=args.session_ids or None)
 
 
-# ── token-report ──────────────────────────────────────────────────────────────
+# ── kb ─────────────────────────────────────────────────────────────────────────
 
 def _cmd_kb(args) -> int:
     """Rebuild the reflex knowledge base from the session archive and print it."""
@@ -748,245 +725,10 @@ def _cmd_kb(args) -> int:
     return 0
 
 
-def _cmd_token_report(args) -> int:
-    archive_dir = Path(args.sessions or os.environ.get(
-        'MU_AGENT_ARCHIVE_DIR', Path.home() / '.mu' / 'sessions'))
-
-    sessions: list[dict] = []
-    for meta_path in sorted(archive_dir.glob('*/meta.json')):
-        try:
-            m = json.loads(meta_path.read_text())
-        except Exception:
-            continue
-        if 'total_prompt_tokens' not in m:
-            continue
-        sessions.append(m)
-
-    out_path = Path(args.output)
-
-    if not sessions:
-        print("No sessions with token data found in", archive_dir)
-        return 0
-
-    n = len(sessions)
-    successes = sum(1 for s in sessions if s.get('outcome') == 'success')
-    first_try = sum(1 for s in sessions if s.get('first_try_pass'))
-    total_prompt = sum(s.get('total_prompt_tokens', 0) for s in sessions)
-    total_gen = sum(s.get('total_generated_tokens', 0) for s in sessions)
-    avg_prompt = total_prompt // n
-    avg_gen = total_gen // n
-    avg_wall = sum(s.get('duration_seconds', 0) for s in sessions) // n
-    avg_repair = sum(s.get('repair_iters', 0) for s in sessions) / n
-
-    # Phase aggregates
-    phase_totals: dict[str, dict[str, int]] = {}
-    for s in sessions:
-        for phase, bucket in s.get('tokens_by_phase', {}).items():
-            pb = phase_totals.setdefault(phase, {'prompt': 0, 'generated': 0, 'sessions': 0})
-            pb['prompt'] += bucket.get('prompt', 0)
-            pb['generated'] += bucket.get('generated', 0)
-            pb['sessions'] += 1
-
-    phase_rows = sorted(phase_totals.items(),
-                        key=lambda kv: kv[1]['prompt'] + kv[1]['generated'],
-                        reverse=True)
-    total_all = total_prompt + total_gen or 1
-
-    # Recommendations
-    recs: list[str] = []
-    if phase_totals:
-        top_phase, top_bucket = phase_rows[0]
-        top_pct = 100 * (top_bucket['prompt'] + top_bucket['generated']) // total_all
-        if top_phase == 'repair' and top_pct >= 30:
-            recs.append(
-                f'**Repair phase dominates ({top_pct}% of all tokens)** — '
-                'tighten repair prompts or add reflexes to handle frequent error patterns '
-                'before the LLM repair loop fires.')
-        elif top_phase == 'writer' and top_pct >= 50:
-            wr_ratio = top_bucket['prompt'] / (top_bucket['generated'] or 1)
-            wr_avg = top_bucket['prompt'] // (top_bucket['sessions'] or 1)
-            recs.append(
-                f'**Writer phase uses {top_pct}% of tokens**, sending {wr_ratio:.0f}x more '
-                f'prompt than it generates (~{wr_avg:,} prompt tokens/session). The system '
-                f'prompt + per-language skills are re-sent every writer turn, so prompt size '
-                f'dominates: trim verbose skills (`skills/*/SKILL.md`) to imperative rules and '
-                f'load only the skills the file being written needs. Cutting max_turns helps '
-                f'only if the ratio is low (it is not).')
-        elif top_phase == 'planner' and top_pct >= 30:
-            recs.append(
-                f'**Planner phase uses {top_pct}% of tokens** — '
-                'the planning prompt may be oversized; trim skills or docs/challenges/README.md.')
-
-    first_try_pct = 100 * first_try // n if n else 0
-    if first_try_pct < 30:
-        recs.append(
-            f'**First-try pass rate is low ({first_try_pct}%)** — '
-            'most sessions need repair iterations; review docs/challenges/README.md for recurring patterns '
-            'and add reflexes or skill guidance.')
-    elif first_try_pct >= 70:
-        recs.append(
-            f'First-try pass rate is healthy ({first_try_pct}%). '
-            'Focus optimisation on prompt-token size rather than repair costs.')
-
-    repair_bucket = phase_totals.get('repair', {})
-    if repair_bucket:
-        repair_pct = 100 * (repair_bucket['prompt'] + repair_bucket['generated']) // total_all
-        if repair_pct >= 20 and avg_repair > 2:
-            recs.append(
-                f'Average {avg_repair:.1f} repair iterations per session; '
-                'consider raising MU_NUM_CTX or adding language-specific repair skills.')
-
-    if not recs:
-        recs.append('No specific concerns — token profile looks balanced.')
-
-    lines = [
-        '# Token Usage Summary',
-        '',
-        f'Generated by `mu token-report` — mu version {__version__}',
-        '',
-        f'Sessions analysed: **{n}** ({successes} success / {n - successes} failure)  ',
-        f'First-try pass rate: **{first_try_pct}%**  ',
-        f'Average wall time: **{avg_wall}s**  ',
-        f'Average repair iterations: **{avg_repair:.1f}**  ',
-        '',
-        '## Average Token Cost Per Session',
-        '',
-        '| Metric | Tokens |',
-        '|---|---|',
-        f'| Prompt | {avg_prompt:,} |',
-        f'| Generated | {avg_gen:,} |',
-        f'| Total | {avg_prompt + avg_gen:,} |',
-        '',
-        '## Phase Breakdown (totals across all sessions)',
-        '',
-        # Prompt:Gen is the efficiency signal: a high ratio means the prompt is
-        # re-sent far more than it produces output, so the lever is prompt SIZE,
-        # not turn count. Avg prompt/session is that cost per run.
-        '| Phase | Prompt | Generated | Prompt:Gen | Avg prompt/session | % of all tokens |',
-        '|---|---|---|---|---|---|',
-    ]
-    for phase, bucket in phase_rows:
-        pct = 100 * (bucket['prompt'] + bucket['generated']) // total_all
-        ratio = bucket['prompt'] / (bucket['generated'] or 1)
-        avg_ps = bucket['prompt'] // (bucket['sessions'] or 1)
-        lines.append(
-            f'| {phase} | {bucket["prompt"]:,} | {bucket["generated"]:,} | '
-            f'{ratio:.0f}:1 | {avg_ps:,} | {pct}% |')
-    lines += [
-        '',
-        '## Recommendations',
-        '',
-    ]
-    for rec in recs:
-        lines.append(f'- {rec}')
-    lines.append('')
-
-    out_path.write_text('\n'.join(lines), encoding='utf-8')
-    print(f"Wrote {out_path} ({n} sessions)")
-    return 0
-
-
 # ── version ───────────────────────────────────────────────────────────────────
 
 def _cmd_version(args) -> int:
     print(f"mu version {__version__}")
-    return 0
-
-
-# ── theme ─────────────────────────────────────────────────────────────────────
-
-def _cmd_theme(args) -> int:
-    sub = getattr(args, 'theme_subcmd', None)
-
-    if sub == 'list':
-        for name, path in _theme.list_schemes(args.dir):
-            print(f"{name}\t{path}")
-        return 0
-
-    if sub == 'preview':
-        s = _theme.parse_scheme(args.yaml_path)
-        if not s:
-            print(f"Error: could not parse {args.yaml_path}", file=sys.stderr)
-            return 1
-        _theme.preview(s)
-        return 0
-
-    if sub == 'set':
-        try:
-            _theme.set_wezterm(args.config_path, args.scheme_name)
-            print(f"updated {args.config_path} -> {args.scheme_name} (base16)")
-        except (OSError, ValueError) as e:
-            print(f"Error: {e}", file=sys.stderr)
-            return 1
-        return 0
-
-    if sub == 'set-claude':
-        try:
-            name = _theme.set_claude(args.settings_path, args.yaml_path)
-            print(name)
-        except (OSError, ValueError) as e:
-            print(f"Error: {e}", file=sys.stderr)
-            return 1
-        return 0
-
-    # Interactive picker
-    return _theme_picker()
-
-
-def _theme_picker() -> int:
-    home = Path.home()
-    xdg_data = os.environ.get('XDG_DATA_HOME', str(home / '.local' / 'share'))
-    schemes_dir = Path(os.environ.get('SCHEMES_DIR',
-                                      Path(xdg_data) / 'tinted-theming' / 'schemes'))
-    try:
-        base16_dir = _theme.ensure_schemes(schemes_dir)
-    except (FileNotFoundError, subprocess.CalledProcessError) as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
-
-    items = _theme.list_schemes(base16_dir)
-    if not items:
-        print("No base16 schemes found.")
-        return 1
-
-    # Pick → preview the swatch → confirm, looping until the user accepts or quits.
-    rows = [(name, (name, path)) for name, path in items]
-    scheme_name = yaml_path = ''
-    while True:
-        chosen = _fuzzy_pick(rows, "theme> ")
-        if not chosen:
-            return 0  # user cancelled
-        scheme_name, yaml_path = chosen
-        s = _theme.parse_scheme(yaml_path)
-        if s:
-            _theme.preview(s)
-        try:
-            answer = input(f"Apply {scheme_name}? [Y/n] ").strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            return 0
-        if answer in ('', 'y', 'yes'):
-            break
-
-    wezterm_cfg = home / '.wezterm.lua'
-    if not wezterm_cfg.exists():
-        print(f"Error: {wezterm_cfg} not found", file=sys.stderr)
-        return 1
-
-    try:
-        _theme.set_wezterm(wezterm_cfg, scheme_name)
-        print(f"updated {wezterm_cfg} -> {scheme_name} (base16)")
-    except (OSError, ValueError) as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
-
-    claude_cfg = home / '.claude' / 'settings.json'
-    if claude_cfg.exists() and yaml_path:
-        try:
-            claude_theme = _theme.set_claude(claude_cfg, yaml_path)
-            print(f"updated {claude_cfg} -> {claude_theme}")
-        except (OSError, ValueError) as e:
-            print(f"Warning: {e}", file=sys.stderr)
-
     return 0
 
 

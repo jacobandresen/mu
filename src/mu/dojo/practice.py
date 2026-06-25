@@ -10,7 +10,7 @@ candidates. DOJO.md tracks the ranked improvement backlog.
     STOP_AFTER_BARREN=3 python -m mu.dojo practice   # bail after N no-success rounds
     SKIP_REFLECT=1 SKIP_AUTOCOMMIT=1 python -m mu.dojo practice
 
-Every optional step (warm, the round, reflect, token-report, autocommit) is
+Every optional step (warm, the round, reflect, autocommit) is
 best-effort: a single failure must never abort a long multi-round run.
 """
 
@@ -83,18 +83,8 @@ def _reflect(fails: list[SessionMeta]) -> None:
         subprocess.run(mu_cmd() + ['reflect', '-n', limit, *ids], check=False)
 
 
-def _token_report() -> None:
-    with _best_effort('token-report'):
-        subprocess.run(mu_cmd() + ['token-report', '--output', 'token_usage.md'], check=False)
-
-
 def _git_dirty(path: str) -> bool:
     return subprocess.run(['git', 'diff-index', '--quiet', 'HEAD', '--', path]).returncode != 0
-
-
-def _git_tracked(path: str) -> bool:
-    return subprocess.run(['git', 'ls-files', '--error-unmatch', path],
-                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
 
 
 def _autocommit(round_num: int) -> None:
@@ -107,9 +97,6 @@ def _autocommit(round_num: int) -> None:
         files = []
         if Path('docs/challenges/README.md').is_file() and _git_dirty('docs/challenges/README.md'):
             files.append('docs/challenges/README.md')
-        if Path('token_usage.md').is_file() and (not _git_tracked('token_usage.md') or _git_dirty('token_usage.md')):
-            subprocess.run(['git', 'add', 'token_usage.md'])
-            files.append('token_usage.md')
         index = 'docs/problems/README.md'
         if Path(index).is_file() and _git_dirty(index):
             files.append(index)
@@ -118,7 +105,7 @@ def _autocommit(round_num: int) -> None:
         ver = _mu_version()
         subprocess.run(['git', 'commit', '-o', *files, '-m',
                         f"dojo round {round_num}: update problem index, "
-                        f"docs/challenges/README.md, token_usage.md (mu {ver})"],
+                        f"docs/challenges/README.md (mu {ver})"],
                        stdout=subprocess.DEVNULL)
 
 
@@ -224,7 +211,6 @@ def run() -> int:
               f"  | cumulative {total_ok} ok / {total_fail} fail")
 
         _reflect(fails)
-        _token_report()
         _autocommit(round_num)
 
         # Barren = no successes; empty = no sessions at all (LM Studio died or
