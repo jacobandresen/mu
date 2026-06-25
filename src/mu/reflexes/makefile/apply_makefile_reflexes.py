@@ -19,6 +19,7 @@ from .fix_makefile_executable_prerequisites import fix_makefile_executable_prere
 from .fix_makefile_literal_newline_escape import fix_makefile_literal_newline_escape
 from .fix_makefile_literal_tab_escape import fix_makefile_literal_tab_escape
 from .fix_makefile_missing_compile_rule import fix_makefile_missing_compile_rule
+from .fix_makefile_missing_libm import fix_makefile_missing_libm
 from .fix_makefile_missing_test_target import fix_makefile_missing_test_target
 from .fix_makefile_npm_test_jest import fix_makefile_npm_test_jest
 from .fix_makefile_pip_install_empty import fix_makefile_pip_install_empty
@@ -53,6 +54,7 @@ _MAKEFILE_REFLEXES = [
     fix_makefile_pip_install_empty, fix_makefile_pytest_in_non_python,
     fix_makefile_bare_pytest, fix_makefile_npm_test_jest, fix_makefile_bare_vitest,
     fix_missing_venv_rule, fix_config_tool_redundant_flag,
+    fix_makefile_missing_libm,
     fix_dotnet_test_cwd,
     fix_makefile_missing_test_target,
 ]

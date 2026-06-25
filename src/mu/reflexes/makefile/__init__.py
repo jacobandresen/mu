@@ -26,6 +26,7 @@ from .fix_makefile_wrong_c_compiler import fix_makefile_wrong_c_compiler
 from .fix_makefile_double_colon_target import fix_makefile_double_colon_target
 from .fix_makefile_missing_compile_rule import fix_makefile_missing_compile_rule
 from .fix_makefile_sdl2_config_typo import fix_makefile_sdl2_config_typo
+from .fix_makefile_missing_libm import fix_makefile_missing_libm
 from .fix_config_tool_redundant_flag import fix_config_tool_redundant_flag
 from .fix_makefile_recipe_is_prerequisite_list import fix_makefile_recipe_is_prerequisite_list
 from .fix_makefile_bare_vitest import fix_makefile_bare_vitest
@@ -58,6 +59,7 @@ __all__ = [
     'fix_makefile_double_colon_target',
     'fix_makefile_missing_compile_rule',
     'fix_makefile_sdl2_config_typo',
+    'fix_makefile_missing_libm',
     'fix_config_tool_redundant_flag',
     'fix_makefile_recipe_is_prerequisite_list',
     'fix_makefile_bare_vitest',

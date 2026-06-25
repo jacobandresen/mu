@@ -109,6 +109,7 @@ _CATALOG: dict[str, list] = {
         makefile.fix_makefile_executable_prerequisites,
         makefile.fix_missing_venv_rule, makefile.fix_makefile_wrong_c_compiler,
         makefile.fix_makefile_sdl2_config_typo, makefile.fix_config_tool_redundant_flag,
+        makefile.fix_makefile_missing_libm,
         makefile.fix_makefile_pip_no_venv, makefile.fix_python_venv_cmd],
     'dependency-install': [
         python.fix_missing_pip_packages, javascript.fix_vue_missing_package,
