@@ -138,3 +138,118 @@ def test_command_exception_degrades(monkeypatch, tmp_path):
     res = do_scaffold(sig("an xUnit test project", toolchains=["dotnet"]),
                       workdir=str(tmp_path), run=boom, which=lambda b: "/usr/bin/" + b)
     assert res is None
+
+
+# ── stage-aware detection (§3.2: the frontend must not be captured by webapi) ──
+
+def test_detect_stage_backend_yields_dotnet():
+    s = sig("ASP.NET Core minimal API with EF Core and an xUnit test project",
+            toolchains=["dotnet", "node"], test_command="dotnet test")
+    assert detect(s, stage="backend").name == "dotnet-webapi"
+
+
+def test_detect_stage_frontend_excludes_dotnet():
+    # A full-stack signal: at the frontend stage only the JS recipe is eligible, even
+    # though the dotnet-webapi predicate would otherwise match the shared goal.
+    s = sig("ASP.NET Core API plus a Vue 3 app built with Vite and Vitest",
+            toolchains=["dotnet", "node"], test_command="dotnet test && npx vitest run")
+    assert detect(s, stage="frontend").name == "vite-vitest"
+    assert detect(s, stage="backend").name == "dotnet-webapi"
+
+
+def test_detect_unknown_stage_matches_none():
+    s = sig("an xUnit test project", toolchains=["dotnet"])
+    assert detect(s, stage="model") is None
+    # stage=None keeps the original all-recipes behaviour
+    assert detect(s).name == "dotnet-xunit"
+
+
+# ── webapi post-step D1/D2/D3 ──────────────────────────────────────────────────
+
+_WEB_CSPROJ = ('<Project Sdk="Microsoft.NET.Sdk.Web">\n  <PropertyGroup>\n'
+               '    <TargetFramework>net10.0</TargetFramework>\n  </PropertyGroup>\n</Project>\n')
+
+
+def _webapi_run(tmp_path, add_ok=True, calls=None):
+    """Fake `run`: `dotnet new webapi -o .` lays a Sdk.Web csproj (named after the dir,
+    as the real CLI does) + a Program.cs; `dotnet add package` succeeds or fails."""
+    csproj = tmp_path / f"{tmp_path.name}.csproj"
+
+    def _run(argv, *a, **k):
+        if calls is not None:
+            calls.append(tuple(argv))
+        if argv[:2] == ["dotnet", "new"]:
+            csproj.write_text(_WEB_CSPROJ)
+            (tmp_path / "Program.cs").write_text("var app = WebApplication.Create();\napp.Run();\n")
+            class P: returncode = 0
+            return P()
+        if argv[:3] == ["dotnet", "add", "package"]:
+            class P: returncode = 0 if add_ok else 1
+            return P()
+        class P: returncode = 0
+        return P()
+    return _run, csproj
+
+
+def _webapi_sig(ef=True):
+    goal = "ASP.NET Core minimal API" + (" with EF Core and SQLite" if ef else "")
+    return sig(goal, toolchains=["dotnet"], test_command="dotnet test")
+
+
+def test_webapi_d1_adds_prune_property(monkeypatch, tmp_path):
+    monkeypatch.setenv("MU_SCAFFOLD", "1")
+    run, csproj = _webapi_run(tmp_path)
+    res = do_scaffold(_webapi_sig(ef=False), workdir=str(tmp_path), run=run,
+                      which=lambda b: "/usr/bin/" + b, stage="backend")
+    assert res and res.recipe == "dotnet-webapi"
+    assert "<AllowMissingPrunePackageData>true</AllowMissingPrunePackageData>" in csproj.read_text()
+    assert csproj.name in res.files            # the csproj is owned
+
+
+def test_webapi_d2_adds_ef_packages_when_signalled(monkeypatch, tmp_path):
+    monkeypatch.setenv("MU_SCAFFOLD", "1")
+    calls = []
+    run, _ = _webapi_run(tmp_path, calls=calls)
+    res = do_scaffold(_webapi_sig(ef=True), workdir=str(tmp_path), run=run,
+                      which=lambda b: "/usr/bin/" + b, stage="backend")
+    added = {c[3] for c in calls if c[:3] == ("dotnet", "add", "package")}
+    assert "Microsoft.EntityFrameworkCore.Sqlite" in added
+    assert res is not None                       # complete: csproj owned
+
+
+def test_webapi_d2_not_added_without_ef_signal(monkeypatch, tmp_path):
+    monkeypatch.setenv("MU_SCAFFOLD", "1")
+    calls = []
+    run, _ = _webapi_run(tmp_path, calls=calls)
+    do_scaffold(_webapi_sig(ef=False), workdir=str(tmp_path), run=run,
+                which=lambda b: "/usr/bin/" + b, stage="backend")
+    assert not any(c[:3] == ("dotnet", "add", "package") for c in calls)
+
+
+def test_webapi_offline_degrade_still_owns_csproj(monkeypatch, tmp_path):
+    # D2's add-package fails (cold offline cache): the csproj is STILL owned (D1 made it
+    # restore) — the degrade is informational, never an ownership drop (scaffolding.md §4).
+    monkeypatch.setenv("MU_SCAFFOLD", "1")
+    run, csproj = _webapi_run(tmp_path, add_ok=False)
+    res = do_scaffold(_webapi_sig(ef=True), workdir=str(tmp_path), run=run,
+                      which=lambda b: "/usr/bin/" + b, stage="backend")
+    assert res is not None and csproj.name in res.files
+    assert "<AllowMissingPrunePackageData>true</AllowMissingPrunePackageData>" in csproj.read_text()
+
+
+def test_scaffold_owned_files_match_plan_and_spare_program_cs(monkeypatch, tmp_path):
+    # The owned-path/plan-name invariant (advisor): on a real `dotnet new` layout the
+    # scaffold's csproj name matches the plan's auto-grounded `{dir}.csproj` task, so
+    # reconcile marks it done; Program.cs is created-but-unowned, so it stays a model task.
+    from mu.agent import reconcile_provided
+    from mu.plan import parse
+    monkeypatch.setenv("MU_SCAFFOLD", "1")
+    run, csproj = _webapi_run(tmp_path, add_ok=False)
+    res = do_scaffold(_webapi_sig(ef=True), workdir=str(tmp_path), run=run,
+                      which=lambda b: "/usr/bin/" + b, stage="backend")
+    pf = tmp_path / "PLAN.md"
+    pf.write_text(f"## Files\n- [ ] {csproj.name} project file\n- [ ] Program.cs the host\n")
+    done = {t.file_path: t.done
+            for t in reconcile_provided(str(pf), parse(str(pf)), owned_paths=set(res.files)).tasks}
+    assert done[csproj.name] is True            # scaffold-owned ⇒ writer skips it
+    assert done["Program.cs"] is False          # D3: model authors the host body

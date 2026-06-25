@@ -115,10 +115,15 @@ Three decisions follow — each a real change, each validated by a unit test (§
 Scaffolding fixes the **TFM-mismatch** cause of NU1202 (owns net10) and, with D1, the
 **prune-data** cause (`NETSDK1226`). It does **not** fix the **cold-cache** cause: D2's
 `dotnet add package` and the restore still need EF/SQLite in the local NuGet cache. Air-gapped
-with a cold cache they fail — so the recipe must **degrade**: if add-package or restore fails,
-keep the net10 host + `Program.cs` the scaffold already wrote and let the model add EF itself
-(baseline for that slice). This matches the existing `scaffold()` contract — *only ever a head
-start, never a block.* TOOLS.md §6.1's "shrinks, not zeroes NU1202" is the honest summary.
+with a cold cache they fail — so the recipe **degrades**: `_webapi_post` returns `False`, and
+the run falls back to the baseline. Concretely, the EF-less csproj is then rewritten by
+`ground_plan` (plan.py) into the model-baseline EF project, so the slice runs as if
+un-scaffolded — *degrade ≈ baseline*, not "the scaffold's host survives" (an earlier draft
+overstated this; verified: `ground_plan` overwrites a needs-EF csproj that lacks EF). The
+happy path is unaffected — EF present ⇒ no rewrite ⇒ the verified-restorable csproj stands —
+and that is what the warm-cache A/B measures. This matches the `scaffold()` contract — *only
+ever a head start, never a block.* TOOLS.md §6.1's "shrinks, not zeroes NU1202" is the honest
+summary.
 
 ---
 
@@ -168,11 +173,15 @@ row. **Then** re-test the PARKED S2/entry-point levers, now that restore is reac
 
 - [x] `scaffold.py`: detector + declarative recipes + graceful runner + flags.
 - [x] `reconcile_provided` (S3) + 20 unit tests.
-- [ ] Stage-aware `detect(sig, stage=…)` (§3.2).
-- [ ] Wire `scaffold()` into `run_staged` behind `MU_SCAFFOLD`; pass owned files to
-      `reconcile_provided`; record `meta.json.scaffold` (§3.1/3.4).
-- [ ] webapi recipe D1 (`AllowMissingPrunePackageData`) + D2 (EF add-package, SDK-major) + D3
-      decision (§2).
-- [ ] Unit tests for the three new behaviours + offline degrade (§5).
+- [x] Stage-aware `detect(sig, stage=…)` (§3.2).
+- [x] Wire `scaffold()` into `run_staged` behind `MU_SCAFFOLD`; pass owned files to
+      `reconcile_provided` (`run(owned_paths=…)`); record `meta.json.scaffold` via
+      `MU_SCAFFOLD_RECIPE`, cleared per stage so labels don't leak (§3.1/3.4).
+- [x] webapi recipe D1 (`AllowMissingPrunePackageData`, scoped to `Sdk.Web`) + D2 (EF
+      add-package, unpinned) via `Recipe.post`. **D3:** always own the csproj — D1 makes it
+      restore regardless, so a degrade is informational, not an ownership drop (corrects the
+      first sketch); `Program.cs` stays a model task via explicit `owned_paths` (§2).
+- [x] Unit tests for the new behaviours + offline degrade + the owned-path/plan-name
+      match (§5).
 - [ ] Pre-register + run the p10 A/B (scaffold vs baseline vs TFM-grounding); record the verdict
       in `ablations.md`; re-test the PARKED S2/entry-point levers if the wall clears.

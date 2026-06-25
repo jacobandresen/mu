@@ -48,11 +48,14 @@ class Recipe:
     command: tuple[str, ...]        # argv run in the work dir
     owns: tuple[str, ...]           # glob patterns the scaffold owns
     detect: Callable[["Signal"], bool] = field(repr=False)
-    # Optional post-`dotnet new` step (D1/D2): given (sig, workdir, run) it patches
-    # the generated project so it actually restores+compiles, returning True when the
-    # project is complete. False means it could not be completed (e.g. EF packages
-    # needed but un-addable offline) — the manifest is then *not* owned, so the model
-    # finishes it (graceful degrade, scaffolding.md §4). Default None ⇒ no post-step.
+    # Optional post-`dotnet new` step (D1/D2): given (sig, workdir, run) it patches the
+    # generated project so it actually restores. D1 (the prune-data property) is a local
+    # edit that always succeeds and is what makes the csproj restorable, so the manifest
+    # is **owned regardless** of the return. The bool only *reports* completeness: True =
+    # fully ready; False = a degrade (e.g. D2's EF package un-addable on a cold offline
+    # cache) — recorded/logged, never an ownership drop. On False the run falls back to the
+    # baseline csproj (ground_plan rewrites the EF-less project), i.e. degrade ≈ a
+    # non-scaffolded run (graceful degrade, scaffolding.md §4). Default None ⇒ none.
     post: Optional[Callable[["Signal", str, Callable], bool]] = field(
         default=None, repr=False)
 
@@ -111,12 +114,76 @@ def _is_vite_vitest(sig: "Signal") -> bool:
         sig, "vitest", "vue", "@vue/test-utils")
 
 
+# ── webapi post-step (D1/D2): make `dotnet new webapi` actually restore ────────
+
+# The EF/SQLite package the blog backend needs but `dotnet new webapi` omits (D2).
+# Sqlite only — it transitively brings EF Core itself; Design is migrations-only and
+# every extra package is one more thing that must be cached to avoid the cold-cache
+# degrade. Left unpinned: restore resolves a version against the installed SDK, rather
+# than hard-coding a major that may not be in the local NuGet cache (scaffolding.md §2 D2).
+_EF_PACKAGES: tuple[str, ...] = (
+    "Microsoft.EntityFrameworkCore.Sqlite",
+)
+
+
+def _needs_ef(sig: "Signal") -> bool:
+    """The goal names an EF/SQLite data layer (the only trigger for D2 — never an id)."""
+    return _has(sig, "ef core", "entity framework", "entityframework", "sqlite", "dbcontext")
+
+
+def _webapi_post(sig: "Signal", workdir: str, run: Callable) -> bool:
+    """Make the `dotnet new webapi` project restorable + EF-ready (scaffolding.md §2).
+
+    **D1** — add ``<AllowMissingPrunePackageData>true</AllowMissingPrunePackageData>`` to
+    the ``Microsoft.NET.Sdk.Web`` project (the verified NETSDK1226 trigger on SDK ≥ 9, and
+    *only* that SDK — a plain-Sdk test project is left untouched). A local edit that always
+    succeeds, so the csproj restores at the installed SDK's net version.
+
+    **D2** — when the goal signals EF/SQLite, ``dotnet add package`` the EF package, letting
+    the resolver pick the version. Returns True when complete; False when the add fails (cold
+    NuGet cache, offline). On False the run falls back to the baseline: ``ground_plan``
+    (plan.py) sees the EF-less csproj and rewrites it with the model-baseline EF project, so
+    the slice degrades to a non-scaffolded run (§4's honest floor) rather than the scaffold's
+    csproj surviving — the happy path (EF present ⇒ no rewrite) keeps this verified one.
+    """
+    base = Path(workdir)
+    for csproj in base.rglob("*.csproj"):
+        if any(part in csproj.parts for part in ("obj", "bin")):
+            continue
+        try:
+            text = csproj.read_text()
+        except OSError:
+            continue
+        if 'Sdk="Microsoft.NET.Sdk.Web"' not in text or "AllowMissingPrunePackageData" in text:
+            continue
+        prop = "<AllowMissingPrunePackageData>true</AllowMissingPrunePackageData>"
+        if "</PropertyGroup>" in text:
+            patched = text.replace("</PropertyGroup>", f"  {prop}\n  </PropertyGroup>", 1)
+        else:  # no PropertyGroup (unusual) — add one right after the opening <Project> tag
+            patched = re.sub(r"(<Project[^>]*>)", rf"\1\n  <PropertyGroup>{prop}</PropertyGroup>",
+                             text, count=1)
+        try:
+            csproj.write_text(patched)
+        except OSError:
+            pass
+    if _needs_ef(sig):
+        for pkg in _EF_PACKAGES:
+            try:
+                proc = run(["dotnet", "add", "package", pkg], cwd=workdir,
+                           capture_output=True, text=True, timeout=120)
+            except Exception:
+                return False
+            if getattr(proc, "returncode", 1) != 0:
+                return False
+    return True
+
+
 # Order matters: the more specific .NET web recipe is tried before the bare test
 # recipe so an ASP.NET+xUnit goal scaffolds the web project, not just a test one.
 RECIPES: tuple[Recipe, ...] = (
     Recipe("dotnet-webapi", "offline", "dotnet",
            ("dotnet", "new", "webapi", "-o", "."),
-           owns=("*.csproj",), detect=_is_dotnet_web),
+           owns=("*.csproj",), detect=_is_dotnet_web, post=_webapi_post),
     Recipe("dotnet-xunit", "offline", "dotnet",
            ("dotnet", "new", "xunit", "-o", "."),
            owns=("*.csproj",), detect=_is_dotnet_test),
@@ -138,14 +205,36 @@ def is_fullstack_dotnet_vue(sig: Signal) -> bool:
             and any(k in sig.haystack for k in ("vue", "vite")))
 
 
-def detect(sig: Signal) -> Optional[Recipe]:
+# Which recipes each stage may use (stage-aware detect, scaffolding.md §3.2). The
+# backend stage scaffolds the .NET project (webapi takes precedence over the bare test
+# project, per RECIPES order); the frontend stage only the JS app — so a dotnet-* recipe
+# can never capture the frontend stage (the bug that sank the first wiring). p10's backend
+# is webapi-first by design: the §0 cascade lives in backend_build (the web project), and
+# §2 found the xunit recipe needs no patching, so webapi-only carries the headline Δq̂;
+# xunit still fires for a test-only dotnet goal (p4) that shows no web signal.
+_STAGE_RECIPES: dict[str, tuple[str, ...]] = {
+    "backend": ("dotnet-webapi", "dotnet-xunit"),
+    "frontend": ("vite-vitest",),
+}
+
+
+def detect(sig: Signal, stage: Optional[str] = None) -> Optional[Recipe]:
     """The first recipe whose capability predicate matches, or None.
 
     Pure and side-effect-free — the honesty-critical core. A synthetic, non-dojo
     goal for the same stack must select the same recipe; a goal with no stack
     signal must select none.
+
+    With ``stage`` set, only recipes eligible for that stage are considered, so the
+    frontend stage is never captured by ``dotnet-webapi`` (scaffolding.md §3.2); an
+    unrecognised stage matches nothing. ``stage=None`` considers all recipes (a
+    non-staged run), preserving the original behaviour.
     """
-    return next((r for r in RECIPES if r.detect(sig)), None)
+    eligible = RECIPES
+    if stage is not None:
+        allowed = _STAGE_RECIPES.get(stage, ())
+        eligible = tuple(r for r in RECIPES if r.name in allowed)
+    return next((r for r in eligible if r.detect(sig)), None)
 
 
 # ── flags ─────────────────────────────────────────────────────────────────────
@@ -172,18 +261,19 @@ def _scoped_out(recipe: Recipe) -> bool:
 
 def scaffold(sig: Signal, workdir: str = ".",
              run: Callable = subprocess.run,
-             which: Callable[[str], Optional[str]] = shutil.which) -> Optional[ScaffoldResult]:
+             which: Callable[[str], Optional[str]] = shutil.which,
+             stage: Optional[str] = None) -> Optional[ScaffoldResult]:
     """Lay down the template for ``sig``'s stack into ``workdir``, or return None.
 
     Returns None (and changes nothing) when: scaffolding is disabled, no recipe
-    matches, the recipe is scoped out, its CLI is absent, the online tier is
-    needed but not enabled, or the command fails. Every one of these degrades to
-    the baseline path — the model writes the structure itself. Scaffolding can
-    only add a head start, never block a run.
+    matches (for ``stage``), the recipe is scoped out, its CLI is absent, the online
+    tier is needed but not enabled, or the command fails. Every one of these degrades
+    to the baseline path — the model writes the structure itself. Scaffolding can only
+    add a head start, never block a run.
     """
     if not enabled():
         return None
-    recipe = detect(sig)
+    recipe = detect(sig, stage)
     if recipe is None or _scoped_out(recipe):
         return None
     if recipe.tier == "online" and not online_enabled():
@@ -197,6 +287,17 @@ def scaffold(sig: Signal, workdir: str = ".",
             return None
     except Exception:
         return None
+    # Post-step (D1/D2): patch the generated project so it actually restores. D1 always
+    # succeeds, so the manifest is owned either way; a False return is the offline EF
+    # degrade — reported, never an ownership change (scaffolding.md §4).
+    if recipe.post is not None:
+        try:
+            complete = recipe.post(sig, workdir, run)
+        except Exception:
+            complete = False
+        if not complete:
+            print(f"==> [mu-agent] scaffold: {recipe.name} degraded — packages un-addable "
+                  f"(offline cache); falling back to the baseline project.", flush=True)
     created = _owned_files(recipe, workdir)
     return ScaffoldResult(recipe.name, recipe.tier, created)
 

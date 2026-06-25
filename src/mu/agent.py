@@ -27,7 +27,7 @@ import traceback
 from pathlib import Path
 from typing import Optional
 
-from mu import tools
+from mu import scaffold, toolchain, tools
 from mu.archive import AgentSession
 from mu.client import (LMS_HOST, chat, list_downloaded_llm_paths, list_models,
                         load_catalog, load_model, max_prompt_tokens, normalize_model_bare,
@@ -547,7 +547,7 @@ def reconcile_provided(plan_file: str, p: "Plan",
 
 def run(goal: str, model: str = '', target_dir: str = '',
         max_iter: int = 10, force: bool = False, show_result: bool = False,
-        plan_file: str = 'PLAN.md') -> int:
+        plan_file: str = 'PLAN.md', owned_paths: "set[str] | None" = None) -> int:
     if not model:
         model = os.environ.get('MU_AGENT_MODEL', '')
     if not model:
@@ -697,8 +697,11 @@ def run(goal: str, model: str = '', target_dir: str = '',
         # Provided files: anything supplied to the work dir (a fixture, a scaffold,
         # a contract-owned file) is not the model's job — mark it done so the writer
         # skips it (and, with S2, can't redeclare it). One routine; see
-        # reconcile_provided. owned_paths=None keeps the legacy fixture-detection.
-        p = reconcile_provided(plan_file, p)
+        # reconcile_provided. owned_paths=None keeps the legacy fixture-detection;
+        # run_staged passes the scaffold's owned files explicitly so exactly those are
+        # marked (and the scaffold's created-but-unowned files — e.g. Program.cs, D3 —
+        # stay model tasks rather than being auto-marked done).
+        p = reconcile_provided(plan_file, p, owned_paths=owned_paths)
 
         # Design criterion: build a complex plan bottom-up — reorder the checklist
         # so manifests and callee modules are written before their callers and the
@@ -2177,6 +2180,28 @@ _stage_depth = 0
 _staged_ledger = None
 
 
+def _stage_scaffold(goal: str, plan_file: str,
+                    stage_name: str) -> "Optional[scaffold.ScaffoldResult]":
+    """Build a capability Signal for this stage and lay down its template.
+
+    Detection keys only on capability facts — the goal, the stage's parsed plan (test
+    command + planned files) and the installed toolchains — never a problem id (the
+    honesty boundary, scaffold.py). Returns the ScaffoldResult (logged) or None.
+    """
+    p = parse(plan_file) if Path(plan_file).exists() else None
+    sig = scaffold.Signal(
+        goal=goal,
+        toolchains=frozenset(toolchain.available()),
+        test_command=(p.test_command or '') if p else '',
+        files=tuple(t.file_path for t in p.tasks) if p else (),
+    )
+    result = scaffold.scaffold(sig, stage=stage_name)
+    if result is not None:
+        log("Scaffolded %s (%s) for stage '%s'; owns: %s", result.recipe, result.tier,
+            stage_name, ', '.join(result.files) or '(host files left model-owned)')
+    return result
+
+
 def run_staged(goal: str, model: str = '', target_dir: str = '',
                max_iter: int = 10) -> int:
     """Execute staged plan files sequentially with a hard backend→frontend gate."""
@@ -2205,9 +2230,23 @@ def run_staged(goal: str, model: str = '', target_dir: str = '',
             print(f"\n{'='*60}\n  Stage {i+1}/{len(active)}: {stage_name}\n{'='*60}\n",
                   flush=True)
 
+            # Scaffolding (scaffolding.md §3): lay down this stage's template before the
+            # writer runs, so the model fills only logic. The MU_SCAFFOLD gate lives inside
+            # scaffold(); unset ⇒ owned stays None and the stage is byte-identical to today.
+            # MU_SCAFFOLD_RECIPE (read into meta.json at archive time) is cleared per stage
+            # so the frontend stage never inherits the backend's recipe label.
+            os.environ.pop('MU_SCAFFOLD_RECIPE', None)
+            owned: "set[str] | None" = None
+            if scaffold.enabled():
+                _sr = _stage_scaffold(goal, plan_file, stage_name)
+                if _sr is not None:
+                    os.environ['MU_SCAFFOLD_RECIPE'] = _sr.recipe
+                    owned = set(_sr.files)
+
             _stage_depth += 1
             try:
-                rc = run(goal, model, plan_file=plan_file, force=True, max_iter=max_iter)
+                rc = run(goal, model, plan_file=plan_file, force=True,
+                         max_iter=max_iter, owned_paths=owned)
             finally:
                 _stage_depth -= 1
             if rc != 0:
