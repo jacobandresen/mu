@@ -131,13 +131,31 @@ def _needs_ef(sig: "Signal") -> bool:
     return _has(sig, "ef core", "entity framework", "entityframework", "sqlite", "dbcontext")
 
 
+def _dotnet_sdk_major(run: Callable) -> Optional[int]:
+    """Major version of the installed dotnet SDK (e.g. 10), or None if unknown.
+
+    Grounds the scaffold in the *real* toolchain — the SDK that actually ran
+    `dotnet new` decides which net version the csproj targets and whether the
+    NETSDK1226 prune-data quirk applies. Mirrors
+    ``fix_csharp_uninstalled_tfm._installed_sdk_major``; uses the injected ``run``
+    so it stays testable and consistent with the rest of the post-step."""
+    try:
+        proc = run(["dotnet", "--version"], capture_output=True, text=True, timeout=10)
+        major = (getattr(proc, "stdout", "") or "").strip().split(".")[0]
+        return int(major) if major.isdigit() else None
+    except Exception:
+        return None
+
+
 def _webapi_post(sig: "Signal", workdir: str, run: Callable) -> bool:
     """Make the `dotnet new webapi` project restorable + EF-ready (scaffolding.md §2).
 
-    **D1** — add ``<AllowMissingPrunePackageData>true</AllowMissingPrunePackageData>`` to
-    the ``Microsoft.NET.Sdk.Web`` project (the verified NETSDK1226 trigger on SDK ≥ 9, and
-    *only* that SDK — a plain-Sdk test project is left untouched). A local edit that always
-    succeeds, so the csproj restores at the installed SDK's net version.
+    **D1** — add ``<AllowMissingPrunePackageData>true</AllowMissingPrunePackageData>`` to the
+    ``Microsoft.NET.Sdk.Web`` project, but **only when the installed SDK major is ≥ 9** (the
+    verified NETSDK1226 trigger — grounded in the real toolchain, `dotnet --version`, not
+    assumed). A plain-Sdk test project, or an older SDK that doesn't trip NETSDK1226, is left
+    untouched. A local edit that always succeeds, so the csproj restores at the SDK's net
+    version (which `dotnet new` already targets — TFM is grounded too).
 
     **D2** — when the goal signals EF/SQLite, ``dotnet add package`` the EF package, letting
     the resolver pick the version. Returns True when complete; False when the add fails (cold
@@ -147,6 +165,9 @@ def _webapi_post(sig: "Signal", workdir: str, run: Callable) -> bool:
     csproj surviving — the happy path (EF present ⇒ no rewrite) keeps this verified one.
     """
     base = Path(workdir)
+    # D1 is SDK-grounded: the prune-data property only matters on net9+ SDKs. Query the real
+    # SDK once; skip the patch entirely on older (or unknown) SDKs that never trip NETSDK1226.
+    sdk_major = _dotnet_sdk_major(run)
     for csproj in base.rglob("*.csproj"):
         if any(part in csproj.parts for part in ("obj", "bin")):
             continue
@@ -156,6 +177,8 @@ def _webapi_post(sig: "Signal", workdir: str, run: Callable) -> bool:
             continue
         if 'Sdk="Microsoft.NET.Sdk.Web"' not in text or "AllowMissingPrunePackageData" in text:
             continue
+        if sdk_major is None or sdk_major < 9:
+            continue   # grounded: no NETSDK1226 on this SDK ⇒ no patch needed
         prop = "<AllowMissingPrunePackageData>true</AllowMissingPrunePackageData>"
         if "</PropertyGroup>" in text:
             patched = text.replace("</PropertyGroup>", f"  {prop}\n  </PropertyGroup>", 1)

@@ -194,9 +194,10 @@ _WEB_CSPROJ = ('<Project Sdk="Microsoft.NET.Sdk.Web">\n  <PropertyGroup>\n'
                '    <TargetFramework>net10.0</TargetFramework>\n  </PropertyGroup>\n</Project>\n')
 
 
-def _webapi_run(tmp_path, add_ok=True, calls=None):
+def _webapi_run(tmp_path, add_ok=True, calls=None, sdk="10.0.109"):
     """Fake `run`: `dotnet new webapi -o .` lays a Sdk.Web csproj (named after the dir,
-    as the real CLI does) + a Program.cs; `dotnet add package` succeeds or fails."""
+    as the real CLI does) + a Program.cs; `dotnet --version` reports the (grounded) SDK;
+    `dotnet add package` succeeds or fails."""
     csproj = tmp_path / f"{tmp_path.name}.csproj"
 
     def _run(argv, *a, **k):
@@ -206,6 +207,9 @@ def _webapi_run(tmp_path, add_ok=True, calls=None):
             csproj.write_text(_WEB_CSPROJ)
             (tmp_path / "Program.cs").write_text("var app = WebApplication.Create();\napp.Run();\n")
             class P: returncode = 0
+            return P()
+        if argv[:2] == ["dotnet", "--version"]:
+            class P: returncode = 0; stdout = sdk
             return P()
         if argv[:3] == ["dotnet", "add", "package"]:
             class P: returncode = 0 if add_ok else 1
@@ -222,12 +226,23 @@ def _webapi_sig(ef=True):
 
 def test_webapi_d1_adds_prune_property(monkeypatch, tmp_path):
     monkeypatch.setenv("MU_SCAFFOLD", "1")
-    run, csproj = _webapi_run(tmp_path)
+    run, csproj = _webapi_run(tmp_path)         # SDK 10 ⇒ NETSDK1226 applies
     res = do_scaffold(_webapi_sig(ef=False), workdir=str(tmp_path), run=run,
                       which=lambda b: "/usr/bin/" + b, stage="backend")
     assert res and res.recipe == "dotnet-webapi"
     assert "<AllowMissingPrunePackageData>true</AllowMissingPrunePackageData>" in csproj.read_text()
     assert csproj.name in res.files            # the csproj is owned
+
+
+def test_webapi_d1_grounded_skips_on_old_sdk(monkeypatch, tmp_path):
+    # D1 is grounded to the real SDK: net8 doesn't trip NETSDK1226, so no prune patch.
+    monkeypatch.setenv("MU_SCAFFOLD", "1")
+    run, csproj = _webapi_run(tmp_path, sdk="8.0.404")
+    res = do_scaffold(_webapi_sig(ef=False), workdir=str(tmp_path), run=run,
+                      which=lambda b: "/usr/bin/" + b, stage="backend")
+    assert res and res.recipe == "dotnet-webapi"
+    assert "AllowMissingPrunePackageData" not in csproj.read_text()
+    assert csproj.name in res.files            # still owned (csproj restores as-is on net8)
 
 
 def test_webapi_d2_adds_ef_packages_when_signalled(monkeypatch, tmp_path):
