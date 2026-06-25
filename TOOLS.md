@@ -1,9 +1,11 @@
 # Tools for the dojo challenges — a report
 
-_A survey of external program-analysis and program-transformation tools that could
-address the failure classes in [challenges](docs/challenges/README.md), and a discussion of
-when a **tool** is the right instrument versus a hand-written **reflex**. This is a
-design study — nothing here is implemented; the intent is to map the option space._
+_A survey of external program-analysis and -transformation tools that could address the
+failure classes in [challenges](docs/challenges/README.md), and an argument for when a
+**tool** is the right instrument versus a hand-written **reflex**. mu is already a
+tool-using agent (§5 lists what ships); this study maps which *further* tools to admit,
+where they insert, and what each costs. The §6 proposals are unbuilt; everything marked
+✓/◐ runs today._
 
 > Scope note. By **reflex** we mean mu's own deterministic, post-write fixers
 > (`src/mu/reflexes/`, chained by `run_reflexes`): mostly regular-expression or small
@@ -66,65 +68,39 @@ classes. The automatic-program-repair literature frames the same tension as
 name it thought absent — is the canonical reflex hazard: a regex that is *almost* right.
 A grammar-aware tool (an LSP "organize imports" action) cannot make that mistake.
 
-**The synthesis this report argues for:**
+The "Maintenance" and "Overfitting" rows have a live example in mu's own tree:
+[`_csproj_content`](src/mu/plan.py) is a hand-rolled C# scaffolder. It must track every
+SDK / TFM / package shape by hand, and — because it fires only when the model wrote *no*
+csproj — it cannot prevent the model's own broken one (the dominant p10 failure, §6.1).
+That is exactly the cost the table assigns reflexes, and the case for delegating it to
+`dotnet new`.
 
-- **Reflexes win** for the high-frequency, low-complexity, dependency-sensitive fixes —
-  artifact stripping, literal-newline repair, Makefile-tab normalization — where a tool
-  would be disproportionate and the offline guarantee matters.
-- **Tools win** for (a) *grammar-aware structural edits* that regex does brittlely
-  (duplicate-class removal, import insertion, re-indentation), (b) the *oracle* role
-  (compilers and type checkers as ground truth feeding `diagnose`), and (c)
-  *scaffolding*, where the cheapest fix is to never generate the broken structure at all.
-- **Both are bound by the honesty rule** ([AGENTS.md](AGENTS.md) §0): a tool, like a
-  reflex, must address a *general* class. Shelling out to a formatter is honest; invoking
-  a tool whose configuration is tuned to pass one dojo problem is not — and worse, it
-  measures the tool, not the agent.
+**The verdict this report argues:** reflexes win the high-frequency, dependency-sensitive
+fixes where a tool is disproportionate and the offline guarantee matters; tools win the
+grammar-aware structural edits regex does brittlely, the *oracle* role (compilers and type
+checkers feeding `diagnose`), and *scaffolding* — where the cheapest fix is to never emit
+the broken structure. Both are bound by the honesty rule ([AGENTS.md](AGENTS.md) §0): a
+fix, tool or reflex, must address a *general* class. A tool tuned to pass one dojo problem
+measures the tool, not the agent.
 
 ---
 
-## 3. Where tools and reflexes fit — overview diagram
+## 3. Where tools and reflexes fit
 
-```
-                         the mu autonomous loop
-  ┌──────────────────────────────────────────────────────────────────────────┐
-  │                                                                            │
-  │  PLAN TIME            WRITE TIME            GATE TIME            REPAIR     │
-  │  ─────────            ──────────            ─────────           ──────     │
-  │                                                                            │
-  │  ┌─ scaffolders ─┐    model writes a file                                  │
-  │  │ dotnet new    │          │                                              │
-  │  │ create-vue    │          ▼                                              │
-  │  │ cargo new     │   ┌──────────────┐                                      │
-  │  │ (TOOLS)       │   │  REFLEXES     │  cheap, in-process, offline         │
-  │  └───────┬───────┘   │  regex/AST    │  ── mu's home turf                  │
-  │          │           └──────┬───────┘                                      │
-  │          │                  │                                              │
-  │          │           ┌──────▼────────┐   formatters / AST-rewrite engines  │
-  │          │           │ TRANSFORM TOOLS│  black, gofmt, rustfmt, prettier,   │
-  │          │           │ (grammar-aware)│  comby, libcst, ts-morph, OpenRewrite│
-  │          │           └──────┬────────┘                                      │
-  │          ▼                  ▼                                              │
-  │   ground the         ┌───────────────┐   ORACLE TOOLS                       │
-  │   workspace from      │  LINT / TYPE  │   pyflakes*, ruff, eslint, mypy,    │
-  │   an official         │  / BUILD GATE │   tsc, clippy, Roslyn, compilers*   │
-  │   template            └──────┬────────┘          │                          │
-  │                              │                   ▼                          │
-  │                              ▼            diagnose reads tool output →       │
-  │                        ┌───────────┐     FOCUS hint leads the repair prompt  │
-  │                        │ TEST GATE │*    pytest/jest/vitest/go test/dotnet   │
-  │                        └───────────┘                                        │
-  │                                                                            │
-  │   * = already invoked by mu today (see §5)                                  │
-  └──────────────────────────────────────────────────────────────────────────┘
+The §1 pipeline has three insertion points for a deterministic fix, with different
+economics — and this, not a flat "tools vs reflexes," is the design space:
 
-  Legend:  REFLEXES = mu in-tree fixers (one shape each, no deps)
-           TOOLS    = external programs: prevent (scaffold), transform (grammar-aware),
-                      or judge (oracle). They widen coverage at the cost of dependencies.
-```
+- **Prevent — scaffolders, at plan time (earliest, cheapest).** An official template
+  removes a class *by construction*; nothing downstream has to repair what was never
+  emitted.
+- **Transform — the contested post-write slot.** Reflexes and grammar-aware rewrite
+  engines compete here for the same job; §2 is the argument over which owns which class.
+- **Judge — oracle tools, at the gates.** Compilers, type checkers and linters don't edit
+  code; they produce the diagnostics that `diagnose` distils into the FOCUS hint that
+  targets the repair prompt.
 
-The key spatial insight: **reflexes and transform-tools compete for the same slot**
-(post-write), **oracle-tools augment the gates and `diagnose`**, and **scaffolders act
-*earlier* than either** — they remove a class by construction rather than repairing it.
+Read the §4 catalogue against these three roles: the further left a tool acts, the more it
+buys, because preventing a class is strictly cheaper than detecting then repairing it.
 
 ---
 
@@ -141,11 +117,14 @@ Grouped by role. "In mu?" marks what the harness already invokes (✓) or partia
 | `create-vue` / `npm create vite` | — | [vue-vitest-jest-setup](docs/challenges/vue-vitest-jest-setup.md), [build-target-inconsistency](docs/challenges/build-target-inconsistency.md) |
 | `cargo new` | ◐ (mu regenerates a minimal `Cargo.toml`) | [build-target-inconsistency](docs/challenges/build-target-inconsistency.md) |
 
-The official template emits a correct `.csproj`/`vite.config`/manifest with one entry
-point and matching test wiring — exactly the structure p10 fails to assemble (CS0017,
-MSB1003, NU1202). This is the single highest-leverage option for the one problem mu
-cannot pass; it aligns with the *minimization ladder* already described in
-[DOJO.md](DOJO.md) (give the scaffold, measure the logic).
+**mu already scaffolds C# — by hand.** `ground_plan` writes a `.csproj` (and a test
+csproj) via [`_csproj_content`](src/mu/plan.py). The proposal is not to *add* scaffolding
+but to **delegate the hand-roll to the official template**: `dotnet new` emits a correct
+`.csproj`/`vite.config`/manifest with one entry point and matching test wiring, targeting
+the installed SDK by construction. Its decisive edge is *ownership* — it fires
+unconditionally and takes the project file out of the model's hands, whereas the hand-roll
+yields to whatever broken csproj the model writes first (§6.1). This aligns with the
+*minimization ladder* in [DOJO.md](DOJO.md): give the scaffold, measure the logic.
 
 ### 4.2 Transform tools — *grammar-aware fixers (the reflex substrate)*
 
@@ -173,7 +152,7 @@ which the report flags as a common misconception.
 | `mypy` / `pyright` | — | [missing-imports](docs/challenges/missing-imports.md), [incorrect-test-assertions](docs/challenges/incorrect-test-assertions.md) (type-level) |
 | `tsc --noEmit` | — | [vue-vitest-jest-setup](docs/challenges/vue-vitest-jest-setup.md), [missing-imports](docs/challenges/missing-imports.md) |
 | `eslint` / `clippy` / `go vet` | — | [test-file-syntax-errors](docs/challenges/test-file-syntax-errors.md), [spurious-unused-imports](docs/challenges/spurious-unused-imports.md) |
-| Roslyn analyzers (`dotnet build`) | ◐ (build gate; diagnostics not yet parsed into FOCUS) | [csharp-aspnet-scaffolding](docs/challenges/csharp-aspnet-scaffolding.md), [csharp-generation-artifacts](docs/challenges/csharp-generation-artifacts.md) |
+| Roslyn analyzers (`dotnet build`) | ◐ (build gate runs; only `CS0017`/`CS8803` parsed into FOCUS so far — §6.2) | [csharp-aspnet-scaffolding](docs/challenges/csharp-aspnet-scaffolding.md), [csharp-generation-artifacts](docs/challenges/csharp-generation-artifacts.md) |
 | Compilers / test runners (`clang`, `cargo`, `dotnet`, `go`, `node`) | ✓ (test gate) | all syntax/build classes (as ground truth) |
 
 ### 4.4 Language servers (LSP) — *a maintained reflex library*
@@ -221,40 +200,108 @@ below extend the *set* and the *insertion points*, they do not introduce the par
 
 ## 6. Candidate tools to implement, and how
 
-Ranked by leverage against the current open problems (see [DOJO.md](DOJO.md#open-problems--ranked-by-impact)).
+Ordered by the DOJO ranked backlog (p10 → p8 → p2). Each proposal names its **insertion
+point** (the real function it lands in), the **change**, the **offline cost**, an
+**acceptance test on the `docs/ablations.md` board**, and the **honest risk** — so a
+reader can start coding, not just nod.
 
-1. **Template scaffolding at ground time (highest leverage for p10).**
-   When `ground_plan` detects a `dotnet test` or Vue+Vitest goal, materialise the
-   workspace from the official template (`dotnet new xunit`, `npm create vite`) and mark
-   those files done, leaving the model to fill only the logic. *How:* extend the existing
-   fixture/minimization mechanism in `dojo` — a template is a generated fixture. Directly
-   attacks CS0017/MSB1003/NU1202 and the Vitest-config class by never emitting them.
-   *Risk:* must stay general (scaffold *any* xunit/vite project, not p4/p10 specifically).
-   *Detailed end-to-end plan (offline-first; online scaffolding opt-in):*
-   [docs/plans/scaffolding.md](docs/plans/scaffolding.md).
+### 6.1 — Own the C# project structure with `dotnet new` (p10)
 
-2. **Type-checker-as-oracle into `diagnose` (broad, low-risk).**
-   Run `tsc --noEmit` / `mypy` / parse Roslyn diagnostics and feed the structured result
-   into the FOCUS grammar. *How:* add grammars to `src/mu/diagnose.py` that read each
-   checker's output; no new fixer, just a sharper hint. Improves
-   [missing-imports](docs/challenges/missing-imports.md) and the C# classes where the
-   compiler already knows the exact symbol and line.
+**The bet, against the settled ones.** p10's `backend_build` dies in a fixed cascade
+(`docs/ablations.md`): **MSB1003** (no project) → **NU1202** (restore / wrong TFM) →
+**CS0246** (no `Program`) / **CS0101** (duplicate types) → model syntax. The shipped and
+parked levers peel that cascade *one layer at a time* — the MSB1003 redirect shipped but
+only **moved the wall** to NU1202, and the entry-point and S2 levers are **PARKED behind
+NU1202**, where 59/61 runs die at NuGet restore before they can fire. Scaffolding is the
+orthogonal bet: stop peeling errors and emit the whole correct structure **once**, so the
+cascade never starts.
 
-3. **LSP code-action client (most general; replaces a reflex family).**
-   Drive a headless language server, request `codeAction` for each diagnostic, apply the
-   returned `WorkspaceEdit`. *How:* a thin LSP client in a new module; start with one
-   server (`pyright` for "add/organize imports") and measure against the hand-rolled
-   import reflexes before broadening. *Cost:* a server process per language and JSON-RPC
-   plumbing — weigh against the offline/Pi constraint.
+**Insertion point & the discriminating fact.** `ground_plan` already hand-writes a csproj
+([`_csproj_content`](src/mu/plan.py), "Level 2 — C# needs a project file"), but *only*
+`if not any(n.endswith('.csproj'))` — so when the model authors its own `net5.0`+EF8 file
+(the NU1202 cause in ~97% of p10 runs), the hand-roll is bypassed and the broken file
+wins. `dotnet new`'s advantage is therefore not better XML but **ownership**: run
+`dotnet new webapi` + `dotnet new xunit` at ground time, *overwrite* the csproj and
+`Program.cs`, mark them `[x]` done in PLAN.md (the injection mechanism already exists in
+`ground_plan`), and the model never gets to write the file that fails restore.
 
-4. **AST-rewrite substrate for the riskiest reflexes (`comby`/`libcst`).**
-   Re-express the structural fixers that regex does brittlely — duplicate-class removal,
-   unindented-body repair — as grammar-aware rewrites. *How:* port one reflex (e.g.
-   [`fix_csharp_duplicate_classes`](src/mu/reflexes/csharp/fix_csharp_duplicate_classes.py)) to `comby` and A/B its precision; adopt only if it
-   reduces misfires without new dependencies the target host can't carry.
+**What it reaches, honestly.** `dotnet new` targets the **installed** SDK's TFM (.NET 10)
+by construction → removes the *TFM-mismatch* class of NU1202 (the model's `net5.0`+EF8
+case); note a fresh net10 project may still need `AllowMissingPrunePackageData` to clear
+restore (`docs/ablations.md` line 56), so this **shrinks NU1202, not zeroes it**. It emits
+a `Program.cs` → no CS0246 (the exact gap the PARKED entry-point lever tried to fill as a
+writer task — here it's structural); one project → removes the *structural* source of
+CS0101, though a model that still declares duplicate types across stages can re-raise it,
+so scaffolding **bounds CS0101, does not eliminate it**. Test CS0246 reachability *first*:
+if a correctly-structured project still binds on it (the flagged "unsolved binder"), this
+is not the highest-leverage p10 fix and the rank is wrong.
 
-Each proposal is gated by the same question the honesty rule poses of reflexes: *does it
-fix a general class, and is the dependency justified by the breadth it buys?*
+**Relation to the UNDER-TEST lever.** `MU_TFM_GROUNDING` (`fix_csharp_uninstalled_tfm`) is
+the *repair-side* bet on the same wall — raise the model's TFM after the fact. Scaffolding
+is the *prevent-side* bet — never let the model author the TFM. They are **substitutes at
+the NU1202 wall**; measure scaffolding as the alternative to TFM-grounding, not stacked on
+top.
+
+**Offline.** `dotnet new` is fully offline (templates ship with the SDK); the NuGet
+restore that follows is the online step and needs EF/ASP.NET packages cached — the
+offline-first design in [docs/plans/scaffolding.md](docs/plans/scaffolding.md) covers it.
+**Acceptance:** `mu dojo measure p10 -n 15`, single-variable, same board; P1 = backend_build
+Δq̂ CI-lo > 0; mechanistic secondary = does NU1202 drop out of the ON-arm first-error mix?
+Pre-register per `docs/ablations.md` "How to add a row." **Risk:** must scaffold *any*
+xunit/webapi project, never p10-specifically (honesty rule). Full design:
+[docs/plans/scaffolding.md](docs/plans/scaffolding.md).
+
+### 6.2 — Type-checker / Roslyn diagnostics as a `diagnose` oracle (p2, p10; low-risk)
+
+Split the two costs, because only one is cheap. **(a) Parsing is trivial and half-done:**
+[`_RULES`](src/mu/diagnose.py) already grammars some Roslyn codes (`CS0017`, `CS8803`);
+the cheap win is *extending* that coverage to the rest of the p10 cascade (`CS0246`,
+`CS0101`, `CS0053`, `NU1202`) from the output the build gate **already produces** — *zero*
+new dependency, just more `_rule(regex, render)` entries on the existing `F821` template.
+No new fixer; just a sharper FOCUS hint at the exact symbol and line. **(b) Running a *new*
+checker is the costly part:** `tsc --noEmit` and `mypy` run nothing today and need
+`node_modules`/`@types` or a pip install — gate them on the toolchain being present, and
+do them only after the free Roslyn-coverage win lands.
+
+**Insertion:** grammars in `_RULES`; the invocation alongside the `gofmt -e`/`ast.parse`
+oracles in [`_syntax_check`](src/mu/agent.py) or as a pre-test gate. **Acceptance:**
+FOCUS-hit-rate on the run-7 archive traces (fraction of failed sessions that get a
+specific, non-weak hint) before/after — measurable for the parsing half with *no* model
+run. **Risk:** low — an oracle cannot misedit; the invocation half inherits
+[environment-hygiene](docs/challenges/environment-hygiene.md).
+
+### 6.3 — LSP code-action client (most general; replaces a reflex *family*)
+
+Drive one headless server first — `pyright` for `source.organizeImports` and "add import" —
+request `textDocument/codeAction` per diagnostic and apply the returned `WorkspaceEdit`.
+**Insertion:** a thin JSON-RPC client in a new `src/mu/lsp.py`, slotted into the post-write
+slot that [`run_reflexes`](src/mu/reflexes/core.py) owns (or a dedicated gate).
+**Acceptance / A-B baseline:** the hand-rolled import reflexes (`py_autofix` + the
+missing-import family); adopt only if the grammar-aware action strictly dominates on
+misfire rate and pass-rate. **Cost (the real one):** pyright is itself a node package — the
+price is **install weight plus a per-language server process**, weighed against the
+offline/Pi constraint, not just runtime latency.
+
+### 6.4 — Grammar-aware substrate for the *documented* misfire (libcst/comby)
+
+Port the hazard the report already names, not an arbitrary fixer: footnote 1's
+2026-06-12 duplicate-import regression — a regex re-adding a `from flask import …` it
+wrongly thought absent — is the canonical reflex misfire. Re-express it as a `libcst`
+codemod, which is **scope-aware**: it can *see* the existing import binding that the regex
+misses. **Insertion:** keep the `run_reflexes` contract — the chain invokes each reflex as
+`fn(target)` and detects edits by file hash, not by return value
+([core.py](src/mu/reflexes/core.py)) — so an in-place libcst codemod fits it with zero
+orchestration change.
+**Offline tension:** `libcst` is a pip wheel (carries to the Pi); `comby` is a native
+binary (an extra install) — prefer libcst for Python ports to keep the offline guarantee,
+reserve comby for the multi-language cases libcst cannot reach. **Acceptance:** A/B the
+ported fixer's misfire rate against the regex original; adopt only on a strict reduction.
+
+---
+
+Every proposal answers the same question the honesty rule poses of reflexes — *does it fix
+a **general** class, and is the dependency justified by the breadth it buys?* — and one
+more this report adds: *is it measured on the `docs/ablations.md` board, not asserted?*
 
 ---
 
