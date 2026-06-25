@@ -111,6 +111,34 @@
       ],
       "difficulty": "hard",
       "minimize": "L0"
+    },
+    {
+      "id": "p13-dotnet-minimalapi",
+      "goal": "write an ASP.NET Core minimal API in C# that exposes GET /api/posts returning a JSON array containing one post with Id 1 and Title 'Hello World'. Include an xUnit test project using WebApplicationFactory that calls GET /api/posts and asserts the 'Hello World' post is present; end Program.cs with `public partial class Program { }` so the test can reference the host. Use the dotnet command to build and test.",
+      "toolchains": [
+        "dotnet"
+      ],
+      "difficulty": "moderate",
+      "minimize": "L0"
+    },
+    {
+      "id": "p14-dotnet-ef-api",
+      "goal": "write an ASP.NET Core minimal API in C# using EF Core with SQLite. Define a Post model with Id, Title, and Content, seed one example post titled 'Hello World' on startup, and expose GET /api/posts returning the posts as JSON. Include an xUnit test project using WebApplicationFactory that calls GET /api/posts and asserts the 'Hello World' post is present. Use the dotnet command to build and test.",
+      "toolchains": [
+        "dotnet"
+      ],
+      "difficulty": "hard",
+      "minimize": "L0"
+    },
+    {
+      "id": "p15-fullstack-js-blog",
+      "goal": "build a full-stack blog application. Backend: an ASP.NET Core minimal API in C# using EF Core with SQLite, a Post model with Id, Title, and Content, seed one example post titled 'Hello World' on startup, exposing GET /api/posts returning JSON, with an xUnit test project using WebApplicationFactory that asserts the 'Hello World' post is present. Frontend: a plain JavaScript module in frontend/ that fetches /api/posts and renders the post titles into an HTML list, with a Node test (node --test) that mocks fetch and asserts the 'Hello World' title is rendered. Provide a Makefile with a test target that runs both dotnet test and node --test.",
+      "toolchains": [
+        "dotnet",
+        "node"
+      ],
+      "difficulty": "hard",
+      "minimize": "L0"
     }
   ]
 }
