@@ -1,13 +1,15 @@
 # Plan: scaffold the p10 backend from `dotnet new` at ground time
 
-_Implementation + test plan for [TOOLS.md](../../TOOLS.md) §6.1, **focused on p10**. The
-scaffolding module is **built and tested** — the gap is wiring it into the run loop and
-finishing the p10 recipe (§2). The canonical "Approach A" doc; [p10-minimization](p10-minimization.md)
-§A.1 sketches the same wiring, [ablations.md](../ablations.md) holds the lever status this
-plan reconciles with._
+_Implementation + test record for [TOOLS.md](../../TOOLS.md) §6.1, **focused on p10**. The
+canonical "Approach A" doc; [p10-minimization](p10-minimization.md) §A.1 and
+[ablations.md](../ablations.md) (the lever status + verdict) reconcile with it._
 
-**Status: module built, UNWIRED.** Other stacks (p4 xUnit, p9 Vite/Vitest) are deferred —
-see §6.
+**Status: DONE — wired into `run_staged`, SDK-grounded, A/B'd; ships OPT-IN (`MU_SCAFFOLD`,
+default off).** A/B verdict (2026-06-25, qwen-7b, N=15): headline null (backend_build 0/15
+both arms) but a **mechanistic win** — the NU1202/NETSDK1226 restore wall clears 12/15 → 0/15,
+moving the binder to model compile errors (the model ceiling). Full record: §5 below,
+[`ablations.md`](../ablations.md) row, [`.mu/abl_scaffold_verdict.md`]. Other stacks (p4 xUnit,
+p9 Vite/Vitest) remain deferred — see §6.
 
 ---
 
@@ -34,19 +36,20 @@ lever) finally fire. Whether prevent (scaffold) beats repair (TFM-grounding) is 
 
 ---
 
-## 1. What is built vs what is missing
+## 1. What is built (all shipped)
 
 | Built & tested | Where |
 |---|---|
-| Recipes, `detect()`, graceful `scaffold()` runner, flags (`MU_SCAFFOLD`, `_ONLINE`, `_STACKS`) | [`scaffold.py`](../../src/mu/scaffold.py) |
-| `reconcile_provided()` — marks scaffold-owned files done (the shared **S3** routine) | [`agent.py`](../../src/mu/agent.py):522 |
-| 20 unit tests: detection generality, offline guarantee, scoping, graceful degradation, the honesty (`is_fullstack_dotnet_vue`) boundary | `tests/test_scaffold.py`, `tests/test_reconcile.py` |
+| Recipes, stage-aware `detect(sig, stage=…)`, graceful `scaffold()` runner, flags (`MU_SCAFFOLD`, `_ONLINE`, `_STACKS`) | [`scaffold.py`](../../src/mu/scaffold.py) |
+| `reconcile_provided()` — marks scaffold-owned files done (the shared **S3** routine) | [`agent.py`](../../src/mu/agent.py) |
+| **Wiring** — `_stage_scaffold` builds a `Signal` (goal + plan + `toolchain.available()`) and `run_staged` calls `scaffold()` before the writer, threading owned files to `reconcile_provided`; `meta.json.scaffold` records the recipe | [`agent.py`](../../src/mu/agent.py) `run_staged` |
+| **D1/D2/D3 webapi `post`** — SDK-grounded prune-prop (D1, net9+), unpinned EF add (D2), `Program.cs` model-owned (D3) | [`scaffold.py`](../../src/mu/scaffold.py) `_webapi_post` |
+| Unit tests: detection/stage generality, offline guarantee, scoping, graceful degradation, D1 grounding, D2 add/degrade, owned-path/plan-name match, honesty boundary | `tests/test_scaffold.py`, `tests/test_reconcile.py` |
 
-| Missing (this plan) | Detail |
-|---|---|
-| **The wiring** — nothing calls `scaffold()` | build a `Signal` from goal+plan, call `scaffold()` before the writer, pass `ScaffoldResult.files` to `reconcile_provided(owned_paths=…)` (§3) |
-| **Stage-aware `detect()`** | `detect(sig)` matches the first recipe globally, so the frontend stage is captured by `dotnet-webapi` ([p10-min](p10-minimization.md) §A.1, "the bug that sank the first wiring") |
-| **A restorable p10 recipe** | the raw `dotnet new webapi` output does not restore on this SDK (§2) |
+The two bugs the first wiring hit are fixed and regression-tested: the frontend stage is no
+longer captured by `dotnet-webapi` (stage map), and the architect files p10's .NET project
+under the **model** stage, where dotnet recipes are now eligible (the empirical fix that made
+scaffolding actually fire — without it `meta.scaffold` stayed null).
 
 ---
 

@@ -113,18 +113,21 @@ Grouped by role. "In mu?" marks what the harness already invokes (✓) or partia
 
 | Tool | In mu? | Challenges it could address |
 |---|---|---|
-| `dotnet new xunit` / `webapi` | — | [csharp-aspnet-scaffolding](docs/challenges/csharp-aspnet-scaffolding.md), [build-target-inconsistency](docs/challenges/build-target-inconsistency.md) |
-| `create-vue` / `npm create vite` | — | [vue-vitest-jest-setup](docs/challenges/vue-vitest-jest-setup.md), [build-target-inconsistency](docs/challenges/build-target-inconsistency.md) |
-| `cargo new` | ◐ (mu regenerates a minimal `Cargo.toml`) | [build-target-inconsistency](docs/challenges/build-target-inconsistency.md) |
+| `dotnet new xunit` / `webapi` | ✅ ([`scaffold.py`](src/mu/scaffold.py), `MU_SCAFFOLD`, opt-in) | [csharp-aspnet-scaffolding](docs/challenges/csharp-aspnet-scaffolding.md), [build-target-inconsistency](docs/challenges/build-target-inconsistency.md) |
+| `create-vue` / `npm create vite` | ◐ (recipe present, online tier, deferred) | [vue-vitest-jest-setup](docs/challenges/vue-vitest-jest-setup.md), [build-target-inconsistency](docs/challenges/build-target-inconsistency.md) |
+| `cargo new` | ◐ (recipe present; mu also regenerates a minimal `Cargo.toml`) | [build-target-inconsistency](docs/challenges/build-target-inconsistency.md) |
 
-**mu already scaffolds C# — by hand.** `ground_plan` writes a `.csproj` (and a test
-csproj) via [`_csproj_content`](src/mu/plan.py). The proposal is not to *add* scaffolding
-but to **delegate the hand-roll to the official template**: `dotnet new` emits a correct
-`.csproj`/`vite.config`/manifest with one entry point and matching test wiring, targeting
-the installed SDK by construction. Its decisive edge is *ownership* — it fires
-unconditionally and takes the project file out of the model's hands, whereas the hand-roll
-yields to whatever broken csproj the model writes first (§6.1). This aligns with the
-*minimization ladder* in [DOJO.md](DOJO.md): give the scaffold, measure the logic.
+**mu already scaffolds C# — by hand, and now also via the official template.** `ground_plan`
+writes a `.csproj` via [`_csproj_content`](src/mu/plan.py); behind `MU_SCAFFOLD` (opt-in,
+default off), [`scaffold.py`](src/mu/scaffold.py) **delegates the hand-roll to `dotnet new`**:
+it emits a correct `.csproj` with one entry point and matching test wiring, targeting the
+installed SDK by construction (TFM + the net9+ `AllowMissingPrunePackageData` patch are
+grounded in `dotnet --version`). Its edge is *ownership* — it takes the project file out of
+the model's hands. **Measured (p10 A/B, N=15, [ablations.md](docs/ablations.md)):** the
+NU1202/NETSDK1226 restore wall clears **12/15 → 0/15**, but backend_build stays 0/15 — the
+weak model can't author a valid backend even scaffolded, so the lever ships **opt-in** pending
+the entry-point/S2 re-test. This is the *minimization ladder* in [DOJO.md](DOJO.md): give the
+scaffold, measure the logic — and the logic is now the binding constraint.
 
 ### 4.2 Transform tools — *grammar-aware fixers (the reflex substrate)*
 

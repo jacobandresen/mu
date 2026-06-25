@@ -92,20 +92,22 @@ Measured (run 7, qwen2.5-coder-7b, ctx 6000): **0/12**, median 6 repair iters,
 | MSB1003 no project/solution at the test dir | $\times$8 | **structure** (where `dotnet test` runs) |
 | CS0053 inconsistent accessibility (public API exposes internal EF type) | $\times$8 | **coordination** (type-ownership / visibility) |
 
-**The decisive prior: structure is probably *not* the binding constraint.**
-`src/mu/scaffold.py` exists but is the detection+recipe core only, **unwired**
-(commit `48fa0c8`). A later branch (project memory `project-scaffolding-impl`, not
-merged here) wired it per-`run`, fixed an ordering bug so it actually fired, and
-ran a pre-registered A/B whose verdict was **DROP**:
+**The decisive prior: structure is *necessary but not sufficient*.**
+`src/mu/scaffold.py` is now **wired** into `run_staged`, SDK-grounded, and A/B'd in-tree
+(see [scaffolding.md](scaffolding.md), [ablations.md](../ablations.md) scaffold row). The
+pre-registered p10 A/B (2026-06-25, qwen-7b, N=15) is sharp:
 
-> p10 A/B (scaffold confirmed firing): baseline **0/8** vs treatment **0/8** — no
-> movement, and repair-iters *rose* 0.8 $\to$ 2.2. Backend scaffolding fixes
-> MSB1003/CS0017 **but not p10's real ceiling**: the frontend, the
-> WebApplicationFactory integration test, and multi-project coordination.
+> backend_build **0/15 ON = 0/15 OFF** (headline null), but mechanistically the restore wall
+> **clears**: NU1202/NETSDK1226 **12/15 → 0/15**, every ON run reaches real compilation, and
+> repair-iters drop **6.0 → 4.0**. The binder moves to **model-authored** code — CS0246 +
+> plain syntax errors (CS1002/1026/1513/1519).
 
-Treat this as a **strong working hypothesis**, not in-tree fact: any new proposal
-must be judged on whether it attacks **coordination** (CS0101/CS0053, $\times$22 combined)
-and the **frontend/integration logic**, not just structure.
+So scaffolding removes the *structural* wall by construction (necessary), but the gate stays
+0/15 because qwen-7b can't author a syntactically valid ASP.NET+EF backend even with the
+project laid down (the model ceiling). Verdict **OPT-IN**. Any further proposal must attack
+**coordination** (CS0101/CS0053) and the **model's own code/syntax**, not structure — which
+scaffolding has now closed. Natural next levers: the PARKED entry-point + S2 reflexes,
+re-tested with `MU_SCAFFOLD=1` now that compilation is reachable.
 
 ### 0.4 What the 2026 literature says
 

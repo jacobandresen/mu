@@ -1,13 +1,13 @@
-"""Project scaffolding from official templates — iteration 1: detection + recipes.
+"""Project scaffolding from official templates (docs/plans/scaffolding.md, TOOLS.md §6.1).
 
-Implements the offline-first core of [docs/plans/scaffolding.md] (TOOLS.md §6.1):
-when a goal targets a scaffold-able stack, an official template can lay down the
-project skeleton so the model fills only the logic — removing the *structural*
-failure classes (CS0017/MSB1003/NU1202, Vitest config) by construction.
+When a goal targets a scaffold-able stack, an official template lays down the project
+skeleton so the model fills only the logic — removing the *structural* failure classes
+(CS0017/MSB1003/NU1202/NETSDK1226, Vitest config) by construction.
 
-This module is the decision + execution core. It is **not yet wired** into the
-agent (that is iteration 2); nothing in the hot path imports it. Two principles
-hold from the start:
+This module is the decision + execution core; `agent.run_staged` calls `scaffold()` at the
+top of each stage behind `MU_SCAFFOLD` (opt-in, default off). The measured p10 A/B
+(ablations.md) confirmed it clears the NU1202/NETSDK1226 restore wall (12/15 → 0/15). Two
+principles hold throughout:
 
 * **Offline-first.** `dotnet new` and `cargo new` ship with their SDK and need no
   network (tier ``"offline"``); the Vite recipe fetches a template (tier
