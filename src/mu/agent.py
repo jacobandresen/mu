@@ -2593,7 +2593,14 @@ def _lint_command(file_path: str, p: Plan) -> str:
         )
         if (has_pkg_json or uses_vitest) and node_modules_missing:
             return ''
-        return 'tsc --noEmit' if has_tsconfig else \
+        # Project mode (no files on the command line) whenever a tsconfig exists — as a
+        # plan task OR already on disk in the file's dir/parents. Passing a file while a
+        # tsconfig is present is TS5112 ("tsconfig.json … will not be loaded"), a spurious
+        # lint failure seen on the Vue/Vitest goals (the model writes tsconfig.json without
+        # it being a planned task, so the plan-only check missed it).
+        tsconfig_on_disk = any((d / 'tsconfig.json').exists()
+                               for d in [file_dir] + list(file_dir.parents)[:3])
+        return 'tsc --noEmit' if (has_tsconfig or tsconfig_on_disk) else \
                f"tsc --noEmit --strict --target ES2020 --module commonjs {file_path}"
     if ext in ('.c', '.h'):
         return '' if has_makefile else f"gcc -fsyntax-only -Wall {file_path}"
