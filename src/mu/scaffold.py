@@ -205,15 +205,18 @@ def is_fullstack_dotnet_vue(sig: Signal) -> bool:
             and any(k in sig.haystack for k in ("vue", "vite")))
 
 
-# Which recipes each stage may use (stage-aware detect, scaffolding.md §3.2). The
-# backend stage scaffolds the .NET project (webapi takes precedence over the bare test
-# project, per RECIPES order); the frontend stage only the JS app — so a dotnet-* recipe
-# can never capture the frontend stage (the bug that sank the first wiring). p10's backend
-# is webapi-first by design: the §0 cascade lives in backend_build (the web project), and
-# §2 found the xunit recipe needs no patching, so webapi-only carries the headline Δq̂;
-# xunit still fires for a test-only dotnet goal (p4) that shows no web signal.
+# Which recipes each stage may use (stage-aware detect, scaffolding.md §3.2). The rule is
+# simply: the **frontend** stage gets the JS app only — so a dotnet-* recipe can never
+# capture it (the bug that sank the first wiring) — and **every other** stage gets the
+# native/offline recipes. The architect names p10's .NET/EF layer the *model* stage (the
+# "data layer", which for a blog is the EF + SQLite + backend-test project), not "backend",
+# so the dotnet recipes must be eligible there too or scaffolding never fires (verified:
+# p10's csproj + ApiTests.cs build under PLAN-model.md). webapi still takes precedence over
+# the bare test project per RECIPES order; xunit fires for a test-only dotnet goal (p4).
+_OFFLINE_NATIVE = ("dotnet-webapi", "dotnet-xunit", "cargo-bin")
 _STAGE_RECIPES: dict[str, tuple[str, ...]] = {
-    "backend": ("dotnet-webapi", "dotnet-xunit"),
+    "model": _OFFLINE_NATIVE,
+    "backend": _OFFLINE_NATIVE,
     "frontend": ("vite-vitest",),
 }
 
@@ -279,6 +282,11 @@ def scaffold(sig: Signal, workdir: str = ".",
     if recipe.tier == "online" and not online_enabled():
         return None
     if which(recipe.binary) is None:
+        return None
+    # Already scaffolded — a later stage (e.g. backend after model) re-entering the same
+    # work dir. Re-running `dotnet new` over an existing project would error or collide, so
+    # leave the laid-down project in place and let the legacy reconcile path handle it.
+    if _owned_files(recipe, workdir):
         return None
     try:
         proc = run(list(recipe.command), cwd=workdir,

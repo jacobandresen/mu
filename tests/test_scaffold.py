@@ -79,12 +79,28 @@ def test_disabled_by_default_is_noop(monkeypatch):
 
 def test_offline_recipe_runs_when_enabled(monkeypatch, tmp_path):
     monkeypatch.setenv("MU_SCAFFOLD", "1")
-    (tmp_path / "App.csproj").write_text("<Project/>")
+    # The command creates the csproj (as `dotnet new` would); the pre-run guard sees no
+    # project beforehand, so it proceeds.
+    def _run(*a, **k):
+        (tmp_path / "App.csproj").write_text("<Project/>")
+        return _ok_run()
     res = do_scaffold(sig("an xUnit test project", toolchains=["dotnet"]),
-                      workdir=str(tmp_path), run=_ok_run,
+                      workdir=str(tmp_path), run=_run,
                       which=lambda b: "/usr/bin/" + b)
     assert res and res.recipe == "dotnet-xunit" and res.tier == "offline"
     assert "App.csproj" in res.files
+
+
+def test_skips_when_project_already_scaffolded(monkeypatch, tmp_path):
+    # A later stage re-entering the same work dir: the owned artifact already exists, so
+    # scaffold() does not re-run `dotnet new` (which would collide).
+    monkeypatch.setenv("MU_SCAFFOLD", "1")
+    (tmp_path / "App.csproj").write_text("<Project/>")
+    ran = []
+    res = do_scaffold(sig("an xUnit test project", toolchains=["dotnet"]),
+                      workdir=str(tmp_path), run=lambda *a, **k: ran.append(1) or _ok_run(),
+                      which=lambda b: "/usr/bin/" + b)
+    assert res is None and ran == []
 
 
 def test_online_recipe_skipped_unless_online_flag(monkeypatch, tmp_path):
@@ -148,6 +164,14 @@ def test_detect_stage_backend_yields_dotnet():
     assert detect(s, stage="backend").name == "dotnet-webapi"
 
 
+def test_detect_stage_model_yields_dotnet():
+    # The architect files p10's EF/.NET data layer under the *model* stage, not "backend";
+    # the dotnet recipes must be eligible there or scaffolding never fires (the smoke bug).
+    s = sig("blog data layer: EF Core entities + SQLite DbContext, ASP.NET Core",
+            toolchains=["dotnet", "node"], test_command="dotnet test")
+    assert detect(s, stage="model").name == "dotnet-webapi"
+
+
 def test_detect_stage_frontend_excludes_dotnet():
     # A full-stack signal: at the frontend stage only the JS recipe is eligible, even
     # though the dotnet-webapi predicate would otherwise match the shared goal.
@@ -159,7 +183,7 @@ def test_detect_stage_frontend_excludes_dotnet():
 
 def test_detect_unknown_stage_matches_none():
     s = sig("an xUnit test project", toolchains=["dotnet"])
-    assert detect(s, stage="model") is None
+    assert detect(s, stage="deploy") is None       # a stage with no recipe mapping
     # stage=None keeps the original all-recipes behaviour
     assert detect(s).name == "dotnet-xunit"
 
