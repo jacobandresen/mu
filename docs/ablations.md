@@ -37,8 +37,8 @@ repo. This file is the durable distillation of those verdicts.
 | MSB1003 `dotnet test <dir>` redirect | (always on) | empty `tests/` dir MSB1003s before compile | MSB1003 **10/15 → 0/15**; gate still 0/15 (moved deeper) | **SHIPPED** (no-regret) |
 | Scaffold (`dotnet new`) | `MU_SCAFFOLD` | model authors `net5.0`+EF8 csproj ⇒ NU1202/NETSDK1226 restore wall | NU1202/NETSDK1226 **12/15 → 0/15** (scaffold fired 15/15); gate still 0/15 (moved to CS0246 + model syntax errors); repair-iters 6.0→4.0 | **OPT-IN** — wall cleared (mechanistic win) but headline null at N=15; re-test PARKED entry-point + S2 now restore is reachable (`.mu/abl_scaffold_verdict.md`) |
 | TFM grounding | `MU_TFM_GROUNDING` | model's `net5.0` csproj fails NuGet restore (NU1202) before compile | — (A/B un-run) | **UNDER TEST** |
-| ASP.NET entry-point task | `MU_ASPNET_ENTRYPOINT` | architect never plans `Program.cs` ⇒ CS0246 | 0/15 ON = 0/15 OFF (Δ≈0, behind NU1202 wall) | **PARKED** |
-| S2 cross-stage type reflexes | `MU_S2_TYPE_REFLEXES` | duplicate/missing types across stages ⇒ CS0101/CS0246 | 0/15 ON = 0/15 OFF (Δ≈0, behind NU1202 wall) | **PARKED** |
+| ASP.NET entry-point task | `MU_ASPNET_ENTRYPOINT` | architect never plans `Program.cs` ⇒ CS0246 | p10: 0/15 (behind NU1202 wall). **p13 with wall cleared (scaffold+TFM): cuts CS0246 12→6** | **OPT-IN — validated, insufficient alone** |
+| S2 cross-stage type reflexes | `MU_S2_TYPE_REFLEXES` | duplicate/missing types across stages ⇒ CS0101/CS0246 | p10: 0/15 (behind NU1202 wall). **p13 with wall cleared: cuts CS0101 10→4** | **OPT-IN — validated, insufficient alone** |
 | Build-order weave | `MU_BUILD_ORDER` | building deps before dependents cuts repair iters | n/a (tested on p1/p2/p3) — no pass-rate lift | **PARKED** |
 
 ## The meta-result that reframes the PARKED rows (NU1202 wall)
@@ -55,6 +55,28 @@ neither could fire. That is why they are **PARKED, not DROPPED**: the honest nex
 to re-test them once `MU_TFM_GROUNDING` clears restore and compilation (CS0246/CS0101)
 finally becomes reachable. Empirically, bumping the TFM net5.0→net8.0 clears restore;
 →net10.0 + `AllowMissingPrunePackageData` reaches real compilation.
+
+### Ladder validation on p13 (2026-06-25, the wall finally cleared)
+
+Re-tested on **p13-dotnet-minimalapi** (the simplest .NET ladder rung — minimal API + xUnit
+`WebApplicationFactory`, *no DB needed*), dark N=8, stacking the levers. The model adds EF+net5.0
+even here, so the wall appears; scaffold owns the *backend* csproj but the model's *test* csproj
+keeps net5.0+EF, so scaffold and TFM-grounding are **complementary** (different csprojs), not
+substitutes, in the multi-project layout.
+
+| config | NU1202 | CS0101 (dup) | CS0246 | repair-iters | pass |
+|---|---|---|---|---|---|
+| baseline | 15 | — | — | 3.8 | 0/8 |
+| +scaffold | test csproj only | — | 46 | 4.5 | 0/8 |
+| +scaffold +TFM | **0** | 10 | 12 | 3.8 | 0/8 |
+| +scaffold +TFM +S2 +entry-point | **0** | **4** | **6** | **2.2** | 0/8 |
+
+**The levers work** — the restore wall clears (NU1202 15→0) and S2/entry-point cut their target
+errors once reachable (CS0101 10→4, CS0246 12→6, repair-iters 3.8→2.2). But p13 stays **0/8**:
+the residual is the **model semantic ceiling** (CS0103 undefined-name ×21, CS1929, CS0841) —
+qwen-7b writes semantically broken C# even for a trivial API. **Conclusion: on the .NET stack the
+binding constraint is the model, not structure.** The structural levers are necessary and now
+*validated*, but insufficient for this model; they stay opt-in (no pass-rate lift to bank).
 
 ## Per-lever detail
 
