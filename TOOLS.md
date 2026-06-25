@@ -221,7 +221,7 @@ below extend the *set* and the *insertion points*, they do not introduce the par
 
 ## 6. Candidate tools to implement, and how
 
-Ranked by leverage against the current open problems (see [TODO.md](TODO.md)).
+Ranked by leverage against the current open problems (see [DOJO.md](DOJO.md#open-problems--ranked-by-impact)).
 
 1. **Template scaffolding at ground time (highest leverage for p10).**
    When `ground_plan` detects a `dotnet test` or Vue+Vitest goal, materialise the

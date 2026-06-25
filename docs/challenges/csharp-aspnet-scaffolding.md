@@ -26,4 +26,4 @@ Multi-project .NET needs scaffolding a minimal SDK template lacks: a test csproj
 
 ## Residual / notes
 
-p10 is **the open problem**: cascading errors across backend/test/frontend stages where repair oscillates. See [TODO.md](../../TODO.md) item 1.
+p10 is **the open problem**: cascading errors across backend/test/frontend stages where repair oscillates. See [DOJO.md](../../DOJO.md#open-problems--ranked-by-impact) item 1.

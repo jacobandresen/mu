@@ -3,7 +3,7 @@
 Each round runs the full problem set (``python -m mu.dojo run``), then reflects
 failures into docs/challenges/README.md via ``mu reflect``. The per-problem pass-rate table
 (printed at the end) shows which problems fail chronically — those are reflex
-candidates. TODO.md tracks the improvement backlog.
+candidates. DOJO.md tracks the ranked improvement backlog.
 
     python -m mu.dojo practice                      # 100 rounds
     ROUNDS=10 python -m mu.dojo practice

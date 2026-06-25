@@ -55,6 +55,33 @@ In rough order of preference (and see [AGENTS.md](AGENTS.md) §2–4 for the hon
 External tools (formatters, type checkers, scaffolders) as an alternative to bespoke
 reflexes are surveyed in [TOOLS.md](TOOLS.md). Model choice and tuning: [docs/MODELS.md](docs/MODELS.md).
 
+## Open problems — ranked by impact
+
+The improvement backlog, worst-first. Evidence base: per-problem run data
+(`docs/problems/p*.md`), repair-trace mining, and the `mu kb` combination report. Shipped
+work is not tracked here — see git history, [docs/challenges/](docs/challenges/README.md)
+for fixes, and [docs/ablations.md](docs/ablations.md) for behaviour-lever A/B verdicts.
+
+1. **p10 full-stack (the open problem).** Multi-project C#/Vue — challenge
+   [csharp-aspnet-scaffolding](docs/challenges/csharp-aspnet-scaffolding.md). Dominant errors:
+   CS0101 duplicate types across files, MSB1003 no project/solution at the test dir, CS0053
+   inconsistent accessibility on EF types. Mix of scaffolding (staged-plan type dedup; ensure
+   `dotnet test` sees a csproj/solution) and model ceiling (cascading errors, repair
+   oscillates). Biggest gap. **Lead proposal:** template scaffolding at ground time —
+   [docs/plans/scaffolding.md](docs/plans/scaffolding.md) (offline-first).
+2. **p8 jest globals** — challenge [vue-vitest-jest-setup](docs/challenges/vue-vitest-jest-setup.md).
+   `describe/test/it/jest is not defined` when tests run under plain `node`. The
+   package.json-script half is deterministic (`fix_package_json_bare_jest`); residual is the
+   model hard-coding `node x.test.js` in a Makefile recipe — extend `fix_makefile_npm_test_jest`
+   to that shape if it recurs. Remaining failures are model-ceiling module-contract bugs.
+3. **p2 SQLAlchemy ORM setup** — challenge [missing-imports](docs/challenges/missing-imports.md).
+   `Todo has no attribute '__table__'`, `declarative_base` undefined — declarative-base wiring
+   done wrong. Candidate: a python-writer skill rule, or a reflex for the standard
+   declarative-base shape.
+4. **p9 component/test contract** — challenge [incorrect-test-assertions](docs/challenges/incorrect-test-assertions.md).
+   Assertion mismatches (component renders heading + button, not the todo text). Mostly model
+   quality — low priority, accept variance.
+
 ## Token tracking
 
 Every run records token usage to the session archive. `tokens.jsonl` holds one record per
