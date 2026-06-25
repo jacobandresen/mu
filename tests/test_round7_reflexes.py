@@ -38,11 +38,24 @@ LINT_OUT = ("main.py:7:1: expected an indented block after function definition o
 
 
 def test_exe_plus_testsdk_gets_generateprogramfile(tmp_path: Path):
+    # The CS0017 case: an Exe with a *user* Main + Test.Sdk ⇒ two entry points.
     (tmp_path / 'app.csproj').write_text(EXE_TEST_CSPROJ)
+    (tmp_path / 'Program.cs').write_text(
+        'class Program { static void Main(string[] args) { } }\n')
     assert fix_csharp_test_program_conflict(str(tmp_path))
     text = (tmp_path / 'app.csproj').read_text()
     assert '<GenerateProgramFile>false</GenerateProgramFile>' in text
     assert not fix_csharp_test_program_conflict(str(tmp_path))  # idempotent
+
+
+def test_exe_testsdk_without_user_main_untouched(tmp_path: Path):
+    # CS5001 regression: model wrote test files but no Main. Disabling the generated
+    # entry point here would leave the Exe with no Main at all — must NOT fire.
+    (tmp_path / 'app.csproj').write_text(EXE_TEST_CSPROJ)
+    (tmp_path / 'FibonacciTests.cs').write_text(
+        'using Xunit;\npublic class T { [Fact] public void A() { Assert.True(true); } }\n')
+    assert not fix_csharp_test_program_conflict(str(tmp_path))
+    assert 'GenerateProgramFile' not in (tmp_path / 'app.csproj').read_text()
 
 
 def test_pure_test_project_untouched(tmp_path: Path):
