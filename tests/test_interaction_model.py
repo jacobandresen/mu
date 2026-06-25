@@ -8,6 +8,8 @@ import sqlite3
 
 import pytest
 
+pytest.importorskip("pgmpy", reason="optional analysis dependency (pip install 'mu[analysis]')")
+
 from mu.interaction import build_net
 from mu.reflexdb import _SCHEMA
 

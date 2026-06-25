@@ -47,6 +47,9 @@ enrich = [
     "sentence-transformers>=2.7",
     "numpy>=1.26",
 ]
+analysis = [
+    "pgmpy>=0.1.25",
+]
 lint = [
     "spacy>=3.7",
 ]

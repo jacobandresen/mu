@@ -3,9 +3,11 @@
 docs/REFLEX_KB.md §11: a pgmpy Bayesian network over the co-occurrence and
 sequence edges recorded in the `firing` table. Strictly observational/offline —
 never feeds the runtime runner or predict.py (§10 leak guard).
-"""
 
-from pgmpy.models import DiscreteBayesianNetwork
+pgmpy is an optional analysis dependency (`pip install 'mu[analysis]'`); the
+import is lazy so the rest of mu loads without it, mirroring how `enrich.py`
+treats sentence-transformers.
+"""
 
 
 def build_net(con):
@@ -16,7 +18,12 @@ def build_net(con):
 
     The network is observational — edges represent co-firing, not causation.
     §10 leak guard: must never be called from agent.py or predict.py.
+
+    Raises ImportError (from the lazy import) when the optional pgmpy
+    dependency is absent.
     """
+    from pgmpy.models import DiscreteBayesianNetwork
+
     rows = con.execute(
         "SELECT a.reflex_id x, b.reflex_id y, COUNT(DISTINCT a.session_id) n "
         "FROM firing a JOIN firing b "
