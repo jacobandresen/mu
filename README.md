@@ -18,7 +18,7 @@ source .venv/bin/activate
 
 # Start LM Studio's server and load a model with the lms CLI
 lms server start                  # serve on http://localhost:1234
-lms load ibm/granite-4.1-3b       # load a model
+lms load qwen2.5-coder-7b-instruct   # load a model
 
 mu check                          # verify dependencies + toolchains + LM Studio reachable
 mu setup                          # install missing toolchains (interactive)

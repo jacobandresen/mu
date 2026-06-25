@@ -10,7 +10,6 @@ multi-file), not HumanEval.
 | Model | Resident | Role |
 |---|---|---|
 | `qwen2.5-coder-7b-instruct` **Q3_K_L** | 4.09 GB | **Primary on 8 GB** — measured **7.0/10** on the L0 board, the best that runs here (see trials below). Pin the served id `qwen2.5-coder-7b-instruct` |
-| `ibm/granite-4.1-3b` | ~2 GB | **Lightweight fallback** — fits a Pi; 128K context; but only ~2.75/10 here, too weak past simple problems |
 
 The 7B **Q4_K_M** (~4.7 GB) does **not** fit (it exhausts RAM); **Q3_K_L** (3.8 GB on
 disk) is the quant that runs. Models >~4.1 GB resident hit a GPU `Compute error` on 8 GB

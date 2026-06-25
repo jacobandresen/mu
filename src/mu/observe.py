@@ -129,7 +129,6 @@ def argue_validity(sessions: list[dict], key: str = '_problem') -> str:
     if not models:
         return ("No model-tagged sessions yet. Run the dojo with the new code "
                 "(meta.json now records 'model'); e.g.\n"
-                "  mu dojo practice --model ibm/granite-4.1-3b\n"
                 "  mu dojo practice --model qwen/qwen2.5-coder-7b-instruct")
     # union of observation keys
     keys = sorted({k for m in models for k in rates[m]})

@@ -44,7 +44,7 @@ def main() -> int:
     model_sub.add_parser('status', help='Show loaded models')
     model_sub.add_parser('list', help='List curated models')
     load_p = model_sub.add_parser('load', help='Load a model in LM Studio')
-    load_p.add_argument('model_id', help='Model ID (e.g. ibm/granite-4.1-3b)')
+    load_p.add_argument('model_id', help='Model ID (e.g. qwen2.5-coder-7b-instruct)')
 
     warm_p = model_sub.add_parser(
         'warm', help='Load a model persistently and run a warm-up generation')

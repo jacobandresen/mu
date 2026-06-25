@@ -48,6 +48,13 @@ class Recipe:
     command: tuple[str, ...]        # argv run in the work dir
     owns: tuple[str, ...]           # glob patterns the scaffold owns
     detect: Callable[["Signal"], bool] = field(repr=False)
+    # Optional post-`dotnet new` step (D1/D2): given (sig, workdir, run) it patches
+    # the generated project so it actually restores+compiles, returning True when the
+    # project is complete. False means it could not be completed (e.g. EF packages
+    # needed but un-addable offline) — the manifest is then *not* owned, so the model
+    # finishes it (graceful degrade, scaffolding.md §4). Default None ⇒ no post-step.
+    post: Optional[Callable[["Signal", str, Callable], bool]] = field(
+        default=None, repr=False)
 
 
 @dataclass
