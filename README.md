@@ -31,7 +31,7 @@ mu agent "write a Flask REST API with SQLite and pytest tests" --dir myproject
 |---|---|
 | `mu agent "goal"` | Autonomous goal-to-code loop (the main entry point) |
 | `mu plan "goal"` | Generate PLAN.md only (no code writing) |
-| `mu improve-plan` | Tighten an ambiguous PLAN.md — deterministic spec reflexes plus plan lint |
+| `mu improve` | Tighten an ambiguous PLAN.md — plan lint, then deterministic spec reflexes (no LLM) |
 | `mu architect "goal"` | Generate ARCHITECTURE.md and staged plan files for hard multi-layer problems |
 | `mu iterate` | Continue executing an existing PLAN.md |
 | `mu model` / `mu model load <id>` | Browse / load LM Studio models |

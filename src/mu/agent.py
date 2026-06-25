@@ -330,9 +330,9 @@ def _analyze_plan_quality(goal: str, p: Plan, max_iter: int) -> tuple[bool, floa
     return needs, proba, reasons
 
 
-def improve_plan(goal: str = '', model: str = '', target_dir: str = '',
-                 plan_file: str = 'PLAN.md', max_iter: int = 10,
-                 force: bool = False) -> int:
+def improve(goal: str = '', model: str = '', target_dir: str = '',
+            plan_file: str = 'PLAN.md', max_iter: int = 10,
+            force: bool = False) -> int:
     """Tighten an ambiguous PLAN.md so a weak model is tested on coding rather
     than on guessing under-specified structure.
 
@@ -350,11 +350,11 @@ def improve_plan(goal: str = '', model: str = '', target_dir: str = '',
     if target_dir:
         os.chdir(target_dir)
     if not Path(plan_file).exists():
-        print(f"mu-improve-plan: no {plan_file} found — run `mu plan` first", file=sys.stderr)
+        print(f"mu-improve: no {plan_file} found — run `mu plan` first", file=sys.stderr)
         return 1
 
     # Make the command's invocation unmistakable in the log.
-    print(f"==> [mu-improve-plan] COMMAND INVOKED on {plan_file}", flush=True)
+    print(f"==> [mu-improve] COMMAND INVOKED on {plan_file}", flush=True)
     original = Path(plan_file).read_text()
     p = parse(plan_file)
     if not goal:
@@ -370,38 +370,38 @@ def improve_plan(goal: str = '', model: str = '', target_dir: str = '',
     except Exception:
         warnings = []
     if warnings:
-        log("improve-plan: %d lint warning(s):", len(warnings))
+        log("improve: %d lint warning(s):", len(warnings))
         for w in warnings:
             print(f"  - {w}")
 
     # ── Phase 1: analyze ──────────────────────────────────────────────────────
-    log("improve-plan: analyzing plan adequacy …")
+    log("improve: analyzing plan adequacy …")
     needs, proba, reasons = _analyze_plan_quality(goal, p, max_iter)
     if proba is not None:
-        log("improve-plan: predicted P(success) = %.0f%% (scikit-learn)", proba * 100)
+        log("improve: predicted P(success) = %.0f%% (scikit-learn)", proba * 100)
     else:
-        log("improve-plan: no trained predictor — using heuristics only "
+        log("improve: no trained predictor — using heuristics only "
             "(train via `python -m mu.predict`).")
     if reasons:
-        log("improve-plan: %d ambiguity signal(s): %s", len(reasons), '; '.join(reasons))
+        log("improve: %d ambiguity signal(s): %s", len(reasons), '; '.join(reasons))
     if not needs and not force:
-        log("improve-plan: plan is adequately specified — no changes. "
+        log("improve: plan is adequately specified — no changes. "
             "(use --force to apply reflexes anyway.)")
         return 0
 
     # ── Phase 2: deterministic spec reflexes (no LLM, no new tasks) ────────────
-    log("improve-plan: applying deterministic spec reflexes (no LLM, task count fixed).")
+    log("improve: applying deterministic spec reflexes (no LLM, task count fixed).")
     notes = apply_plan_spec_reflexes(goal, plan_file)
     if not notes:
-        log("improve-plan: no deterministic spec reflex applied — plan left unchanged.")
+        log("improve: no deterministic spec reflex applied — plan left unchanged.")
         return 0
 
     backup = os.path.join(LOG_DIR, f'{Path(plan_file).stem}-before-improve.md')
     os.makedirs(LOG_DIR, exist_ok=True)
     Path(backup).write_text(original)
     for note in notes:
-        log("improve-plan reflex: %s", note)
-    log("improve-plan: enriched %d task description(s); task count unchanged. Backup: %s.",
+        log("improve reflex: %s", note)
+    log("improve: enriched %d task description(s); task count unchanged. Backup: %s.",
         len(notes), backup)
     print()
     print(Path(plan_file).read_text(), flush=True)
@@ -480,9 +480,6 @@ def plan(goal: str, model: str = '', target_dir: str = '', force: bool = False,
         log("Extracted embedded files: %s", ', '.join(extracted))
     if normalize_test_command(plan_file):
         log("Normalized test command for portability.")
-
-    if os.environ.get('MU_LINT_PLAN') == '1':
-        _lint_critique_pass(plan_file, goal, model, planner_timeout)
 
     if os.environ.get('MU_ENRICH_LESSONS') == '1':
         _inject_lessons_section(plan_file, goal)
@@ -631,14 +628,12 @@ def run(goal: str, model: str = '', target_dir: str = '',
         if normalize_test_command(plan_file):
             log("Normalized test command for portability.")
 
-        if os.environ.get('MU_LINT_PLAN') == '1':
-            _lint_critique_pass(plan_file, goal, model, planner_timeout)
-
-        # Opt-in spec-tightening pass: rewrite the freshly-planned PLAN.md to
-        # remove ambiguity (filenames, test harness, data contracts) before the
-        # writer loop. Runs before grounding so the test command is re-normalized.
+        # Opt-in plan-tightening pass: lint the freshly-planned PLAN.md, then
+        # apply deterministic spec reflexes (filenames, test harness, data
+        # contracts) to remove ambiguity before the writer loop — no LLM, task
+        # count fixed. Runs before grounding so the test command is re-normalized.
         if os.environ.get('MU_IMPROVE_PLAN') == '1':
-            improve_plan(goal, model, plan_file=plan_file)
+            improve(goal, model, plan_file=plan_file)
 
         p = parse(plan_file)
         current_plan = p
@@ -2814,81 +2809,6 @@ def _inject_lessons_section(plan_path: str, goal: str) -> None:
         Path(plan_path).write_text(new_text, encoding='utf-8')
         log("enrich: injected %d lesson(s) into PLAN.md", len(lessons))
     except OSError:
-        pass
-
-
-def _lint_critique_pass(plan_path: str, goal: str, model: str,
-                        planner_timeout: int) -> None:
-    """Lint the plan and, on warnings, ask the planner to revise it once.
-
-    The spaCy plan-lint arm: run the deterministic
-    plan linter (`mu.lint`), feed any warnings back to the planner LLM as a
-    critique, and replace PLAN.md with the revised output. A single pass —
-    the revised plan is re-linted for diagnostics only, never re-prompted.
-
-    No-op if the lint module is unavailable or the plan trips no checks.
-    Gated by the caller via MU_LINT_PLAN, so the default planner path never
-    imports `mu.lint` or calls an extra LLM turn.
-    """
-    try:
-        from mu.lint import lint_plan, render_warnings
-    except ImportError:
-        return
-    try:
-        warnings = lint_plan(plan_path)
-    except Exception as e:
-        log("lint: lint_plan raised %s", e)
-        return
-    if not warnings:
-        return
-    log("lint: plan tripped %d check(s): %s", len(warnings), ' | '.join(warnings))
-
-    try:
-        original = Path(plan_path).read_text(encoding='utf-8')
-    except OSError:
-        return
-    project_dir = os.getcwd()
-    system = (f"You are a planning agent in: {project_dir}\n"
-              "Output ONLY the raw PLAN.md markdown. No preamble, no explanation, "
-              "no code blocks. Begin with ## Summary, then ## Files.")
-    skill = _load_skill('task-planner')
-    if skill:
-        system += '\n\n' + skill
-    user_msg = (f"GOAL: {goal}\n\nCurrent PLAN.md:\n\n{original}\n\n"
-                f"{render_warnings(warnings)}")
-    msgs = [{'role': 'system', 'content': system},
-            {'role': 'user', 'content': user_msg}]
-    set_chat_context('lint-critique')
-    try:
-        msg, _ = chat(model, msgs, None, float(planner_timeout))
-    except Exception as e:
-        log("lint: critique chat failed: %s", e)
-        return
-    content = extract_plan_content(msg['content'])
-    if not content or not re.search(r'(?m)^- \[[ x~]\]', content):
-        log("lint: critique response had no valid checklist — keeping original plan")
-        return
-    try:
-        Path(plan_path).write_text(content)
-    except OSError as e:
-        log("lint: could not write revised PLAN.md: %s", e)
-        return
-    log("lint: plan revised after critique")
-
-    # The critique output bypasses the generation-phase normalizers, so re-run
-    # them on the revision before it is parsed downstream.
-    if strip_thinking_artifacts(plan_path):
-        log("WARNING: thinking artifact tokens stripped from revised PLAN.md")
-    if normalize_embedded_files(plan_path):
-        log("Extracted embedded files from revised PLAN.md")
-    if normalize_test_command(plan_path):
-        log("Normalized test command in revised PLAN.md")
-
-    try:
-        remaining = lint_plan(plan_path)
-        if remaining:
-            log("lint: %d warning(s) remain after revision", len(remaining))
-    except Exception:
         pass
 
 

@@ -75,7 +75,7 @@ def main() -> int:
     agent_p.add_argument('--model', default='',
                          help='LM Studio model ID (overrides MU_AGENT_MODEL)')
 
-    improve_p = sub.add_parser('improve-plan',
+    improve_p = sub.add_parser('improve',
                                help='Analyze a PLAN.md and tighten ambiguous specs (filenames, '
                                     'test harness, data contracts, decomposition) so a weak model '
                                     'is tested on coding, not guessing')
@@ -138,7 +138,7 @@ def main() -> int:
         'model': _cmd_model,
         'plan': _cmd_plan,
         'agent': _cmd_agent,
-        'improve-plan': _cmd_improve_plan,
+        'improve': _cmd_improve,
         'architect': _cmd_architect,
         'iterate': _cmd_iterate,
         'reflect': _cmd_reflect,
@@ -236,9 +236,9 @@ def _cmd_check(args) -> int:
         print("  [--]  cargo clippy not found   rustup component add clippy")
     print()
 
-    # Optional plan-lint extra (Option A). Informational only — never counted
-    # toward pass/fail, since the feature is opt-in behind MU_LINT_PLAN=1.
-    print("Plan lint (optional — MU_LINT_PLAN=1)")
+    # Optional plan-lint extra. Informational only — never counted toward
+    # pass/fail; it enriches the lint phase of `mu improve` when present.
+    print("Plan lint (optional — used by `mu improve`)")
     try:
         import spacy  # noqa: F401
         try:
@@ -343,9 +343,9 @@ def _cmd_setup(args) -> int:
             print(f"  {label} not found.")
             run_cmd(*cmd)
 
-    # Optional plan-lint (MU_LINT_PLAN=1): spaCy + en_core_web_sm model.
+    # Optional plan-lint (used by `mu improve`): spaCy + en_core_web_sm model.
     print()
-    print("Optional plan lint (MU_LINT_PLAN=1)")
+    print("Optional plan lint (used by `mu improve`)")
     try:
         import spacy  # noqa: F401
         try:
@@ -668,10 +668,10 @@ def _cmd_agent(args) -> int:
                      max_iter=args.max_iter, force=args.force)
 
 
-# ── improve-plan ──────────────────────────────────────────────────────────────
+# ── improve ───────────────────────────────────────────────────────────────────
 
-def _cmd_improve_plan(args) -> int:
-    return agent.improve_plan(goal=args.goal, model=args.model, target_dir=args.dir,
+def _cmd_improve(args) -> int:
+    return agent.improve(goal=args.goal, model=args.model, target_dir=args.dir,
                               plan_file=args.plan, force=args.force)
 
 

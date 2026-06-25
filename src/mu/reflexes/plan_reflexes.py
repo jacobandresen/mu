@@ -1,7 +1,7 @@
 """Plan reflexes: deterministic clarifications applied to PLAN.md task
 descriptions. They enrich the spec the writer sees (interface/test-harness
 contracts) WITHOUT adding, removing, or renaming tasks — the honest, decompose-
-free form of ``mu improve-plan``. Split out of the monolithic reflexes module so
+free form of ``mu improve``. Split out of the monolithic reflexes module so
 each concern lives in its own module. No logic changes from the original.
 """
 

@@ -94,7 +94,7 @@ src/mu/client.py      LM Studio HTTP client
 src/mu/archive.py     session tombstones + Utility record
 src/mu/reflect.py     offline learner: distills failures into docs/challenges/README.md
 src/mu/enrich.py      retrieval: fetches relevant challenges at plan time
-src/mu/lint.py        pre-execution plan critic (used by improve-plan + MU_LINT_PLAN)
+src/mu/lint.py        pre-execution plan linter (the lint phase of `mu improve`)
 src/mu/__main__.py    CLI and all commands
 skills/               skill prompts loaded by the planner at runtime
 ```
