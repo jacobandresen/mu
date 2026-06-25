@@ -35,6 +35,7 @@ repo. This file is the durable distillation of those verdicts.
 | Lever | Flag | Hypothesis | p10 backend_build result | Verdict |
 |---|---|---|---|---|
 | MSB1003 `dotnet test <dir>` redirect | (always on) | empty `tests/` dir MSB1003s before compile | MSB1003 **10/15 → 0/15**; gate still 0/15 (moved deeper) | **SHIPPED** (no-regret) |
+| Scaffold (`dotnet new`) | `MU_SCAFFOLD` | model authors `net5.0`+EF8 csproj ⇒ NU1202/NETSDK1226 restore wall | NU1202/NETSDK1226 **12/15 → 0/15** (scaffold fired 15/15); gate still 0/15 (moved to CS7022/CS0246 compile); repair-iters 6.0→4.0 | **OPT-IN** — wall cleared (mechanistic win) but headline null at N=15; re-test PARKED entry-point + S2 now restore is reachable (`.mu/abl_scaffold_verdict.md`) |
 | TFM grounding | `MU_TFM_GROUNDING` | model's `net5.0` csproj fails NuGet restore (NU1202) before compile | — (A/B un-run) | **UNDER TEST** |
 | ASP.NET entry-point task | `MU_ASPNET_ENTRYPOINT` | architect never plans `Program.cs` ⇒ CS0246 | 0/15 ON = 0/15 OFF (Δ≈0, behind NU1202 wall) | **PARKED** |
 | S2 cross-stage type reflexes | `MU_S2_TYPE_REFLEXES` | duplicate/missing types across stages ⇒ CS0101/CS0246 | 0/15 ON = 0/15 OFF (Δ≈0, behind NU1202 wall) | **PARKED** |

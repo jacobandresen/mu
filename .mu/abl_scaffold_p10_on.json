@@ -1,0 +1,51 @@
+{
+  "problem_id": "p10-dotnet-vue-blog",
+  "seed": "",
+  "disabled": "",
+  "n": 15,
+  "hits": 0,
+  "pass_rate": 0.0,
+  "avg_repair_iters": 4.0,
+  "stochasticity": 0.0,
+  "ts": "2026-06-25T17:52:13",
+  "layers": {
+    "backend_build": {
+      "clears": 0,
+      "n": 15,
+      "q": 0.0588,
+      "ci": [
+        0.0,
+        0.1675
+      ]
+    },
+    "backend_test": {
+      "clears": 0,
+      "n": 15,
+      "q": 0.0588,
+      "ci": [
+        0.0,
+        0.1675
+      ]
+    },
+    "frontend_build": {
+      "clears": 0,
+      "n": 15,
+      "q": 0.0588,
+      "ci": [
+        0.0,
+        0.1675
+      ]
+    },
+    "frontend_test": {
+      "clears": 0,
+      "n": 15,
+      "q": 0.0588,
+      "ci": [
+        0.0,
+        0.1675
+      ]
+    }
+  },
+  "p_solve": 0.0,
+  "bottleneck": "backend_build"
+}

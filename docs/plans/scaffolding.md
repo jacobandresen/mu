@@ -183,5 +183,12 @@ row. **Then** re-test the PARKED S2/entry-point levers, now that restore is reac
       first sketch); `Program.cs` stays a model task via explicit `owned_paths` (§2).
 - [x] Unit tests for the new behaviours + offline degrade + the owned-path/plan-name
       match (§5).
-- [ ] Pre-register + run the p10 A/B (scaffold vs baseline vs TFM-grounding); record the verdict
-      in `ablations.md`; re-test the PARKED S2/entry-point levers if the wall clears.
+- [x] Pre-register (`.mu/abl_scaffold_prereg.md`) + run the p10 headline A/B. **Result
+      (2026-06-25, qwen-7b, N=15):** headline **null** — backend_build 0/15 ON = 0/15 OFF
+      (P1 CI-lo −0.166). **Mechanistic win:** NU1202/NETSDK1226 **12/15 → 0/15**, scaffold
+      fired 15/15, binder moved to CS7022/CS0246 compile; repair-iters 6.0→4.0. Verdict
+      **OPT-IN** (`ablations.md` row, `.mu/abl_scaffold_verdict.md`). The wall clears.
+- [ ] Follow-ups the result opens: re-run the PARKED entry-point + S2 A/Bs with
+      `MU_SCAFFOLD=1` (compilation now reachable); the deferred p4/p1/p2 controls + Arm 3
+      (vs `MU_TFM_GROUNDING`); and D3 sharpening for CS7022 (scaffold `Program.cs` double
+      entry-point).
