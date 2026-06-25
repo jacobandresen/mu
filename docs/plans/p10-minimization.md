@@ -820,6 +820,9 @@ against the tree at 2026-06-19 (capability.py: 2026-06-20).
 
 ### A.1 Approach A — `scaffold.py` per stage (mu invokes the generator itself)
 
+> Canonical, p10-focused implementation + test plan: [scaffolding.md](scaffolding.md).
+> The sketch below is the worked snippet it derives from.
+
 Today `scaffold.detect(sig)` returns the first matching recipe globally, and
 nothing calls it. The fix: (1) make detection stage-aware, (2) call it at the top
 of each staged session in `run_staged` ([agent.py](../../src/mu/agent.py):2109).
