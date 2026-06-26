@@ -360,32 +360,39 @@ def diagnose(path: str) -> list:
         client.stop()
 
 
-def _apply_actions(client: "LspClient", actions: list) -> bool:
-    applied = False
-    for a in actions:
-        if not isinstance(a, dict):
-            continue
+def _apply_one(client: "LspClient", actions: list) -> bool:
+    """Apply exactly **one** code action and return True if it edited the file.
+
+    Critical: a server returns several *mutually-exclusive* fixes for one diagnostic
+    (add `using System.Collections.Generic`, OR generate a `List` class, OR fully-qualify).
+    Their edits are all computed against the *original* offsets, so applying more than one
+    sequentially scrambles the file. Apply only the preferred (or first) action, then let the
+    caller re-diagnose for the next fix."""
+    ordered = sorted((a for a in actions if isinstance(a, dict)),
+                     key=lambda a: not a.get("isPreferred"))
+    for a in ordered:
         a = client.resolve(a)
         edit = a.get("edit")
-        if edit and _apply_workspace_edit(edit):
-            applied = True
-        # Command-based assist (no inline edit): execute it; the server applies via
-        # workspace/applyEdit. ``command`` may be a Command object or a bare string.
+        if edit:
+            if _apply_workspace_edit(edit):
+                return True
+            continue
         cmd = a.get("command")
-        if cmd and not edit:
+        if cmd:
             cmd_obj = cmd if isinstance(cmd, dict) else {"command": cmd, "arguments": a.get("arguments", [])}
             if client.execute_command(cmd_obj):
-                applied = True
-    return applied
+                return True
+    return False
 
 
-def repair(path: str, max_rounds: int = 3) -> bool:
+def repair(path: str, max_rounds: int = 5) -> bool:
     """Apply the server's code actions to ``path`` until clean or no progress.
 
-    Two complementary fixers: (1) ``source.organizeImports`` — the goimports-style
-    add-missing/remove-unused pass (the big win for Go/TS/Rust), run every round; and
-    (2) ``quickfix`` actions bound to error diagnostics (clangd "add include",
-    rust-analyzer trait imports, signature fixes). Returns True if any edit was applied.
+    One edit per round, then re-diagnose (never apply multiple actions at once — their
+    ranges are relative to the unedited file). Each round tries, in order:
+    ``source.organizeImports`` (goimports-style add-missing/remove-unused, the Go/TS win),
+    then a single ``quickfix`` for the first error (clangd "add include", add-using, …).
+    Returns True if any edit was applied.
     """
     cmd = server_for(path)
     if not cmd:
@@ -398,10 +405,12 @@ def repair(path: str, max_rounds: int = 3) -> bool:
     try:
         for _ in range(max_rounds):
             diags = client.open(path, settle=settle)
-            applied = _apply_actions(client, client.source_actions(path, "source.organizeImports"))
-            errs = [d for d in diags if d.get("severity") == 1]
-            if errs:
-                applied = _apply_actions(client, client.code_actions(path, errs)) or applied
+            applied = _apply_one(client, client.source_actions(path, "source.organizeImports"))
+            if not applied:
+                errs = [d for d in diags if d.get("severity") == 1]
+                if not errs:
+                    break
+                applied = _apply_one(client, client.code_actions(path, errs[:1]))
             any_fix = any_fix or applied
             client.diagnostics.clear()
             if not applied:

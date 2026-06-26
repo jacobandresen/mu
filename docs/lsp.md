@@ -47,7 +47,12 @@ spawning a slow server that returns nothing (the p8 lesson). `MU_LSP=all` opts i
 | Python | pyright | installable (`pip install pyright`) |
 | TS / JS | typescript-language-server | installable |
 | Rust | rust-analyzer | starts + diagnoses; import assists need fuller capability negotiation to apply |
-| C# | csharp-ls | installable |
+| C# | csharp-ls | **works** — add-using verified (`using System.Collections.Generic;`, builds); ~19s/file (slow ⇒ `MU_LSP=all`) |
+
+> **Safety:** a server returns several *mutually-exclusive* fixes for one diagnostic (add
+> using X, OR generate a class, OR qualify), each with edits relative to the *original* file.
+> `repair()` applies **one** action per round and re-diagnoses — applying several at once
+> scrambles the file (csharp-ls corrupted a file into garbage before this was enforced).
 
 ## Empirical (dark dojo trials, qwen-7b, 2026-06-26)
 
