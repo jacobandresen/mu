@@ -241,6 +241,26 @@ class LspClient:
         }) or []
         return res
 
+    def source_actions(self, path: str, kind: str) -> list:
+        """Whole-file `source` code actions (e.g. ``source.organizeImports`` —
+        goimports-style add-missing/remove-unused for Go/TS, the highest-value LSP
+        repair). Not tied to a diagnostic, so requested over the whole document."""
+        uri = _uri(path)
+        nlines = Path(path).read_text(errors="replace").count("\n") + 1
+        res = self._request("textDocument/codeAction", {
+            "textDocument": {"uri": uri},
+            "range": {"start": {"line": 0, "character": 0},
+                      "end": {"line": nlines, "character": 0}},
+            "context": {"diagnostics": [], "only": [kind]},
+        }) or []
+        return res
+
+    def resolve(self, action: dict) -> dict:
+        """Resolve a code action that defers its edit (codeAction/resolve)."""
+        if action.get("edit") or "data" not in action:
+            return action
+        return self._request("codeAction/resolve", action) or action
+
 
 def _apply_workspace_edit(edit: dict) -> bool:
     """Apply a WorkspaceEdit (changes or documentChanges) to disk. Returns True if any."""
@@ -303,11 +323,25 @@ def diagnose(path: str) -> list:
         client.stop()
 
 
-def repair(path: str, max_rounds: int = 3) -> bool:
-    """Apply the server's quickfix code actions to ``path`` until clean or no progress.
+def _apply_actions(client: "LspClient", actions: list) -> bool:
+    applied = False
+    for a in actions:
+        if not isinstance(a, dict):
+            continue
+        a = client.resolve(a)
+        edit = a.get("edit")
+        if edit and _apply_workspace_edit(edit):
+            applied = True
+    return applied
 
-    Returns True if any edit was applied. The deterministic, language-aware repair lever:
-    e.g. clangd's "add include" for an undeclared identifier, rust-analyzer's import fixes.
+
+def repair(path: str, max_rounds: int = 3) -> bool:
+    """Apply the server's code actions to ``path`` until clean or no progress.
+
+    Two complementary fixers: (1) ``source.organizeImports`` — the goimports-style
+    add-missing/remove-unused pass (the big win for Go/TS/Rust), run every round; and
+    (2) ``quickfix`` actions bound to error diagnostics (clangd "add include",
+    rust-analyzer trait imports, signature fixes). Returns True if any edit was applied.
     """
     cmd = server_for(path)
     if not cmd:
@@ -319,19 +353,14 @@ def repair(path: str, max_rounds: int = 3) -> bool:
     try:
         for _ in range(max_rounds):
             diags = client.open(path)
+            applied = _apply_actions(client, client.source_actions(path, "source.organizeImports"))
             errs = [d for d in diags if d.get("severity") == 1]
-            if not errs:
-                break
-            actions = client.code_actions(path, errs)
-            applied = False
-            for a in actions:
-                edit = a.get("edit") if isinstance(a, dict) else None
-                if edit and _apply_workspace_edit(edit):
-                    applied = any_fix = True
+            if errs:
+                applied = _apply_actions(client, client.code_actions(path, errs)) or applied
+            any_fix = any_fix or applied
+            client.diagnostics.clear()
             if not applied:
                 break
-            # re-open picks up the edited file on the next round
-            client.diagnostics.clear()
     finally:
         client.stop()
     return any_fix
