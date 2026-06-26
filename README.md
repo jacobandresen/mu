@@ -39,6 +39,7 @@ mu agent "write a Flask REST API with SQLite and pytest tests" --dir myproject
 | `mu setup` | Interactively install missing toolchains |
 | `mu reflect` | Distil recent failed sessions into docs/challenges/README.md |
 | `mu kb` | Build/show the reflex knowledge base — reflex catalog + per-model profiles |
+| `mu lsp <diagnose\|fix\|langs>` | Drive language servers as a repair oracle (see *What's shipped*) |
 | `mu version` | Print mu version |
 
 ## Toolchains
@@ -85,12 +86,14 @@ Declared in `pyproject.toml`; installed automatically by pip or pipx. Dependenci
 
 ## Dojo
 
-The dojo stress-tests mu against a fixed problem set of twelve goals spanning C, Python, Go, Rust, C#, Node, full-stack TypeScript, and SDL2 graphics/physics. Problems are defined in `problems-catalog.json`; only problems whose toolchains are installed are run.
+The dojo stress-tests mu against a fixed problem set of fifteen goals spanning C, Python, Go, Rust, C#, Node, full-stack TypeScript, and SDL2 graphics/physics. Problems are defined in `problems-catalog.json`; only problems whose toolchains are installed are run.
 
 ```sh
 mu dojo run               # run all available problems once
 mu dojo run <problem-id>  # run one problem
 mu dojo practice          # repeated rounds: run, distill failures, reflect, repeat
+mu dojo measure <id> -n N # N fresh-plan runs of one problem: pass rate + stochasticity
+mu dojo board -n N        # measure ALL problems: per-layer q̂, p_solve, E[#solved]
 ```
 
 `mu dojo practice` is the training loop (see the intro): each round runs the full set, tags every failed session with its distilled root cause, and prints a per-problem pass-rate table worst-first so the next reflex to write is obvious. See [DOJO.md](DOJO.md) for the full command surface.
@@ -105,3 +108,31 @@ and the reflexes that carry it. Recurring failure classes are catalogued in
 [docs/challenges/](docs/challenges/README.md).
 
 See [DOJO.md](DOJO.md) for the problem set, the training loop, and the ranked improvement backlog (open problems). See [docs/ablations.md](docs/ablations.md) for the log of behaviour levers tried and their A/B verdicts.
+
+## What's shipped
+
+The repair substrate beyond the core reflexes, in the order a fix gets to enter the loop:
+
+- **Reflexes** (`src/mu/reflexes/`, always on) — deterministic post-write fixers, chained to a
+  fixpoint, one general error-class each (the core mechanism above).
+- **LSP repair lever** (`src/mu/lsp.py`, opt-in `MU_LSP`) — drives **language servers** as a
+  grammar-accurate repair oracle: add-include, organize-imports, add-using, and other code
+  actions the server authors itself. `MU_LSP=1` runs the fast proven servers (clangd, gopls);
+  `MU_LSP=all` adds the slow ones (csharp-ls, pyright, rust-analyzer, ts). A *selective* lever —
+  see [docs/lsp.md](docs/lsp.md).
+- **Scaffold lever** (`src/mu/scaffold.py`, opt-in `MU_SCAFFOLD`) — runs `dotnet new` at ground
+  time so the model never authors the C# project file that fails NuGet restore. Clears the
+  restore wall but ships opt-in (the verdict below).
+- **Capability board** (`mu dojo measure` / `mu dojo board`) — per-layer q̂ and whole-set
+  `E[#solved]`, scored through honest gates (a vacuous test log is not a pass), the instrument
+  every behaviour lever is A/B'd on ([docs/ablations.md](docs/ablations.md)).
+
+## Current focus
+
+Chip **deterministic fruit on the non-.NET problems**, where a reflex or the LSP lever actually
+moves the pass rate. The .NET ladder (p10/p13/p14) is now judged **model-ceiling-bound for
+qwen-7b**: the structural levers (scaffold, TFM-grounding, entry-point, S2) clear the build wall
+but the residual is model semantics, so they stay opt-in with no pass-rate to bank. The LSP lever
+is being measured per problem as the next general repair source — strongest on the
+[missing-imports](docs/challenges/missing-imports.md) class. Rationale and the marginal-value
+argument: [DOJO.md](DOJO.md) (Problem-space minimization); verdicts: [docs/ablations.md](docs/ablations.md).
