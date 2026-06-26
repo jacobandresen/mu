@@ -182,6 +182,7 @@ def board(emit_json: str = '', runs: int | None = None) -> int:
     """Run **all ten** problems over N fresh-plan runs and print the capability
     board: per-layer q̂, per-problem p_solve, the bottleneck layer, and the whole-set
     objective E[#solved] = Σ p_solve. The ranking + ledger instrument of plan §4.2."""
+    import json as _json
     from mu.toolchain import load_problems_catalog
     from .. import capability
 
@@ -193,11 +194,13 @@ def board(emit_json: str = '', runs: int | None = None) -> int:
     print(f"Board: measuring {len(problems)} problems over {n} run(s) each…\n")
 
     table: capability.Board = {}
+    causes: dict[str, dict[str, int]] = {}
     observed_solved = 0.0
     for problem in problems:
         pid, goal = problem['id'], problem['goal']
         layers = _problem_layers(problem)
         clears = {l: 0 for l in layers}
+        cause_counts: dict[str, int] = {}
         solved = 0
         work = Path('dojo') / pid
         try:
@@ -209,6 +212,9 @@ def board(emit_json: str = '', runs: int | None = None) -> int:
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 s = sessions.latest_since(marker)
                 solved += bool(s and s.outcome == 'success')
+                if s and s.outcome != 'success':
+                    cause = sessions.root_cause(s.dir) or s.outcome
+                    cause_counts[cause] = cause_counts.get(cause, 0) + 1
                 lc = _layer_clears(problem, s)
                 for l in layers:
                     if lc.get(l):
@@ -216,32 +222,50 @@ def board(emit_json: str = '', runs: int | None = None) -> int:
         finally:
             _rmwork(work)
         table[pid] = {l: capability.LayerStat(clears=clears[l], n=n) for l in layers}
+        causes[pid] = dict(sorted(cause_counts.items(), key=lambda kv: -kv[1]))
         observed_solved += solved / n if n else 0.0
         print(f"  {pid:<26} solved {solved}/{n} · "
               f"layers " + ', '.join(f"{l}={clears[l]}/{n}" for l in layers))
+        # Checkpoint partial board to disk after each problem so a crash/kill
+        # never loses hours of completed runs (the loop reads this incrementally).
+        if emit_json:
+            Path(emit_json).write_text(
+                _json.dumps(_board_payload(n, table, causes, observed_solved,
+                                           partial=True), indent=2))
 
     _print_board(table, observed_solved)
 
     if emit_json:
-        import datetime, json as _json
-        out = {
-            'n': n,
-            'e_solved': capability.e_solved(table),
-            'raw_solved': _raw_solved(table),
-            'observed_solved': observed_solved,
-            'board': {
-                pid: {
-                    l: {'clears': st.clears, 'n': st.n,
-                        'q': round(st.q, 4), 'ci': [round(c, 4) for c in st.ci]}
-                    for l, st in layers.items()
-                }
-                for pid, layers in table.items()
-            },
-            'ts': datetime.datetime.now().isoformat(timespec='seconds'),
-        }
-        Path(emit_json).write_text(_json.dumps(out, indent=2))
+        Path(emit_json).write_text(
+            _json.dumps(_board_payload(n, table, causes, observed_solved,
+                                       partial=False), indent=2))
         print(f"\nBoard written to {emit_json}")
     return 0
+
+
+def _board_payload(n: int, table: 'capability.Board', causes: dict,
+                   observed_solved: float, partial: bool) -> dict:
+    """Serialize the (possibly partial) board + per-problem first-error tallies."""
+    import datetime
+    from .. import capability
+    return {
+        'n': n,
+        'partial': partial,
+        'problems_done': len(table),
+        'e_solved': capability.e_solved(table),
+        'raw_solved': _raw_solved(table),
+        'observed_solved': observed_solved,
+        'board': {
+            pid: {
+                l: {'clears': st.clears, 'n': st.n,
+                    'q': round(st.q, 4), 'ci': [round(c, 4) for c in st.ci]}
+                for l, st in layers.items()
+            }
+            for pid, layers in table.items()
+        },
+        'first_errors': causes,
+        'ts': datetime.datetime.now().isoformat(timespec='seconds'),
+    }
 
 
 def _raw_solved(table) -> float:
