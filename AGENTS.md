@@ -12,12 +12,35 @@ This file is the source of truth for how to work on mu. If it conflicts with oth
 
 ## 0. Prime directive: keep the dojo honest
 
-The dojo runs 10 fixed problems to measure the **harness's real capability**, not to score points.
+The dojo runs 15 fixed problems to measure the **harness's real capability**, not to score points.
 
 **Do not optimize against specific dojo problems:**
 - No hardcoded languages or filenames.
 - A reflex is only valid if it fixes a *general class* of model error in a language or build system.
 - When a problem fails, the honest fix is a general one — a better prompt rule, a general mechanism, or a better model. Never a band-aid that pattern-matches one problem's output.
+
+---
+
+## 0a. Current focus
+
+Where the marginal capability is, so your work lands where it moves the number:
+
+- **Chip deterministic fruit on the non-.NET problems.** A step's value is its expected gain in
+  `E[N_solved]` over the whole set, ∝ logistic headroom `q(1−q)` × the chain factor — so the
+  steep mid-tier problems (p2, p4, p7, p8) and **broad, no-regret levers** dominate dragging the
+  hardest problem. Pick a class that recurs across problems, not a one-off.
+- **The .NET ladder (p10/p13/p14) is model-ceiling-bound for qwen-7b.** The structural levers
+  (`MU_SCAFFOLD`, `MU_TFM_GROUNDING`, entry-point, S2) clear the build wall (NU1202 15→0) but the
+  residual is model semantics (CS0103 undefined-name, CS1929). They are *validated but insufficient*
+  and stay opt-in — **don't keep chipping the .NET ceiling**; spend deterministic effort elsewhere.
+- **Prefer the LSP repair lever for the import/include/symbol classes.** `MU_LSP` drives language
+  servers as a grammar-accurate repair oracle (add-include, organize-imports, add-using) — strictly
+  more general than a hand-rolled regex reflex for that class, and it can't make the regex's
+  scope-blind misfire. It is a *selective* lever (a fast server meeting an import failure), not a
+  universal lift — see [docs/lsp.md](docs/lsp.md).
+- **Measure on the board, don't assert.** Every lever is A/B'd on `mu dojo measure` / `mu dojo board`
+  through honest gates; record the verdict in [docs/ablations.md](docs/ablations.md). Read null P1s
+  at N=15 as *inconclusive*, not *harmful*. Full rationale: [DOJO.md](DOJO.md) (Problem-space minimization).
 
 ---
 
