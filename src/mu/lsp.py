@@ -43,6 +43,17 @@ _SERVERS: dict[str, list[str]] = {
 }
 
 
+# How long to wait for a server to publish diagnostics after didOpen. Fast single-file
+# servers (clangd) settle in <1s; project-indexing servers (rust-analyzer runs `cargo
+# check`, gopls/csharp-ls load the module) need much longer or they no-op (rust-analyzer
+# returned nothing within 3s on p6).
+_SETTLE: dict[str, float] = {"rust-analyzer": 15.0, "gopls": 8.0, "csharp-ls": 12.0}
+
+
+def _settle_for(cmd: list[str]) -> float:
+    return _SETTLE.get(cmd[0], 3.0)
+
+
 def server_for(path: str) -> Optional[list[str]]:
     """The installed server argv for ``path``'s language, or None."""
     cmd = _SERVERS.get(Path(path).suffix.lower())
@@ -78,6 +89,7 @@ class LspClient:
         self.proc: Optional[subprocess.Popen] = None
         self._id = 0
         self.diagnostics: dict[str, list] = {}
+        self._edited = False   # set when the server applies an edit via workspace/applyEdit
 
     # ── framing ────────────────────────────────────────────────────────────────
     def _read_exact(self, n: int, deadline: float) -> Optional[bytes]:
@@ -146,6 +158,12 @@ class LspClient:
         if msg.get("method") == "textDocument/publishDiagnostics":
             p = msg.get("params", {})
             self.diagnostics[p.get("uri", "")] = p.get("diagnostics", [])
+        # Many assists (rust-analyzer imports, some gopls/ts fixes) deliver their edit via a
+        # server→client workspace/applyEdit request after executeCommand — apply it here.
+        elif msg.get("method") == "workspace/applyEdit":
+            ok = _apply_workspace_edit(msg.get("params", {}).get("edit", {}))
+            self._edited = self._edited or ok
+            self._send({"jsonrpc": "2.0", "id": msg.get("id"), "result": {"applied": ok}})
         # server→client requests we must answer to stay live
         elif msg.get("method") == "workspace/configuration":
             self._send({"jsonrpc": "2.0", "id": msg.get("id"),
@@ -218,8 +236,10 @@ class LspClient:
             if msg is None:
                 break
             self._dispatch(msg)
-            if uri in self.diagnostics:
-                # give a beat for a fuller batch, then stop
+            # Only stop once we have *non-empty* diagnostics: project-indexing servers
+            # (rust-analyzer) publish an empty batch on open and the real ones after
+            # `cargo check`, so breaking on the first (empty) batch returns nothing.
+            if self.diagnostics.get(uri):
                 extra = time.time() + 0.4
                 while time.time() < extra:
                     m2 = self._read_message(extra)
@@ -260,6 +280,16 @@ class LspClient:
         if action.get("edit") or "data" not in action:
             return action
         return self._request("codeAction/resolve", action) or action
+
+    def execute_command(self, command: dict) -> bool:
+        """Run a code action's command; the server applies its edit via workspace/applyEdit
+        (handled in _dispatch). Returns True if any edit landed."""
+        if not command or "command" not in command:
+            return False
+        self._edited = False
+        self._request("workspace/executeCommand", {
+            "command": command["command"], "arguments": command.get("arguments", [])})
+        return self._edited
 
 
 def _apply_workspace_edit(edit: dict) -> bool:
@@ -318,7 +348,7 @@ def diagnose(path: str) -> list:
     if not client.start():
         return []
     try:
-        return client.open(path)
+        return client.open(path, settle=_settle_for(cmd))
     finally:
         client.stop()
 
@@ -332,6 +362,13 @@ def _apply_actions(client: "LspClient", actions: list) -> bool:
         edit = a.get("edit")
         if edit and _apply_workspace_edit(edit):
             applied = True
+        # Command-based assist (no inline edit): execute it; the server applies via
+        # workspace/applyEdit. ``command`` may be a Command object or a bare string.
+        cmd = a.get("command")
+        if cmd and not edit:
+            cmd_obj = cmd if isinstance(cmd, dict) else {"command": cmd, "arguments": a.get("arguments", [])}
+            if client.execute_command(cmd_obj):
+                applied = True
     return applied
 
 
@@ -349,10 +386,11 @@ def repair(path: str, max_rounds: int = 3) -> bool:
     client = LspClient(cmd, str(Path(path).parent))
     if not client.start():
         return False
+    settle = _settle_for(cmd)
     any_fix = False
     try:
         for _ in range(max_rounds):
-            diags = client.open(path)
+            diags = client.open(path, settle=settle)
             applied = _apply_actions(client, client.source_actions(path, "source.organizeImports"))
             errs = [d for d in diags if d.get("severity") == 1]
             if errs:
