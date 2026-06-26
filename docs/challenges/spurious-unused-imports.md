@@ -21,6 +21,7 @@ Imports that don't belong: `import __name__`/`import self` in Python, unused Rus
 - [`fix_rust_duplicate_use`](../../src/mu/reflexes/rust/fix_rust_duplicate_use.py) — drops a duplicate Rust `use`
 - [`py_autofix`](../../src/mu/reflexes/python/py_autofix.py) — autoflake removes unused Python imports
 - [`fix_python_missing_stdlib_imports`](../../src/mu/reflexes/python/fix_python_missing_stdlib_imports.py) — name-binding-aware: won't re-add a name already bound by `from mod import name`
+- **LSP ([`lsp.py`](../../src/mu/lsp.py), `MU_LSP`)** — `source.organizeImports` is the general remove-unused side (the same action that adds missing ones), covering any language's unused imports rather than a per-language reflex: `gopls`/`pyright`/`ts` drop unused imports cleanly. Caveat: `rust-analyzer`'s import assists need fuller capability negotiation to *apply* (it diagnoses but the edit doesn't land yet — see [`docs/lsp.md`](../lsp.md)), so the Rust `use` case still leans on the reflex.
 
 ## Residual / notes
 
