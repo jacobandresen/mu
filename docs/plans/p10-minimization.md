@@ -10,8 +10,11 @@ highest-EV targets are usually **not** p10.
 
 **The binding constraint** is a principle (§0.2): **mu must not rely on fixtures
 or pregenerated code.** Anything we hand the agent moves p10's *number* without
-making the *agent* better. Status: **proposed / in progress** (§4.3 is a live
-checklist). Written 2026-06-19, trimmed 2026-06-20.
+making the *agent* better. **Status (2026-06-26): Phase 0 SHIPPED (board, S1/S2, build-order
+— see the checklist below and [`docs/ablations.md`](../ablations.md) for the lever verdicts);
+Phases 1–3 SUPERSEDED after the p10 pivot (§4.3).** This doc is kept for the capability model
+(§1) and the lever methodology (§2–§4); the live lever status lives in `ablations.md`.
+Written 2026-06-19, trimmed 2026-06-20 and 2026-06-26.
 
 ---
 
@@ -94,7 +97,7 @@ Measured (run 7, qwen2.5-coder-7b, ctx 6000): **0/12**, median 6 repair iters,
 
 **The decisive prior: structure is *necessary but not sufficient*.**
 `src/mu/scaffold.py` is now **wired** into `run_staged`, SDK-grounded, and A/B'd in-tree
-(see [scaffolding.md](scaffolding.md), [ablations.md](../ablations.md) scaffold row). The
+(see [ablations.md](../ablations.md) scaffold row; impl [`src/mu/scaffold.py`](../../src/mu/scaffold.py)). The
 pre-registered p10 A/B (2026-06-25, qwen-7b, N=15) is sharp:
 
 > backend_build **0/15 ON = 0/15 OFF** (headline null), but mechanistically the restore wall
@@ -687,107 +690,19 @@ are mutually exclusive, selected by Step 1.4.
 - **Measure / Gate.** A/B `mu dojo measure` with `MU_BUILD_ORDER` on vs off, KEEP iff $\Delta E[N_{\text{solved}}]$ CI lo **> 0** (P1) ∧ no control regression (P2). **Run 1 done 2026-06-22** (qwen-7b, p1/p2/p3 × on/off × N=15, `.mu/abl_bo_verdict.md`): **caught a REGRESSION** — p3-sdl2 cratered **15/15→2/15** ON (ΔE[#solved] −0.71, CI [−1.04, −0.34], P1/P2 FAIL). p1 control clean (15/15 both), p2 neutral (14 vs 13). **Root cause + fix (commit `008d4ce`):** `incremental.append_check` prepended `.PHONY: check` to the Makefile TOP → a makefile reflex re-ran and tab-indented the `CFLAGS`/`LDFLAGS` assignments → `$(CFLAGS)` empty → `cc -o main main.c` with no sdl2 flags. Now `.PHONY`/target append at the END; regression test added. **Re-measure confirms the fix: p3-sdl2 ON 15/15 = OFF 15/15.** Refreshed verdict: **ΔE[#solved] +0.06, CI [−0.26, +0.38] — P2 PASS (no regression), P1 FAIL (no significant lift) → S6 stays OPT-IN** (`MU_BUILD_ORDER` off by default). Exactly the prereg expectation: build-order is pass-rate-neutral on easy problems (they pass on 7b anyway), and a mild repair-iters *cost* here (+0.4 p2, +0.9 p3) — its real payoff is cascade-control on hard multi-layer goals (p10), un-demonstrable until p10's backend builds. **No-regret: shipped, tested, available behind the flag, not auto-applied.**
 - **Rollback.** `MU_BUILD_ORDER` off restores baseline (already the default).
 
-#### Phase 1 — Approach B as the $\delta$-probe (instrumental; never shipped, I7)
+#### Phases 1–3 — SUPERSEDED (the p10 δ-probe / lever-build program)
 
-- [ ] **Step 1.1 — author the fixture rung-deltas** $\to$ `dojo/fixtures/p10/`
-- **Files.** `dojo/fixtures/p10/L2/…`, `dojo/fixtures/p10/L3/…`,
-  `dojo/fixtures/p10/L4/…` (committed via the `.gitignore` golden-file exception
-  fixtures already use).
-- [ ] **Build:** Hand-author `dojo/fixtures/p10/{L2,L3,L4}/` as *correct*, offline,
-  dependency-free boilerplate, each rung the delta over the one below (§A.2 layout).
-- **Accept.** Built once by hand: each rung, applied over the rungs below it, yields
-  a tree that builds/tests by construction.
-- **Rollback.** Delete the directory; `minimize` returns to L0.
-
-- [ ] **Step 1.2 — level-aware `fixtures.apply`** $\to$ `src/mu/fixtures.py`, `src/mu/dojo/runner.py`
-- **Files.** `src/mu/fixtures.py` — the level-aware `apply`; `src/mu/dojo/runner.py` —
-  the apply hook; new `tests/test_fixtures_levels.py`.
-- **Build:**
-  - [ ] In `src/mu/fixtures.py`, make `apply` rung-aware (§A.2): apply every rung up to
-     the problem's `minimize` level; rung-prefixed files apply only when their rung
-     $\le$ target, unprefixed files always apply (keeps flat fixtures like p6-rust
-     working).
-  - [ ] In `src/mu/dojo/runner.py`, call `fixtures.apply` before the agent subprocess.
-- [ ] **Tests.** Right subset per rung; idempotent; flat/unset level $\Rightarrow$ today's
-  behaviour (I1); off $\Rightarrow$ no-op.
-- **Accept.** Applying L3 lays exactly L2$\cup$L3; an L4 run lays L2$\cup$L3$\cup$L4.
-- **Rollback.** Single-rung copy is the existing path; revert the function.
-
-- [ ] **Step 1.3 — measure the staircase** $\to$ `problems-catalog.json` (set `minimize`); no new code
-- [ ] **Build / measure:** Set p10's `minimize` field (in `problems-catalog.json`)
-  to L2, then L3, then L4 across runs; `mu dojo measure p10 -n 15` at each; record
-  per-layer $\hat q$ and mean $k/4$ with bootstrap CI at each rung, plus the L0 board
-  from 0.5. Every figure carries its rung (I3).
-
-- [ ] **Step 1.4 — identify $\delta$ and read the decision gate** $\to$ *no new file — analysis*
-
-**Compute.** $\hat\delta_\ell \approx \operatorname{logit}\hat q_\ell|_{\text{rung that pins }\ell} - \operatorname{logit}\hat q_\ell|_{\text{rung below}}$;
-bottleneck $= \arg\min_\ell \hat q_\ell$ at L0/L2. **Decision gate (pre-registered, I6):**
-
-| Observation | Inference | Next |
-|---|---|---|
-| jump at **L2**, bottleneck a *build* layer | structure binds | Step 2a (A) |
-| jump only at **L3**, bottleneck a *test* layer | coordination + test-authoring binds | Step 2b (C + S5) |
-| no jump until **L4** | irreducible model-logic ceiling | **kill A/C**; `route()` p10 (`MU_ROUTE`); keep the L3 fixture as a labelled regression signal only |
-
-The L4 row is an explicit **kill criterion** — be willing to conclude "no
-minimization lever ships" and stop.
-
-#### Phase 2 — build exactly one lever (selected by 1.4), then calibrate
-
-- [ ] **Step 2a — Approach A: stage-aware self-scaffold** $\to$ `src/mu/scaffold.py`, `src/mu/agent.py` *(only if 1.4 said "structure"; flag `MU_SCAFFOLD`)*
-- **Files.** `src/mu/scaffold.py` — stage-aware `detect` + generator invocation;
-  `src/mu/agent.py` — the per-stage hook in `run_staged`; `dojo/scaffolds/vite-vitest/` —
-  vendored offline fallback; new `tests/test_scaffold_stage.py`.
-- **Build:**
-  - [ ] In `src/mu/scaffold.py`, make detection stage-aware: `detect(Signal, stage)`
-     (§A.1).
-  - [ ] In `src/mu/agent.py`, at the top of each `run_staged` session **before**
-     `ground_plan`, have mu invoke the toolchain's own generator (`dotnet new
-     webapi`+EF on backend, `dotnet new xunit` on integration, `npm create vite` on
-     frontend) — mu's own output (I7) — and record `meta.json.scaffold`.
-  - [ ] In `src/mu/scaffold.py`, copy the vendored `dojo/scaffolds/vite-vitest/` only
-     when offline (I2; prefer the tool-invoked path, §0.2 tension).
-- [ ] **Tests.** Stage-aware detection (frontend stage $\Rightarrow$ vite, not webapi); offline
-  guarantee (network blocked $\Rightarrow$ vendored or baseline, no crash); scaffold-then-ground
-  reconciliation (no `dotnet new` exit-73 collision); off $\Rightarrow$ no-op (I1).
-- **Measure / Gate.** A/B vs the 0.5 L0 baseline + controls; **KEEP iff P1$\wedge$P2**
-  (§4.2) and §2.3 (p10 pass-rate CI lo > 0 or $k/4$ $\uparrow$ with CI$\not\ni$0).
-- **Rollback.** `MU_SCAFFOLD` off restores baseline.
-
-- [ ] **Step 2b — Approach C: contract + S5 test skills** $\to$ `src/mu/agent.py` (+ `src/mu/reflexes/`) *(only if 1.4 said "coordination + test"; contract flagged)*
-- **Files.** `src/mu/agent.py` — the contract injection in `_run_architect_pass`
-  (reuses the S2 guard from 0.3, no new reflex needed for the backstop); **S5**
-  test-authoring skills as new reflexes under `src/mu/reflexes/csharp/`
-  (WebApplicationFactory) and `src/mu/reflexes/javascript/` (Vitest fetch-mock), or
-  as writer/architect prompt additions in `src/mu/agent.py`; new
-  `tests/test_contract.py`.
-- **Build:**
-  - [ ] In `src/mu/agent.py`, inject the full-stack contract in `_run_architect_pass`
-     for the detected stack (manifest + route + JSON shape + test cmd + single-owner
-     type table; §A.3), capability-keyed. It **reuses S2** (shipped in 0.3) as the
-     deterministic backstop — contract advisory, guard enforcing.
-  - [ ] Add **S5** test-authoring skills (a `WebApplicationFactory` integration-test
-     skill in `src/mu/reflexes/csharp/`, a Vitest fetch-mock skill in
-     `src/mu/reflexes/javascript/`) iff 1.4 localized the ceiling to test logic.
-- [ ] **Tests.** Contract injected only for full-stack goals; the S2 backstop fires when
-  the model violates the type ledger; the skills load for the right stack.
-- **Measure / Gate.** A/B vs baseline + controls (esp. **p4**); **KEEP iff P1$\wedge$P2**.
-- **Rollback.** Contract flag off; S2 stays (it's no-regret).
-
-- [ ] **Step 2c — calibrate the model** $\to$ `src/mu/dojo/measure.py` (reads `src/mu/capability.py`) *(do before declaring 2a/2b shipped)*
-- [ ] **Check.** In `src/mu/dojo/measure.py` (querying `src/mu/capability.py`), compare
-  the model's **predicted** `expected_solve_gain` (pre-ship fit) with the
-  **measured** $\Delta$`p_solve`. If $|\text{predicted}-\text{measured}|$ exceeds the
-  measurement CI, the model is miscalibrated $\to$ do **not** trust its rankings:
-  widen N, refit (§1.4), re-derive the next step. Keeps §1 a falsifiable predictor.
-
-#### Phase 3 — record & generalize $\to$ docs + `TODO.md`
-- [ ] Update `docs/problems/p10-dotnet-vue-blog.md`,
-  `docs/challenges/csharp-aspnet-scaffolding.md`, `TODO.md`, and this plan's results
-  table; **every figure carries its L-level** (I3).
-- [ ] Promote any *general* capability that earned KEEP (S2; a contract/self-scaffold
-  `reduce()` step) toward the product path per memory `agent-self-minimization`.
+> **Status (2026-06-26): abandoned after the p10 pivot.** Phases 1–3 planned a fixture
+> δ-probe (1), then building *one* selected lever — self-scaffold (2a) or contract+S5 (2b) —
+> and a record/generalize pass (3). The work overtook the plan and then changed direction:
+> the **levers were built and A/B'd** anyway (scaffold `MU_SCAFFOLD`, TFM-grounding,
+> entry-point, S2, build-order), and the **δ-probe staircase was never needed** because the
+> mechanistic NU1202-wall diagnosis (`.mu/nu1202_diagnosis.md`) localized the bottleneck
+> directly. The verdict for every lever — and the conclusion that **p10/p13/p14 are
+> model-ceiling-bound for qwen-7b** (the levers clear the restore wall but the residual is
+> model semantics, CS0103/CS1929) — now lives canonically in
+> [`docs/ablations.md`](../ablations.md). The program **pivoted off p10** to chip
+> deterministic fruit on non-.NET problems; do not resurrect the p10 staircase.
 
 ### 4.4 Risk register
 
@@ -822,8 +737,8 @@ against the tree at 2026-06-19 (capability.py: 2026-06-20).
 
 ### A.1 Approach A — `scaffold.py` per stage (mu invokes the generator itself)
 
-> Canonical, p10-focused implementation + test plan: [scaffolding.md](scaffolding.md).
-> The sketch below is the worked snippet it derives from.
+> Canonical scaffold lever record: [ablations.md](../ablations.md) (Scaffold row) +
+> [`src/mu/scaffold.py`](../../src/mu/scaffold.py). The sketch below is the worked snippet.
 
 Today `scaffold.detect(sig)` returns the first matching recipe globally, and
 nothing calls it. The fix: (1) make detection stage-aware, (2) call it at the top

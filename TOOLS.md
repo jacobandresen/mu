@@ -247,12 +247,13 @@ top.
 
 **Offline.** `dotnet new` is fully offline (templates ship with the SDK); the NuGet
 restore that follows is the online step and needs EF/ASP.NET packages cached — the
-offline-first design in [docs/plans/scaffolding.md](docs/plans/scaffolding.md) covers it.
+offline `dotnet new` path lives in [`src/mu/scaffold.py`](src/mu/scaffold.py).
 **Acceptance:** `mu dojo measure p10 -n 15`, single-variable, same board; P1 = backend_build
 Δq̂ CI-lo > 0; mechanistic secondary = does NU1202 drop out of the ON-arm first-error mix?
 Pre-register per `docs/ablations.md` "How to add a row." **Risk:** must scaffold *any*
-xunit/webapi project, never p10-specifically (honesty rule). Full design:
-[docs/plans/scaffolding.md](docs/plans/scaffolding.md).
+xunit/webapi project, never p10-specifically (honesty rule). Implementation:
+[`src/mu/scaffold.py`](src/mu/scaffold.py); A/B verdict (SHIPPED opt-in `MU_SCAFFOLD`):
+[docs/ablations.md](docs/ablations.md) (Scaffold row).
 
 ### 6.2 — Type-checker / Roslyn diagnostics as a `diagnose` oracle (p2, p10; low-risk)
 

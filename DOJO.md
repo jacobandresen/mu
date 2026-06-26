@@ -67,8 +67,9 @@ for fixes, and [docs/ablations.md](docs/ablations.md) for behaviour-lever A/B ve
    CS0101 duplicate types across files, MSB1003 no project/solution at the test dir, CS0053
    inconsistent accessibility on EF types. Mix of scaffolding (staged-plan type dedup; ensure
    `dotnet test` sees a csproj/solution) and model ceiling (cascading errors, repair
-   oscillates). Biggest gap. **Lead proposal:** template scaffolding at ground time —
-   [docs/plans/scaffolding.md](docs/plans/scaffolding.md) (offline-first).
+   oscillates). Biggest gap. **Lever:** template scaffolding at ground time (offline
+   `dotnet new`) — SHIPPED opt-in (`MU_SCAFFOLD`); A/B verdict in
+   [docs/ablations.md](docs/ablations.md) (Scaffold row).
 2. **p8 jest globals** — challenge [vue-vitest-jest-setup](docs/challenges/vue-vitest-jest-setup.md).
    `describe/test/it/jest is not defined` when tests run under plain `node`. The
    package.json-script half is deterministic (`fix_package_json_bare_jest`); residual is the
@@ -117,5 +118,6 @@ capability probes (accept variance, many rounds); L2–L4 are logic probes (low 
 Record each problem's level with its result — a 95%-pass at L4 is not one at L0. Shipped:
 `mu dojo measure` (pin the plan + report a `1 − modal/N` stochasticity metric), fixture mode
 (`dojo/fixtures/<id>/` files copied in and marked done), and competence routing
-(`fixtures.should_skip_problem`). Template scaffolding (the general L2 mechanism) is planned —
-[docs/plans/scaffolding.md](docs/plans/scaffolding.md).
+(`fixtures.should_skip_problem`). Template scaffolding (the general L2 mechanism) is SHIPPED
+opt-in (`MU_SCAFFOLD`, [`src/mu/scaffold.py`](src/mu/scaffold.py)); verdict in
+[docs/ablations.md](docs/ablations.md).
