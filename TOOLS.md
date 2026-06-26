@@ -4,8 +4,9 @@ _A survey of external program-analysis and -transformation tools that could addr
 failure classes in [challenges](docs/challenges/README.md), and an argument for when a
 **tool** is the right instrument versus a hand-written **reflex**. mu is already a
 tool-using agent (§5 lists what ships); this study maps which *further* tools to admit,
-where they insert, and what each costs. The §6 proposals are unbuilt; everything marked
-✓/◐ runs today._
+where they insert, and what each costs. Of the §6 proposals, **§6.1 (`dotnet new`
+scaffold) and §6.3 (LSP client) are now shipped**; §6.2 (Roslyn-diagnostic coverage) and
+§6.4 (libcst codemod) remain unbuilt. Everything marked ✓/◐ runs today._
 
 > Scope note. By **reflex** we mean mu's own deterministic, post-write fixers
 > (`src/mu/reflexes/`, chained by `run_reflexes`): mostly regular-expression or small
@@ -162,13 +163,13 @@ which the report flags as a common misconception.
 
 | Tool | In mu? | Challenges it could address |
 |---|---|---|
-| `pyright`, `gopls`, `rust-analyzer`, `OmniSharp`, Vue/TS language server | — | [missing-imports](docs/challenges/missing-imports.md), [spurious-unused-imports](docs/challenges/spurious-unused-imports.md), [csharp-generation-artifacts](docs/challenges/csharp-generation-artifacts.md), [test-file-syntax-errors](docs/challenges/test-file-syntax-errors.md) |
+| `clangd`, `gopls`, `csharp-ls`, `pyright`, `rust-analyzer`, ts/Vue server | ✅ ([`lsp.py`](src/mu/lsp.py), `MU_LSP`; §6.3) | [missing-imports](docs/challenges/missing-imports.md), [spurious-unused-imports](docs/challenges/spurious-unused-imports.md), [csharp-generation-artifacts](docs/challenges/csharp-generation-artifacts.md), [test-file-syntax-errors](docs/challenges/test-file-syntax-errors.md) |
 
 An LSP server exposes *code actions* ("add import", "remove unused", "organize imports",
 "generate missing member") as `WorkspaceEdit`s over the Language Server Protocol. Many
-mu reflexes are hand-rolled re-implementations of exactly these actions; an LSP client
-would obtain them grammar-accurately and upstream-maintained, at the cost of running a
-server per language.
+mu reflexes are hand-rolled re-implementations of exactly these actions; the LSP client
+obtains them grammar-accurately and upstream-maintained, at the cost of running a server
+per language. **Shipped** — see §6.3 and [docs/lsp.md](docs/lsp.md).
 
 ### 4.5 Out of reach for any tool
 
@@ -194,6 +195,11 @@ For the record, marked ✓/◐ above:
 - **`go mod tidy`** — [`apply_go_reflexes`](src/mu/reflexes/go/apply_go_reflexes.py), resolves Go module dependencies at the gate.
 - **Compilers / test runners** — `clang`, `cargo`, `dotnet`, `go`, `node`, `pytest`,
   `jest`, `vitest` as the test gate; `sdl2-config` for p3.
+- **`dotnet new`** — [`scaffold.py`](src/mu/scaffold.py) (`MU_SCAFFOLD`, opt-in); owns the C#
+  project structure at ground time (§6.1).
+- **Language servers** — [`lsp.py`](src/mu/lsp.py) (`MU_LSP`): clangd/gopls (fast, default)
+  and csharp-ls/pyright/rust-analyzer/ts (slow, `MU_LSP=all`) for code-action repair (§6.3,
+  [docs/lsp.md](docs/lsp.md)).
 
 mu is thus already a tool-using agent in the ReAct sense
 ([Yao et al., 2023](https://arxiv.org/abs/2210.03629)); the proposals
@@ -201,61 +207,27 @@ below extend the *set* and the *insertion points*, they do not introduce the par
 
 ---
 
-## 6. Candidate tools to implement, and how
+## 6. Candidate tools — proposals and what shipped
 
-Ordered by the DOJO ranked backlog (p10 → p8 → p2). Each proposal names its **insertion
-point** (the real function it lands in), the **change**, the **offline cost**, an
-**acceptance test on the `docs/ablations.md` board**, and the **honest risk** — so a
-reader can start coding, not just nod.
+Ordered by the DOJO ranked backlog (p10 → p8 → p2). **§6.1 (scaffold) and §6.3 (LSP) are
+now shipped** — their entries are condensed to the result + a pointer; **§6.2 and §6.4
+remain proposals** and still name their **insertion point** (the real function it lands
+in), the **change**, the **offline cost**, an **acceptance test on the `docs/ablations.md`
+board**, and the **honest risk** — so a reader can start coding, not just nod.
 
-### 6.1 — Own the C# project structure with `dotnet new` (p10)
+### 6.1 — Own the C# project structure with `dotnet new` (p10) — ✅ SHIPPED
 
-**The bet, against the settled ones.** p10's `backend_build` dies in a fixed cascade
-(`docs/ablations.md`): **MSB1003** (no project) → **NU1202** (restore / wrong TFM) →
-**CS0246** (no `Program`) / **CS0101** (duplicate types) → model syntax. The shipped and
-parked levers peel that cascade *one layer at a time* — the MSB1003 redirect shipped but
-only **moved the wall** to NU1202, and the entry-point and S2 levers are **PARKED behind
-NU1202**, where 59/61 runs die at NuGet restore before they can fire. Scaffolding is the
-orthogonal bet: stop peeling errors and emit the whole correct structure **once**, so the
-cascade never starts.
+Built as [`scaffold.py`](src/mu/scaffold.py) (`MU_SCAFFOLD`, opt-in). The bet: instead of
+peeling p10's `backend_build` cascade one error at a time, run `dotnet new webapi`+`xunit`
+at ground time and *overwrite* the csproj + `Program.cs` so the model never authors the
+`net5.0`+EF8 file that fails NuGet restore — **ownership**, not better XML. `dotnet new` is
+fully offline (templates ship with the SDK); the restore that follows is the online step.
+**Verdict (p10 A/B, N=15):** NU1202/NETSDK1226 restore wall clears **12/15 → 0/15**, but
+backend_build stays 0/15 — the weak model can't author a valid backend even scaffolded, so
+it ships opt-in. Full record + the prevent-vs-repair relation to `MU_TFM_GROUNDING`:
+[docs/ablations.md](docs/ablations.md) (Scaffold row); the catalogue entry is §4.1.
 
-**Insertion point & the discriminating fact.** `ground_plan` already hand-writes a csproj
-([`_csproj_content`](src/mu/plan.py), "Level 2 — C# needs a project file"), but *only*
-`if not any(n.endswith('.csproj'))` — so when the model authors its own `net5.0`+EF8 file
-(the NU1202 cause in ~97% of p10 runs), the hand-roll is bypassed and the broken file
-wins. `dotnet new`'s advantage is therefore not better XML but **ownership**: run
-`dotnet new webapi` + `dotnet new xunit` at ground time, *overwrite* the csproj and
-`Program.cs`, mark them `[x]` done in PLAN.md (the injection mechanism already exists in
-`ground_plan`), and the model never gets to write the file that fails restore.
-
-**What it reaches, honestly.** `dotnet new` targets the **installed** SDK's TFM (.NET 10)
-by construction → removes the *TFM-mismatch* class of NU1202 (the model's `net5.0`+EF8
-case); note a fresh net10 project may still need `AllowMissingPrunePackageData` to clear
-restore (`docs/ablations.md` line 56), so this **shrinks NU1202, not zeroes it**. It emits
-a `Program.cs` → no CS0246 (the exact gap the PARKED entry-point lever tried to fill as a
-writer task — here it's structural); one project → removes the *structural* source of
-CS0101, though a model that still declares duplicate types across stages can re-raise it,
-so scaffolding **bounds CS0101, does not eliminate it**. Test CS0246 reachability *first*:
-if a correctly-structured project still binds on it (the flagged "unsolved binder"), this
-is not the highest-leverage p10 fix and the rank is wrong.
-
-**Relation to the UNDER-TEST lever.** `MU_TFM_GROUNDING` (`fix_csharp_uninstalled_tfm`) is
-the *repair-side* bet on the same wall — raise the model's TFM after the fact. Scaffolding
-is the *prevent-side* bet — never let the model author the TFM. They are **substitutes at
-the NU1202 wall**; measure scaffolding as the alternative to TFM-grounding, not stacked on
-top.
-
-**Offline.** `dotnet new` is fully offline (templates ship with the SDK); the NuGet
-restore that follows is the online step and needs EF/ASP.NET packages cached — the
-offline `dotnet new` path lives in [`src/mu/scaffold.py`](src/mu/scaffold.py).
-**Acceptance:** `mu dojo measure p10 -n 15`, single-variable, same board; P1 = backend_build
-Δq̂ CI-lo > 0; mechanistic secondary = does NU1202 drop out of the ON-arm first-error mix?
-Pre-register per `docs/ablations.md` "How to add a row." **Risk:** must scaffold *any*
-xunit/webapi project, never p10-specifically (honesty rule). Implementation:
-[`src/mu/scaffold.py`](src/mu/scaffold.py); A/B verdict (SHIPPED opt-in `MU_SCAFFOLD`):
-[docs/ablations.md](docs/ablations.md) (Scaffold row).
-
-### 6.2 — Type-checker / Roslyn diagnostics as a `diagnose` oracle (p2, p10; low-risk)
+### 6.2 — Type-checker / Roslyn diagnostics as a `diagnose` oracle (p2, p10; low-risk) — *unbuilt*
 
 Split the two costs, because only one is cheap. **(a) Parsing is trivial and half-done:**
 [`_RULES`](src/mu/diagnose.py) already grammars some Roslyn codes (`CS0017`, `CS8803`);
@@ -274,19 +246,19 @@ specific, non-weak hint) before/after — measurable for the parsing half with *
 run. **Risk:** low — an oracle cannot misedit; the invocation half inherits
 [environment-hygiene](docs/challenges/environment-hygiene.md).
 
-### 6.3 — LSP code-action client (most general; replaces a reflex *family*)
+### 6.3 — LSP code-action client (most general; replaces a reflex *family*) — ✅ SHIPPED
 
-Drive one headless server first — `pyright` for `source.organizeImports` and "add import" —
-request `textDocument/codeAction` per diagnostic and apply the returned `WorkspaceEdit`.
-**Insertion:** a thin JSON-RPC client in a new `src/mu/lsp.py`, slotted into the post-write
-slot that [`run_reflexes`](src/mu/reflexes/core.py) owns (or a dedicated gate).
-**Acceptance / A-B baseline:** the hand-rolled import reflexes (`py_autofix` + the
-missing-import family); adopt only if the grammar-aware action strictly dominates on
-misfire rate and pass-rate. **Cost (the real one):** pyright is itself a node package — the
-price is **install weight plus a per-language server process**, weighed against the
-offline/Pi constraint, not just runtime latency.
+Built as [`src/mu/lsp.py`](src/mu/lsp.py) (`MU_LSP`): a stdio JSON-RPC client that requests
+`textDocument/codeAction` + `source.organizeImports` per diagnostic and applies the returned
+`WorkspaceEdit` (one action per round, re-diagnose), slotted into the post-write slot after
+`run_reflexes`. Gating learned from the trials: `MU_LSP=1` runs only the fast proven servers
+(clangd, gopls); `MU_LSP=all` opts into the slow ones (csharp-ls, pyright, rust-analyzer, ts).
+**Finding:** a *selective* repair lever — clangd add-include and gopls organizeImports are
+real wins, csharp-ls add-using fixes CS0246; net-negative with slow servers that return
+nothing. Full client, trials, and per-challenge applicability: [docs/lsp.md](docs/lsp.md);
+catalogue entry §4.4.
 
-### 6.4 — Grammar-aware substrate for the *documented* misfire (libcst/comby)
+### 6.4 — Grammar-aware substrate for the *documented* misfire (libcst/comby) — *unbuilt*
 
 Port the hazard the report already names, not an arbitrary fixer: footnote 1's
 2026-06-12 duplicate-import regression — a regex re-adding a `from flask import …` it
