@@ -39,6 +39,10 @@ def main() -> int:
     setup_p = sub.add_parser('setup', help='Install system dependencies')
     setup_p.add_argument('-y', '--yes', action='store_true', help='Skip confirmation prompts')
 
+    lsp_p = sub.add_parser('lsp', help='Language-server diagnostics + quick-fix repair (VSCode-style)')
+    lsp_p.add_argument('lsp_args', nargs='*', metavar='ARG',
+                       help='<diagnose|fix|langs> [file]')
+
     model_p = sub.add_parser('model', help='Browse and select models')
     model_sub = model_p.add_subparsers(dest='model_subcmd')
     model_sub.add_parser('status', help='Show loaded models')
@@ -143,6 +147,7 @@ def main() -> int:
         'iterate': _cmd_iterate,
         'reflect': _cmd_reflect,
         'kb': _cmd_kb,
+        'lsp': _cmd_lsp,
         'version': _cmd_version,
     }
     return dispatch[args.command](args) or 0
@@ -300,8 +305,8 @@ def _cmd_setup(args) -> int:
             if not run_cmd('sudo', 'apt-get', 'update'):
                 return 1
             pkgs = ['-y', 'build-essential', 'make', 'gcc', 'clang', 'clang-tidy',
-                    'golang', 'cargo', 'nodejs', 'npm', 'python3', 'python3-pip',
-                    'git', 'fpc', 'unzip']
+                    'clangd', 'golang', 'cargo', 'nodejs', 'npm', 'python3',
+                    'python3-pip', 'git', 'fpc', 'unzip']
             if not dotnet_installed:
                 pkgs.append('dotnet-sdk-8.0')
             if not run_cmd('sudo', 'apt-get', 'install', *pkgs):
@@ -340,6 +345,41 @@ def _cmd_setup(args) -> int:
         print("  All optional analysis tools already present.")
     else:
         for label, cmd in missing_opt:
+            print(f"  {label} not found.")
+            run_cmd(*cmd)
+
+    # Language servers (LSP repair — `mu lsp`, MU_LSP=1). VSCode-style diagnostics +
+    # quick-fix code actions. Each gated on its toolchain and skipped if already present;
+    # all degrade to a no-op at runtime when absent, so none are required.
+    print()
+    print("Language servers (LSP repair)")
+    ls_missing: list[tuple[str, list[str]]] = []
+    if shutil.which('rustup') and not shutil.which('rust-analyzer'):
+        ls_missing.append(('rust-analyzer', ['rustup', 'component', 'add', 'rust-analyzer']))
+    if shutil.which('go') and not shutil.which('gopls'):
+        ls_missing.append(('gopls', ['go', 'install', 'golang.org/x/tools/gopls@latest']))
+    # npm globals without sudo: install under a user prefix (~/.local ⇒ bins in
+    # ~/.local/bin, which prepend_tool_paths adds to PATH). No system writes.
+    _npm_prefix = str(Path.home() / '.local')
+    if shutil.which('npm'):
+        if not shutil.which('typescript-language-server'):
+            ls_missing.append(('typescript-language-server',
+                               ['npm', 'install', '-g', '--prefix', _npm_prefix,
+                                'typescript-language-server', 'typescript']))
+        if not shutil.which('vue-language-server'):
+            ls_missing.append(('vue-language-server',
+                               ['npm', 'install', '-g', '--prefix', _npm_prefix, '@vue/language-server']))
+    if dotnet_installed and not shutil.which('csharp-ls'):
+        # dotnet global tools already install per-user (~/.dotnet/tools), no sudo.
+        ls_missing.append(('csharp-ls', ['dotnet', 'tool', 'install', '-g', 'csharp-ls']))
+    # pyright-langserver (Python) comes from the pyright install in the optional-tools section.
+    if not shutil.which('clangd'):
+        print("  clangd (C/C++) not found — install via your llvm/clang package "
+              "(arch: clang · debian: clangd · mac: llvm).")
+    if not ls_missing:
+        print("  All installable language servers already present.")
+    else:
+        for label, cmd in ls_missing:
             print(f"  {label} not found.")
             run_cmd(*cmd)
 
@@ -726,6 +766,12 @@ def _cmd_kb(args) -> int:
 
 
 # ── version ───────────────────────────────────────────────────────────────────
+
+def _cmd_lsp(args) -> int:
+    """Language-server diagnostics + quick-fix repair (VSCode-style)."""
+    from mu import lsp
+    return lsp.cli(args.lsp_args)
+
 
 def _cmd_version(args) -> int:
     print(f"mu version {__version__}")

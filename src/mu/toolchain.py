@@ -11,7 +11,10 @@ from pathlib import Path
 _TOOL_DIRS = (
     '/usr/local/share/dotnet',
     str(Path.home() / '.dotnet'),
+    str(Path.home() / '.dotnet' / 'tools'),     # dotnet tool install -g (csharp-ls)
     str(Path.home() / '.cargo' / 'bin'),
+    str(Path.home() / 'go' / 'bin'),            # go install (gopls)
+    str(Path.home() / '.local' / 'bin'),        # npm --prefix ~/.local (ts/vue servers), pip --user
     '/opt/homebrew/bin',
 )
 
