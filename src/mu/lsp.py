@@ -47,7 +47,8 @@ _SERVERS: dict[str, list[str]] = {
 # servers (clangd) settle in <1s; project-indexing servers (rust-analyzer runs `cargo
 # check`, gopls/csharp-ls load the module) need much longer or they no-op (rust-analyzer
 # returned nothing within 3s on p6).
-_SETTLE: dict[str, float] = {"rust-analyzer": 15.0, "gopls": 8.0, "csharp-ls": 12.0}
+_SETTLE: dict[str, float] = {"rust-analyzer": 15.0, "gopls": 8.0, "csharp-ls": 12.0,
+                             "typescript-language-server": 8.0}
 
 
 def _settle_for(cmd: list[str]) -> float:

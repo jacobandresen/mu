@@ -51,10 +51,16 @@ MU_LSP=1 mu agent …     # use it inside the repair loop
 - **p5-gin (gopls):** 6/8 (75%) vs 71% baseline, **repair-iters 0.8** — `organizeImports`
   fixes missing imports proactively, so the model needs far fewer repair rounds (efficiency
   win; pass-rate flat because the regex go-import reflex already covered common cases).
+- **p8-node-todo (ts-server):** 2/8 vs 18/41 (44%) baseline, **LSP fired 0** — ts-server's
+  project load exceeded the (then 3s) settle window, so it produced no fixes and only added
+  per-file spawn overhead; the drop is variance + that overhead. Settle raised to 8s so it can
+  fire, but **LSP is not a universal lift** — running a slow server that returns nothing is
+  net-negative. (Plain-JS `require` is also not auto-importable the way Go/TS modules are.)
 
-**Takeaway:** LSP is a sound, general repair lever — strictly more general than per-pattern
-regex reflexes, with the biggest gains where reflex coverage is thin and the failure mode is
-imports/includes. Prefer it where a fast server exists (clangd, gopls).
+**Takeaway:** LSP is a sound repair lever **where a fast server meets an import/include-shaped
+failure** (clangd, gopls) — strictly more general than per-pattern regex reflexes there. It is
+*not* a blanket win: slow-to-start servers (rust-analyzer, ts-server) or non-import failures
+add overhead for no benefit. Enable it selectively, not everywhere.
 
 ## Relation to scaffolding (parked)
 
