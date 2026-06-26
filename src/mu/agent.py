@@ -789,6 +789,7 @@ def run(goal: str, model: str = '', target_dir: str = '',
                 pass
 
             _apply_write_reflexes(task.file_path, p.test_command or '')
+            _apply_lsp_repair(task.file_path)
 
             lint_cmd = _lint_command(task.file_path, p)
             if lint_cmd:
@@ -1686,6 +1687,23 @@ def _read_quiet(path: str) -> str:
         return Path(path).read_text()
     except (OSError, UnicodeDecodeError):
         return ''
+
+
+def _apply_lsp_repair(file_path: str) -> None:
+    """Opt-in (MU_LSP=1) language-server quick-fix pass over a just-written file.
+
+    A VSCode-style repair lever: the installed server (clangd/gopls/rust-analyzer/…)
+    diagnoses the file and mu applies its `quickfix` code actions (add include, import a
+    symbol, fix a signature). No-op when MU_LSP is unset, no server is installed for the
+    language, or nothing is fixable; never raises. Complements the regex reflexes."""
+    if os.environ.get('MU_LSP') != '1':
+        return
+    try:
+        from mu import lsp
+        if lsp.server_for(file_path) and lsp.repair(file_path):
+            log("Applied LSP quick-fixes to %s.", file_path)
+    except Exception:
+        pass
 
 
 def _apply_write_reflexes(file_path: str, test_command: str = '') -> None:
