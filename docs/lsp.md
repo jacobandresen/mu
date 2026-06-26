@@ -26,8 +26,12 @@ blocks a run.
 mu lsp langs            # which servers are installed
 mu lsp diagnose FILE    # show the server's diagnostics
 mu lsp fix FILE         # apply quick-fixes / organizeImports
-MU_LSP=1 mu agent …     # use it inside the repair loop
+MU_LSP=1 mu agent …     # repair loop, fast proven servers only (clangd, gopls)
+MU_LSP=all mu agent …   # also the slow/experimental servers (rust-analyzer, ts, csharp-ls)
 ```
+
+`MU_LSP=1` is deliberately limited to the fast, validated servers so it can't regress a run by
+spawning a slow server that returns nothing (the p8 lesson). `MU_LSP=all` opts into the rest.
 
 ## Coverage & install (no sudo)
 

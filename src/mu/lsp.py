@@ -51,6 +51,12 @@ _SETTLE: dict[str, float] = {"rust-analyzer": 15.0, "gopls": 8.0, "csharp-ls": 1
                              "typescript-language-server": 8.0}
 
 
+# Servers fast + reliable enough to enable by default (MU_LSP=1). Slow-to-start servers
+# whose fixes are unproven here (rust-analyzer, ts/csharp) only run under MU_LSP=all, so the
+# default can't regress a run by spawning a slow server that returns nothing (see p8 trial).
+FAST_SERVERS = {"clangd", "gopls"}
+
+
 def _settle_for(cmd: list[str]) -> float:
     return _SETTLE.get(cmd[0], 3.0)
 

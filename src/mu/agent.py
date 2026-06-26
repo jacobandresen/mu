@@ -1696,11 +1696,19 @@ def _apply_lsp_repair(file_path: str) -> None:
     diagnoses the file and mu applies its `quickfix` code actions (add include, import a
     symbol, fix a signature). No-op when MU_LSP is unset, no server is installed for the
     language, or nothing is fixable; never raises. Complements the regex reflexes."""
-    if os.environ.get('MU_LSP') != '1':
+    mode = os.environ.get('MU_LSP')
+    if mode not in ('1', 'all'):
         return
     try:
         from mu import lsp
-        if lsp.server_for(file_path) and lsp.repair(file_path):
+        cmd = lsp.server_for(file_path)
+        if not cmd:
+            return
+        # Default (MU_LSP=1) runs only fast, proven servers; MU_LSP=all includes the slow
+        # ones. Avoids the p8-style net-negative of spawning a slow server that returns nothing.
+        if mode != 'all' and cmd[0] not in lsp.FAST_SERVERS:
+            return
+        if lsp.repair(file_path):
             log("Applied LSP quick-fixes to %s.", file_path)
     except Exception:
         pass
