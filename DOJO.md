@@ -18,8 +18,15 @@ mu dojo run p3-sdl2                # a single problem
 mu dojo run --route --model M      # skip problems M is measured hopeless on
 mu dojo practice --rounds 5        # repeated rounds: run, distill, reflect, repeat
 mu dojo measure p7-flask --runs 5  # N runs, fresh plan each; reports pass rate + stochasticity
+mu dojo board --runs 5             # measure ALL problems: per-layer q̂, p_solve, E[#solved]
 mu dojo fixture apply p6-rust .    # copy a problem's committed fixtures into a dir
 ```
+
+`measure`/`board` score each run through **honest per-layer gates** — a vacuous test log
+(a build/test stage that printed nothing meaningful) does **not** count as a pass
+(`_vacuous_log`/`_vacuous_pass` in `src/mu/agent.py`), so a problem's q̂ reflects real clears,
+not false passes. `board` reconstructs the observed solved count from the per-layer parse as a
+self-consistency check.
 
 Results land in `~/.mu/sessions/<id>/`; `dojo/` is cleaned after each run (committed
 `dojo/fixtures/` spared). Env knobs work as flag defaults (`ROUNDS`, `MU_SEED`, `MU_ROUTE`,
@@ -116,8 +123,20 @@ ladder** (`problems-catalog.json` `minimize`), each rung the one below plus a fi
 Guiding principle: **specify everything except the one thing you're measuring.** L0–L1 are
 capability probes (accept variance, many rounds); L2–L4 are logic probes (low variance).
 Record each problem's level with its result — a 95%-pass at L4 is not one at L0. Shipped:
-`mu dojo measure` (pin the plan + report a `1 − modal/N` stochasticity metric), fixture mode
-(`dojo/fixtures/<id>/` files copied in and marked done), and competence routing
-(`fixtures.should_skip_problem`). Template scaffolding (the general L2 mechanism) is SHIPPED
-opt-in (`MU_SCAFFOLD`, [`src/mu/scaffold.py`](src/mu/scaffold.py)); verdict in
-[docs/ablations.md](docs/ablations.md).
+`mu dojo measure` (pin the plan + report a `1 − modal/N` stochasticity metric), the whole-set
+`mu dojo board`, fixture mode (`dojo/fixtures/<id>/` files copied in and marked done), and
+competence routing (`fixtures.should_skip_problem`). Template scaffolding (the general L2
+mechanism) is SHIPPED opt-in (`MU_SCAFFOLD`, [`src/mu/scaffold.py`](src/mu/scaffold.py));
+verdict in [docs/ablations.md](docs/ablations.md).
+
+**Why broad levers over the hardest problem.** The target is to raise
+`E[N_solved] = Σ_i P_i` across the whole set, not p10 in isolation. A step's marginal value
+on problem *i*, layer *ℓ* scales as the *logistic headroom* `q(1−q)` times the *chain factor*
+`∏_{ℓ′≠ℓ} q_{ℓ′}` (clearing one layer only helps if the siblings also clear). For p10 every
+layer sits at q≈0, so both factors ≈0 — a step there buys almost nothing; a mid-tier problem
+at q≈0.5 with healthy siblings buys far more. So prefer **broad, no-regret levers** (honest
+gates, cross-stage reflexes, organize-imports/LSP) and the **steep mid-tier** problems first;
+treat p10/.NET as the frontier, invested in only via levers that also help others. The .NET
+ladder (p10/p13/p14) is now judged **model-ceiling-bound for qwen-7b** — the structural levers
+clear the build wall but the residual is model semantics — so deterministic effort goes to the
+non-.NET problems. Full lever verdicts and that conclusion: [docs/ablations.md](docs/ablations.md).

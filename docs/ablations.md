@@ -15,11 +15,18 @@ repo. This file is the durable distillation of those verdicts.
   p1/p2/p4 act as controls.
 - **Per-layer q̂:** fraction of runs that *clear* each layer (backend_build, backend_test,
   frontend_build, frontend_test). The gate layer is **backend_build**.
-- **Pre-registered decision rubric** (see `docs/plans/p10-minimization.md` §2.3 / §4.1):
+- **Pre-registered decision rubric:**
   - **P1 (headline):** p10 backend_build Δq̂ 95%-CI lower bound **> 0** ⇒ flip default-on.
   - **P2 (control):** no control problem regresses (point Δ ≥ −0.05 ∧ no proven harm).
   - N=15/arm is underpowered: a single-problem CI is roughly ±0.165, so a true null
     reads as "CI lo ≈ −0.166, FAIL P1." Read null P1s as *inconclusive*, not *harmful*.
+- **Why these levers, ranked.** A lever's value is its expected gain in
+  `E[N_solved] = Σ_i P_i` over the *whole set*, ∝ logistic headroom `q(1−q)` × the chain
+  factor `∏_{ℓ′≠ℓ} q_{ℓ′}`. p10 sits at q≈0 on every layer (both factors ≈0), so broad
+  no-regret levers and the steep mid-tier problems outrank dragging p10 — and the .NET ladder
+  is model-ceiling-bound (see the p13 validation below). This is the rationale the now-removed
+  `p10-minimization.md` plan carried; the operative facts live here and in [DOJO.md](../DOJO.md)
+  (Problem-space minimization).
 
 ## Status taxonomy
 
