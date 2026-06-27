@@ -25,7 +25,7 @@ description: Python code-generation and environment rules — imports, module na
 
 ## Flask + SQLite (no ORM)
 - Use the `sqlite3` stdlib directly — no Flask-SQLAlchemy/SQLAlchemy/ORM in `requirements.txt`.
-- Store ONE persistent connection on the `app` object, not per-request — per-request `:memory:` connections each get a fresh empty DB (POST writes conn A, GET opens empty conn B):
+- **CRITICAL — per-request `sqlite3.connect` is the #1 Flask failure.** Every call to `sqlite3.connect(':memory:')` opens a *new, empty database*. If `add_todo` calls `connect()` and `get_todos` calls `connect()` separately, POST writes to conn A and GET reads from conn B which is empty. Store ONE persistent connection on the `app` object (see pattern below) — not per-request, not as a module-level global (that breaks test isolation).
   ```python
   # app.py
   from flask import Flask, request, jsonify

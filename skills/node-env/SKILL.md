@@ -19,6 +19,28 @@ description: Node.js project setup rules — npm devDependencies, npx for local 
 - Inline a simple Jest config in `package.json` (`"jest": {"testEnvironment": "node"}`) — no separate config file.
 - Name test files `todo.test.js` / `todo.spec.js` (dot-separated). Jest's default `testMatch` does NOT match `todo_test.js` (underscore, Python-style) — it reports "No tests found" and exits 1. If you must use another convention, add `testRegex` to the jest config: `".*\\.(test|spec|_test)\\.js$"`.
 
+## Module shape — always export core functions
+
+**The #1 Node.js test failure:** tests call `addTodo`/`listTodos`/`deleteTodo` that the module never exports because the logic is buried inside a `process.argv` CLI handler.
+
+Rule: always implement core logic as named, exported functions. The CLI handler is a thin wrapper that calls them. Tests import the module and call the functions directly.
+
+```js
+// todo.js — exported functions + optional CLI entry
+function addTodo(task) { /* ... */ }
+function listTodos() { /* ... */ }
+function deleteTodo(id) { /* ... */ }
+module.exports = { addTodo, listTodos, deleteTodo };
+
+if (require.main === module) {
+    const [,, cmd, ...rest] = process.argv;
+    if (cmd === 'add') addTodo(rest.join(' '));
+    // ...
+}
+```
+
+Never write a module where all logic is inside `process.argv` parsing — Jest tests cannot reach it.
+
 ## CommonJS, no fs mocks, path at call time
 - Node defaults to CommonJS — don't mix `import`/`export` with `require`/`module.exports` unless `"type": "module"` is set. Use CJS for Jest without extra config.
 - Do NOT `jest.mock('fs', …)`: Jest hoists mocks above outer variables → `ReferenceError`. Use a real temp file via `os.tmpdir()`.

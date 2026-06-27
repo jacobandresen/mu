@@ -3,6 +3,7 @@ name: repair-csharp
 description: C# repair diagnostics — map dotnet build errors to targeted fixes.
 ---
 
+- `CS0017: Program has more than one entry point defined` — two `static void Main` methods exist across multiple files. Exactly one `Main` is allowed per project unless the project uses `<StartupObject>` in the `.csproj`. Fix: remove the extra `Main` — domain/utility classes (`FibonacciGenerator`, `Calculator`, etc.) must NOT contain a `Main` method; only `class Program` in `Program.cs` has one.
 - `CS0111: Type 'X' already defines a member called 'Y' with the same parameter types` — two files define the same method in the same class. Each class must live in exactly one file. `Main` belongs in `Program` (or `Program.cs`), not in a domain class like `FibonacciGenerator`. Fix: move `Main` into a separate `class Program { static void Main(...) { ... } }` and remove it from any domain class.
 - `CS0101: The namespace 'N' already contains a definition for 'X'` — two files declare the same class name in the same namespace. Rename one class or move it to a different namespace.
 - `CS0246: The type or namespace name 'X' could not be found` — missing `using` directive. Add `using System;`, `using System.Collections.Generic;`, or whichever namespace `X` belongs to.
