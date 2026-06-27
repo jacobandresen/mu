@@ -69,9 +69,10 @@ def chat(messages, model, api_key):
             raise QuotaExhausted(r.text[:200])
         if r.status_code in (429, 500, 502, 503, 504):
             last_err = RuntimeError(f"HTTP {r.status_code}")
-            print(f"  transient HTTP {r.status_code} (attempt {attempt+1}/3)")
+            print(f"  transient HTTP {r.status_code} (attempt {attempt+1}/3): {r.text[:200]}")
             continue
-        r.raise_for_status()
+        if not r.is_success:
+            raise RuntimeError(f"HTTP {r.status_code}: {r.text[:400]}")
 
         data = r.json()
         if err := data.get("error"):
