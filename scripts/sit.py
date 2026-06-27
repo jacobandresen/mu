@@ -55,7 +55,8 @@ def chat(messages, model, api_key):
                 "https://openrouter.ai/api/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}",
                          "HTTP-Referer": "https://github.com/jacobandresen/mu"},
-                json={"model": model, "temperature": 0.2, "max_tokens": 4096,
+                json={"model": model, "temperature": 0.2, "max_tokens": 16384,
+                      "reasoning": {"effort": "max"},
                       "messages": messages},
                 timeout=180,
             )
