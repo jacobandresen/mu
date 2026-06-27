@@ -3,7 +3,7 @@
 Runs at most once per day. Pass --force to override.
 Set OPENROUTER_API_KEY. Optionally OPENROUTER_MODEL to change model.
 """
-import argparse, datetime, json, os, subprocess, sys, textwrap
+import argparse, datetime, json, os, subprocess, sys, textwrap, time
 from pathlib import Path
 import httpx
 
@@ -19,12 +19,19 @@ def guard_once_per_day(force):
     today = datetime.date.today().isoformat()
     if STAMP.exists() and STAMP.read_text().strip() == today and not force:
         sys.exit(f"Already ran today ({today}). Pass --force to override.")
+
+
+def _write_stamp():
     STAMP.parent.mkdir(exist_ok=True)
-    STAMP.write_text(today)
+    STAMP.write_text(datetime.date.today().isoformat())
 
 
 def guard_no_sessions():
-    lines = subprocess.check_output(["ps", "aux"], text=True, stderr=subprocess.DEVNULL).splitlines()
+    try:
+        lines = subprocess.check_output(["ps", "aux"], text=True,
+                                        stderr=subprocess.DEVNULL).splitlines()
+    except Exception:
+        return  # can't check — proceed
     bad = []
     for line in lines:
         low = line.lower()
@@ -39,29 +46,53 @@ def guard_no_sessions():
 
 
 def chat(messages, model, api_key):
-    r = httpx.post(
-        "https://openrouter.ai/api/v1/chat/completions",
-        headers={"Authorization": f"Bearer {api_key}", "HTTP-Referer": "https://github.com/jacobandresen/mu"},
-        json={"model": model, "temperature": 0.2, "max_tokens": 4096, "messages": messages},
-        timeout=180,
-    )
-    if r.status_code == 402:
-        raise QuotaExhausted(r.text[:200])
-    r.raise_for_status()
-    data = r.json()
-    if err := data.get("error"):
-        msg = str(err.get("message", err))
-        if any(k in msg.lower() for k in ("quota", "credits", "free", "insufficient", "rate limit")):
-            raise QuotaExhausted(msg)
-        raise RuntimeError(msg)
-    return data["choices"][0]["message"]["content"]
+    last_err = None
+    for attempt in range(3):
+        if attempt:
+            time.sleep(2 ** attempt)
+        try:
+            r = httpx.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}",
+                         "HTTP-Referer": "https://github.com/jacobandresen/mu"},
+                json={"model": model, "temperature": 0.2, "max_tokens": 4096,
+                      "messages": messages},
+                timeout=180,
+            )
+        except (httpx.TimeoutException, httpx.NetworkError) as e:
+            last_err = e
+            print(f"  network error (attempt {attempt+1}/3): {e}")
+            continue
+
+        if r.status_code == 402:
+            raise QuotaExhausted(r.text[:200])
+        if r.status_code in (429, 500, 502, 503, 504):
+            last_err = RuntimeError(f"HTTP {r.status_code}")
+            print(f"  transient HTTP {r.status_code} (attempt {attempt+1}/3)")
+            continue
+        r.raise_for_status()
+
+        data = r.json()
+        if err := data.get("error"):
+            msg = str(err.get("message", err))
+            if any(k in msg.lower() for k in ("quota", "credits", "free",
+                                               "insufficient", "rate limit")):
+                raise QuotaExhausted(msg)
+            raise RuntimeError(msg)
+
+        choices = data.get("choices") or []
+        if not choices:
+            raise RuntimeError(f"No choices in response: {data}")
+        return choices[0]["message"]["content"]
+
+    raise RuntimeError(f"All attempts failed: {last_err}")
 
 
 def _read(path, n):
     if not path.exists():
         return f"(not found: {path})"
     t = path.read_text(errors="replace")
-    return t[:n] + f"\n…(truncated)" if len(t) > n else t
+    return t[:n] + "\n…(truncated)" if len(t) > n else t
 
 
 def _skill_index():
@@ -107,47 +138,98 @@ def build_messages(repair_ctx=""):
     ]
     if repair_ctx:
         parts.insert(-1, f"=== Previous attempt failed ===\n{repair_ctx}")
-    return [{"role": "system", "content": SYSTEM}, {"role": "user", "content": "\n\n".join(parts)}]
+    return [{"role": "system", "content": SYSTEM},
+            {"role": "user", "content": "\n\n".join(parts)}]
 
 
 def parse_json(text):
+    # Strip markdown fences robustly
     if "```" in text:
-        text = text[text.find("```"):text.rfind("```")].lstrip("`json").strip()
+        lines = text.splitlines()
+        body = []
+        in_fence = False
+        for line in lines:
+            if line.strip().startswith("```"):
+                in_fence = not in_fence
+                continue
+            if in_fence:
+                body.append(line)
+        text = "\n".join(body) if body else text
     s, e = text.find("{"), text.rfind("}") + 1
-    if s < 0:
-        raise ValueError(f"No JSON in: {text[:200]}")
+    if s < 0 or e <= 0:
+        raise ValueError(f"No JSON object in: {text[:300]}")
     return json.loads(text[s:e])
 
 
+def validate_change(change):
+    for key in ("file", "content"):
+        if key not in change:
+            raise ValueError(f"Model response missing required key: {key!r}")
+    rel = change["file"].lstrip("/")
+    target = (MU_ROOT / rel).resolve()
+    if not str(target).startswith(str(MU_ROOT)):
+        raise ValueError(f"Path traversal rejected: {change['file']!r}")
+    return rel, target
+
+
 def apply(change):
-    path = MU_ROOT / change["file"].lstrip("/")
+    rel, path = validate_change(change)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(change["content"])
-    print(f"  wrote {change['file']} ({path.stat().st_size:,}b)")
+    print(f"  wrote {rel} ({path.stat().st_size:,}b)")
     return path
 
 
 def run_tests():
     r = subprocess.run([sys.executable, "-m", "pytest", "tests/", "-q", "--tb=short"],
-                       capture_output=True, text=True, cwd=MU_ROOT, timeout=120)
+                       capture_output=True, text=True, cwd=MU_ROOT, timeout=120,
+                       env={**os.environ, "PYTHONPATH": "."})
     return r.returncode == 0, r.stdout + r.stderr
+
+
+def rollback(original_text, target):
+    if original_text is not None:
+        target.write_text(original_text)
+    elif target.exists():
+        target.unlink()
+    print(f"  rolled back {target.relative_to(MU_ROOT)}")
 
 
 def improve(model, api_key):
     resp = chat(build_messages(), model, api_key)
-    change = parse_json(resp)
-    print(f"  rationale: {change.get('rationale','?')}\n  file: {change.get('file','?')}")
-    target = MU_ROOT / change["file"].lstrip("/")
+    try:
+        change = parse_json(resp)
+        rel, target = validate_change(change)
+    except (ValueError, json.JSONDecodeError) as e:
+        print(f"  parse error: {e}\n  raw: {resp[:300]}")
+        return False
+
+    print(f"  rationale: {change.get('rationale', '?')}\n  file: {rel}")
     original = target.read_text(errors="replace") if target.exists() else None
     apply(change)
+
     passed, out = run_tests()
     if passed:
         print("  tests passed ✓")
         return True
+
     print(f"  tests FAILED\n{out[-400:]}")
-    repair_ctx = f"file: {change['file']}\nfailure:\n{out[-1500:]}"
+    repair_ctx = f"file: {rel}\nfailure:\n{out[-1500:]}"
     try:
-        fix = parse_json(chat(build_messages(repair_ctx), model, api_key))
+        fix_resp = chat(build_messages(repair_ctx), model, api_key)
+        fix = parse_json(fix_resp)
+        fix_rel, fix_target = validate_change(fix)
+        # If fix targets a different file, rollback original first
+        if fix_target != target:
+            rollback(original, target)
+            fix_original = fix_target.read_text(errors="replace") if fix_target.exists() else None
+            apply(fix)
+            passed, _ = run_tests()
+            if passed:
+                print("  tests passed after fix ✓")
+                return True
+            rollback(fix_original, fix_target)
+            return False
         apply(fix)
         passed, _ = run_tests()
         if passed:
@@ -157,11 +239,8 @@ def improve(model, api_key):
         raise
     except Exception as e:
         print(f"  fix failed: {e}")
-    if original is not None:
-        target.write_text(original)
-    elif target.exists():
-        target.unlink()
-    print(f"  rolled back {change['file']}")
+
+    rollback(original, target)
     return False
 
 
@@ -175,13 +254,15 @@ def main():
     model = os.environ.get("OPENROUTER_MODEL", MODEL)
     guard_once_per_day(args.force)
     guard_no_sessions()
-    print(f"mu cron · {model}")
+    _write_stamp()  # write only after all guards pass
+    print(f"mu sit · {model}")
     try:
         improve(model, api_key)
     except QuotaExhausted as e:
         sys.exit(f"Quota exhausted: {e}")
     print("\n=== mu dojo board ===")
-    subprocess.run([sys.executable, "-m", "mu", "dojo", "board"], cwd=MU_ROOT, timeout=600)
+    subprocess.run([sys.executable, "-m", "mu", "dojo", "board"],
+                   cwd=MU_ROOT, timeout=600)
 
 
 if __name__ == "__main__":
