@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One-shot daily mu improvement via OpenRouter (poolside/laguna-m.1:free).
+"""One-shot daily mu improvement via OpenRouter (qwen/qwen3-coder:free).
 Runs at most once per day. Pass --force to override.
 Set OPENROUTER_API_KEY. Optionally OPENROUTER_MODEL to change model.
 """
@@ -9,7 +9,7 @@ import httpx
 
 MU_ROOT = Path(__file__).resolve().parent.parent
 STAMP = MU_ROOT / ".mu" / "improve_last_run"
-MODEL = "poolside/laguna-m.1:free"
+MODEL = "qwen/qwen3-coder:free"
 
 
 class QuotaExhausted(Exception): pass
