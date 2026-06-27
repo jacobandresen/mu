@@ -14,8 +14,9 @@ description: Python code-generation and environment rules — imports, module na
   ```sh
   python3 -m venv .venv
   .venv/bin/pip install -r requirements.txt pytest
-  .venv/bin/pytest
+  PYTHONPATH=. .venv/bin/pytest
   ```
+- **Always prefix pytest with `PYTHONPATH=.`** in the Makefile test recipe. Pytest walks up from the test file to find the nearest `pyproject.toml` or `setup.cfg` for rootdir, which may be a parent project's config — this breaks `import database`/`import main`/`import app` when tests live in a `tests/` subdirectory. Setting `PYTHONPATH=.` anchors module resolution to the project root regardless of rootdir.
 - Require `pytest >= 8` on Python 3.12+ (older pytest crashes in its assertion rewriter — a tooling error no source edit fixes).
 - Leave a dependency unpinned rather than guess a version; a wrong pin is worse than none. Flask ≥ 2.3 needs Werkzeug ≥ 2.3.
 
