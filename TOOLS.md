@@ -163,7 +163,7 @@ which the report flags as a common misconception.
 
 | Tool | In mu? | Challenges it could address |
 |---|---|---|
-| `clangd`, `gopls`, `csharp-ls`, `pyright`, `rust-analyzer`, ts/Vue server | ✅ ([`lsp.py`](src/mu/lsp.py), `MU_LSP`; §6.3) | [missing-imports](docs/challenges/missing-imports.md), [spurious-unused-imports](docs/challenges/spurious-unused-imports.md), [csharp-generation-artifacts](docs/challenges/csharp-generation-artifacts.md), [test-file-syntax-errors](docs/challenges/test-file-syntax-errors.md) |
+| `clangd`, `gopls`, Roslyn (C#), `pyright`, `rust-analyzer`, ts/Vue server | ✅ ([`lsp.py`](src/mu/lsp.py), `MU_LSP`; §6.3) | [missing-imports](docs/challenges/missing-imports.md), [spurious-unused-imports](docs/challenges/spurious-unused-imports.md), [csharp-generation-artifacts](docs/challenges/csharp-generation-artifacts.md), [test-file-syntax-errors](docs/challenges/test-file-syntax-errors.md) |
 
 An LSP server exposes *code actions* ("add import", "remove unused", "organize imports",
 "generate missing member") as `WorkspaceEdit`s over the Language Server Protocol. Many
@@ -198,7 +198,7 @@ For the record, marked ✓/◐ above:
 - **`dotnet new`** — [`scaffold.py`](src/mu/scaffold.py) (`MU_SCAFFOLD`, opt-in); owns the C#
   project structure at ground time (§6.1).
 - **Language servers** — [`lsp.py`](src/mu/lsp.py) (`MU_LSP`): clangd/gopls (fast, default)
-  and csharp-ls/pyright/rust-analyzer/ts (slow, `MU_LSP=all`) for code-action repair (§6.3,
+  and Roslyn/pyright/rust-analyzer/ts (slow, `MU_LSP=all`) for code-action repair (§6.3,
   [docs/lsp.md](docs/lsp.md)).
 
 mu is thus already a tool-using agent in the ReAct sense
@@ -252,9 +252,9 @@ Built as [`src/mu/lsp.py`](src/mu/lsp.py) (`MU_LSP`): a stdio JSON-RPC client th
 `textDocument/codeAction` + `source.organizeImports` per diagnostic and applies the returned
 `WorkspaceEdit` (one action per round, re-diagnose), slotted into the post-write slot after
 `run_reflexes`. Gating learned from the trials: `MU_LSP=1` runs only the fast proven servers
-(clangd, gopls); `MU_LSP=all` opts into the slow ones (csharp-ls, pyright, rust-analyzer, ts).
+(clangd, gopls); `MU_LSP=all` opts into the slow ones (Roslyn for C#, pyright, rust-analyzer, ts).
 **Finding:** a *selective* repair lever — clangd add-include and gopls organizeImports are
-real wins, csharp-ls add-using fixes CS0246; net-negative with slow servers that return
+real wins, the Roslyn server's add-using fixes CS0246; net-negative with slow servers that return
 nothing. Full client, trials, and per-challenge applicability: [docs/lsp.md](docs/lsp.md);
 catalogue entry §4.4.
 

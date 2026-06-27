@@ -27,7 +27,7 @@ mu lsp langs            # which servers are installed
 mu lsp diagnose FILE    # show the server's diagnostics
 mu lsp fix FILE         # apply quick-fixes / organizeImports
 MU_LSP=1 mu agent …     # repair loop, fast proven servers only (clangd, gopls)
-MU_LSP=all mu agent …   # also the slow/experimental servers (rust-analyzer, ts, csharp-ls)
+MU_LSP=all mu agent …   # also the slow/experimental servers (rust-analyzer, ts, roslyn)
 ```
 
 `MU_LSP=1` is deliberately limited to the fast, validated servers so it can't regress a run by
@@ -36,9 +36,9 @@ spawning a slow server that returns nothing (the p8 lesson). `MU_LSP=all` opts i
 ## Coverage & install (no sudo)
 
 `mu setup` installs servers **per-user, without sudo**: `rustup component add rust-analyzer`,
-`go install … gopls`, `dotnet tool install -g csharp-ls`, and npm servers under
-`--prefix ~/.local`. `toolchain.prepend_tool_paths` adds `~/go/bin`, `~/.local/bin`,
-`~/.dotnet/tools` so they resolve at runtime.
+`go install … gopls`, the Roslyn C# server (downloaded + extracted to `~/.local/share/roslyn-lsp`),
+and npm servers under `--prefix ~/.local`. `toolchain.prepend_tool_paths` adds `~/go/bin`,
+`~/.local/bin`, `~/.dotnet/tools` so they resolve at runtime.
 
 | language | server | status |
 |---|---|---|
@@ -47,12 +47,12 @@ spawning a slow server that returns nothing (the p8 lesson). `MU_LSP=all` opts i
 | Python | pyright | installable (`pip install pyright`) |
 | TS / JS | typescript-language-server | installable |
 | Rust | rust-analyzer | starts + diagnoses; import assists need fuller capability negotiation to apply |
-| C# | csharp-ls | **works** — add-using verified (`using System.Collections.Generic;`, builds); ~19s/file (slow ⇒ `MU_LSP=all`) |
+| C# | **Roslyn** (`Microsoft.CodeAnalysis.LanguageServer`, net10) | **works** — add-using verified (`using System.Collections.Generic;` fixes CS0246, diagnostics clear); ~7s/file (project load ⇒ `MU_LSP=all`). Replaces csharp-ls, which SIGABRTs on .NET 10. Needs the project-load handshake + **pull** diagnostics (`textDocument/diagnostic`), both in `lsp.py`. |
 
 > **Safety:** a server returns several *mutually-exclusive* fixes for one diagnostic (add
 > using X, OR generate a class, OR qualify), each with edits relative to the *original* file.
 > `repair()` applies **one** action per round and re-diagnoses — applying several at once
-> scrambles the file (csharp-ls corrupted a file into garbage before this was enforced).
+> scrambles the file (the old csharp-ls corrupted a file into garbage before this was enforced).
 
 ## Empirical (dark dojo trials, qwen-7b, 2026-06-26)
 
@@ -76,6 +76,6 @@ add overhead for no benefit. Enable it selectively, not everywhere.
 Scaffolding (`MU_SCAFFOLD`) clears the .NET restore wall by construction but the p10/p13
 ladder showed the binding constraint there is the **model**, not structure — it banks no
 pass-rate lift, so it stays **opt-in / default-off** ([ablations.md](ablations.md)). LSP is
-the preferred repair-side approach for languages with a server. For C# specifically, csharp-ls
+the preferred repair-side approach for languages with a server. For C# specifically, the Roslyn server
 is the natural next step (replacing the .NET reflex stack with server diagnostics) once it is
 installed and the capability gaps above are closed.

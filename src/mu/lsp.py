@@ -39,8 +39,28 @@ _SERVERS: dict[str, list[str]] = {
     ".js": ["typescript-language-server", "--stdio"],
     ".jsx": ["typescript-language-server", "--stdio"],
     ".vue": ["vue-language-server", "--stdio"],
-    ".cs": ["csharp-ls"],
+    # .cs is handled by the Roslyn language server (Microsoft.CodeAnalysis.LanguageServer,
+    # net10.0) via _roslyn_cmd() — it needs a dynamic launch (dotnet + dll + log dir) and a
+    # project-load handshake, so it is resolved specially in server_for(), not from this map.
 }
+
+
+# Microsoft Roslyn LSP — the .NET-10 C# server (replaces the crash-prone csharp-ls). Shipped
+# as a RID nupkg; `mu setup` extracts it here. Run as `dotnet <dll> --stdio …`.
+_ROSLYN_DLL = (Path.home() / ".local/share/roslyn-lsp/content/LanguageServer/linux-x64"
+               / "Microsoft.CodeAnalysis.LanguageServer.dll")
+_ROSLYN_LOGDIR = Path.home() / ".cache/mu/roslyn-logs"
+ROSLYN = "Microsoft.CodeAnalysis.LanguageServer.dll"   # marker to detect a Roslyn client
+
+
+def _roslyn_cmd() -> Optional[list[str]]:
+    """Launch argv for the Roslyn C# server, or None if not installed / no dotnet."""
+    dotnet = shutil.which("dotnet")
+    if not dotnet or not _ROSLYN_DLL.exists():
+        return None
+    _ROSLYN_LOGDIR.mkdir(parents=True, exist_ok=True)
+    return [dotnet, str(_ROSLYN_DLL), "--stdio", "--logLevel", "Warning",
+            "--extensionLogDirectory", str(_ROSLYN_LOGDIR)]
 
 
 # How long to wait for a server to publish diagnostics after didOpen. Fast single-file
@@ -58,11 +78,15 @@ FAST_SERVERS = {"clangd", "gopls"}
 
 
 def _settle_for(cmd: list[str]) -> float:
+    if ROSLYN in " ".join(cmd):   # Roslyn loads the project via an MSBuild BuildHost — slow
+        return 30.0
     return _SETTLE.get(cmd[0], 3.0)
 
 
 def server_for(path: str) -> Optional[list[str]]:
     """The installed server argv for ``path``'s language, or None."""
+    if Path(path).suffix.lower() == ".cs":
+        return _roslyn_cmd()
     cmd = _SERVERS.get(Path(path).suffix.lower())
     if cmd and shutil.which(cmd[0]):
         return cmd
@@ -75,6 +99,8 @@ def available_languages() -> dict[str, str]:
     for ext, cmd in _SERVERS.items():
         if shutil.which(cmd[0]):
             out[ext] = cmd[0]
+    if _roslyn_cmd():
+        out[".cs"] = "roslyn"
     return out
 
 
@@ -97,6 +123,8 @@ class LspClient:
         self._id = 0
         self.diagnostics: dict[str, list] = {}
         self._edited = False   # set when the server applies an edit via workspace/applyEdit
+        self._roslyn = ROSLYN in " ".join(cmd)
+        self._proj_loaded = False   # Roslyn: set on workspace/projectInitializationComplete
 
     # ── framing ────────────────────────────────────────────────────────────────
     def _read_exact(self, n: int, deadline: float) -> Optional[bytes]:
@@ -139,9 +167,16 @@ class LspClient:
             return None
 
     def _send(self, obj: dict) -> None:
-        assert self.proc and self.proc.stdin
-        self.proc.stdin.write(_frame(obj))
-        self.proc.stdin.flush()
+        # A server can exit mid-session (Roslyn restarts its BuildHost, a server crashes);
+        # writing to its closed stdin then raises BrokenPipeError. Degrade to a no-op so the
+        # whole LSP layer stays "best-effort" — the caller's next _request times out to None.
+        if not self.proc or not self.proc.stdin:
+            return
+        try:
+            self.proc.stdin.write(_frame(obj))
+            self.proc.stdin.flush()
+        except (BrokenPipeError, OSError, ValueError):
+            return
 
     # ── rpc ───────────────────────────────────────────────────────────────────
     def _notify(self, method: str, params: dict) -> None:
@@ -177,6 +212,10 @@ class LspClient:
                         "result": [{} for _ in msg.get("params", {}).get("items", [])]})
         elif msg.get("method") in ("client/registerCapability", "window/workDoneProgress/create"):
             self._send({"jsonrpc": "2.0", "id": msg.get("id"), "result": None})
+        # Roslyn signals the workspace (design-time MSBuild load) is ready — diagnostics and
+        # code actions only become meaningful after this.
+        elif msg.get("method") == "workspace/projectInitializationComplete":
+            self._proj_loaded = True
 
     # ── lifecycle ───────────────────────────────────────────────────────────────
     def start(self) -> bool:
@@ -202,7 +241,31 @@ class LspClient:
             self.stop()
             return False
         self._notify("initialized", {})
+        if self._roslyn:
+            self._open_roslyn_workspace()
         return True
+
+    def _open_roslyn_workspace(self, timeout: float = 30.0) -> None:
+        """Roslyn doesn't analyze from didOpen alone — it must load the MSBuild workspace.
+        Point it at the nearest `.sln` (preferred) or `.csproj`(s) under the root via the
+        server's custom `solution/open` / `project/open` notifications, then pump until it
+        reports `workspace/projectInitializationComplete` (or we time out)."""
+        root = Path(self.root)
+        slns = sorted(root.rglob("*.sln"))
+        if slns:
+            self._notify("solution/open", {"solution": slns[0].resolve().as_uri()})
+        else:
+            projs = sorted(root.rglob("*.csproj"))
+            if not projs:
+                return
+            self._notify("project/open",
+                         {"projects": [p.resolve().as_uri() for p in projs]})
+        deadline = time.time() + timeout
+        while time.time() < deadline and not self._proj_loaded:
+            msg = self._read_message(deadline)
+            if msg is None:
+                break
+            self._dispatch(msg)
 
     def stop(self) -> None:
         if not self.proc:
@@ -230,12 +293,32 @@ class LspClient:
                 ".js": "javascript", ".jsx": "javascriptreact",
                 ".vue": "vue", ".cs": "csharp"}.get(Path(path).suffix.lower(), "plaintext")
 
+    def pull_diagnostics(self, path: str, tries: int = 6, gap: float = 2.0) -> list:
+        """Roslyn-style **pull** diagnostics (`textDocument/diagnostic`). Roslyn computes
+        analysis asynchronously after the workspace loads, so retry a few times until the
+        report comes back non-empty (or the file is genuinely clean)."""
+        uri = _uri(path)
+        last: list = []
+        for _ in range(tries):
+            res = self._request("textDocument/diagnostic",
+                                {"textDocument": {"uri": uri}}, timeout=15.0) or {}
+            items = res.get("items", []) if isinstance(res, dict) else []
+            self.diagnostics[uri] = items
+            if items:
+                return items
+            last = items
+            time.sleep(gap)
+        return last
+
     def open(self, path: str, settle: float = 3.0) -> list:
-        """didOpen ``path`` and collect the diagnostics the server pushes back."""
+        """didOpen ``path`` and collect its diagnostics. Push-based servers (clangd/gopls)
+        publish them asynchronously; Roslyn is pull-based, so we request them explicitly."""
         uri = _uri(path)
         text = Path(path).read_text(errors="replace")
         self._notify("textDocument/didOpen", {"textDocument": {
             "uri": uri, "languageId": self._lang_id(path), "version": 1, "text": text}})
+        if self._roslyn:
+            return self.pull_diagnostics(path)
         # diagnostics arrive asynchronously after analysis — pump until they land or settle.
         deadline = time.time() + settle
         while time.time() < deadline:

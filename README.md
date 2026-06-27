@@ -118,7 +118,7 @@ The repair substrate beyond the core reflexes, in the order a fix gets to enter 
 - **LSP repair lever** (`src/mu/lsp.py`, opt-in `MU_LSP`) — drives **language servers** as a
   grammar-accurate repair oracle: add-include, organize-imports, add-using, and other code
   actions the server authors itself. `MU_LSP=1` runs the fast proven servers (clangd, gopls);
-  `MU_LSP=all` adds the slow ones (csharp-ls, pyright, rust-analyzer, ts). A *selective* lever —
+  `MU_LSP=all` adds the slow ones (Roslyn for C#, pyright, rust-analyzer, ts). A *selective* lever —
   see [docs/lsp.md](docs/lsp.md).
 - **Scaffold lever** (`src/mu/scaffold.py`, opt-in `MU_SCAFFOLD`) — runs `dotnet new` at ground
   time so the model never authors the C# project file that fails NuGet restore. Clears the

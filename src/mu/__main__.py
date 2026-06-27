@@ -265,6 +265,42 @@ def _cmd_check(args) -> int:
 
 # ── setup ─────────────────────────────────────────────────────────────────────
 
+# Roslyn C# language server: a known-good net10 build on Microsoft's public VS feed.
+# Pinned for reproducibility (the feed mixes old 4.x/net7 builds with current 5.x/net10).
+_ROSLYN_VERSION = "5.4.0-2.26179.14"
+_ROSLYN_FEED = ("https://pkgs.dev.azure.com/azure-public/vside/_packaging/"
+                "vs-impl/nuget/v3/flat2")
+
+
+def _install_roslyn_lsp() -> None:
+    """Download + extract the Roslyn LSP (no sudo) to ~/.local/share/roslyn-lsp.
+
+    It ships as a RID-specific NuGet package whose ``content/LanguageServer/<rid>/`` holds
+    the server; we keep just that subtree. Best-effort — any failure leaves C# LSP a no-op."""
+    import platform, tempfile, urllib.request, zipfile
+    from mu.lsp import _ROSLYN_DLL
+    rid = {("Linux", "x86_64"): "linux-x64", ("Linux", "aarch64"): "linux-arm64",
+           ("Darwin", "x86_64"): "osx-x64", ("Darwin", "arm64"): "osx-arm64"}.get(
+               (platform.system(), platform.machine()))
+    if not rid:
+        print(f"  roslyn: no prebuilt server for {platform.system()}/{platform.machine()} — skipped.")
+        return
+    pkg = f"microsoft.codeanalysis.languageserver.{rid}"
+    url = f"{_ROSLYN_FEED}/{pkg}/{_ROSLYN_VERSION}/{pkg}.{_ROSLYN_VERSION}.nupkg"
+    dest = Path.home() / ".local/share/roslyn-lsp"
+    try:
+        print(f"  installing roslyn ({rid}, {_ROSLYN_VERSION})…")
+        with tempfile.NamedTemporaryFile(suffix=".nupkg") as tf:
+            urllib.request.urlretrieve(url, tf.name)
+            with zipfile.ZipFile(tf.name) as z:
+                prefix = f"content/LanguageServer/{rid}/"
+                members = [m for m in z.namelist() if m.startswith(prefix)]
+                z.extractall(dest, members)
+        print("  roslyn installed." if _ROSLYN_DLL.exists() else "  roslyn: extract incomplete.")
+    except Exception as e:
+        print(f"  roslyn install failed ({e}) — C# LSP will no-op.")
+
+
 def _cmd_setup(args) -> int:
     import platform
     yes = args.yes
@@ -369,9 +405,13 @@ def _cmd_setup(args) -> int:
         if not shutil.which('vue-language-server'):
             ls_missing.append(('vue-language-server',
                                ['npm', 'install', '-g', '--prefix', _npm_prefix, '@vue/language-server']))
-    if dotnet_installed and not shutil.which('csharp-ls'):
-        # dotnet global tools already install per-user (~/.dotnet/tools), no sudo.
-        ls_missing.append(('csharp-ls', ['dotnet', 'tool', 'install', '-g', 'csharp-ls']))
+    if dotnet_installed:
+        # C# uses the Roslyn server (Microsoft.CodeAnalysis.LanguageServer, net10) — the
+        # crash-prone csharp-ls is intentionally not used. Downloaded + extracted, no sudo.
+        from mu.lsp import _ROSLYN_DLL
+        if not _ROSLYN_DLL.exists():
+            print("  roslyn (C#) not found.")
+            _install_roslyn_lsp()
     # pyright-langserver (Python) comes from the pyright install in the optional-tools section.
     if not shutil.which('clangd'):
         print("  clangd (C/C++) not found — install via your llvm/clang package "

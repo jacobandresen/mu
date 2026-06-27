@@ -39,7 +39,7 @@ Where the marginal capability is, so your work lands where it moves the number:
   - *Generation skill* (`skills/dotnet-mvc`) — already a thorough contract (WebApplicationFactory +
     `Program` partial + EF `EnsureCreated` wiring). The model ignores it under load, so another prompt
     rule has diminishing returns; improve it only on a *specific* recurring deviation, not in general.
-  - *C# LSP repair* (`MU_LSP=all`, csharp-ls) — add-using fixes CS0246, but sits **above** the CS0103
+  - *C# LSP repair* (`MU_LSP=all`, the Roslyn net10 server) — add-using fixes CS0246, but sits **above** the CS0103
     binder; no-regret support, not a solution. The dark board already trials it on p10/p13/p14 — read
     its first_errors before launching a separate .NET LSP probe.
   - *Roslyn `diagnose` oracle* (TOOLS §6.2, unbuilt) — sharper FOCUS hints for the cascade; also above
