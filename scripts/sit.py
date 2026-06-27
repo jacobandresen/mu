@@ -28,7 +28,7 @@ def guard_no_sessions():
     bad = []
     for line in lines:
         low = line.lower()
-        if "grep" in low or "cron.py" in low:
+        if "grep" in low or "sit.py" in low:
             continue
         if any(p in low for p in ("mu agent", "mu.dojo", "mu dojo", "mu.agent")):
             bad.append(line.split(None, 10)[-1][:80])
