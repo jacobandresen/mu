@@ -1,25 +1,26 @@
 #!/usr/bin/env python3
-"""Autonomous mu improvement loop powered by OpenRouter (default: poolside/laguna-m.1:free).
+"""One-shot daily mu improvement via OpenRouter (poolside/laguna-m.1:free).
 
-Reads AGENTS.md, docs/challenges/README.md, docs/lsp.md, and the skills tree,
-asks the model to identify and implement one concrete improvement per round
-(reflex, skill rule, or prompt addition), validates with pytest, then runs
-`mu dojo board`.
+Runs AT MOST ONCE PER DAY. A datestamp in .mu/improve_last_run prevents a
+second execution on the same calendar date — pass --force to override.
+
+Each invocation: reads AGENTS.md + challenge docs + ablations + skill/reflex
+index, asks Laguna to identify ONE improvement (skill rule, reflex, or prompt
+addition), writes the file, validates with pytest, rolls back on failure, then
+runs `mu dojo board`. Uses 1 OpenRouter request (2 if a repair is needed).
+OpenRouter free tier budget: ~100 requests total — one per day keeps it safe.
 
 Usage:
-    OPENROUTER_API_KEY=<key> python scripts/improve-loop.py [--rounds N]
+    OPENROUTER_API_KEY=<key> python scripts/improve-once.py [--force]
 
 Environment variables:
     OPENROUTER_API_KEY   Required.
-    OPENROUTER_MODEL     Model (default: poolside/laguna-m.1:free — largest free Laguna).
-    MU_IMPROVE_ROUNDS    Cycles to attempt (default: 1). Overridden by --rounds.
-                         OpenRouter free tier has ~100 requests total; each round
-                         uses 1 request (2 if a repair attempt is needed).
+    OPENROUTER_MODEL     Model (default: poolside/laguna-m.1:free).
 
 Guards:
+    Exits if already run today (unless --force).
     Exits if any mu agent/dojo or LM Studio model sessions are active.
-    Exits cleanly when OpenRouter reports free-token quota exhausted (HTTP 402
-    or quota-error body).
+    Exits cleanly on HTTP 402 or quota-exhausted response from OpenRouter.
 """
 import argparse
 import json
@@ -31,9 +32,24 @@ from pathlib import Path
 
 import httpx
 
+import datetime
+
 MU_ROOT = Path(__file__).resolve().parent.parent
 OPENROUTER_BASE = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_MODEL = "poolside/laguna-m.1:free"
+STAMP_FILE = MU_ROOT / ".mu" / "improve_last_run"
+
+
+# ── Daily-run guard ───────────────────────────────────────────────────────────
+
+def guard_once_per_day(force: bool) -> None:
+    today = datetime.date.today().isoformat()
+    if STAMP_FILE.exists():
+        last = STAMP_FILE.read_text().strip()
+        if last == today and not force:
+            sys.exit(f"Already ran today ({today}). Pass --force to override.")
+    STAMP_FILE.parent.mkdir(exist_ok=True)
+    STAMP_FILE.write_text(today)
 
 
 # ── Quota error ───────────────────────────────────────────────────────────────
@@ -56,7 +72,8 @@ def guard_no_concurrent_sessions() -> None:
     conflicts = []
     for line in _running_lines():
         low = line.lower()
-        if "grep" in low or "improve-loop" in low or "improve_loop" in low:
+        if "grep" in low or "improve-once" in low or "improve_once" in low \
+                or "improve-loop" in low or "improve_loop" in low:
             continue
         if any(pat in low for pat in ("mu agent", "mu.dojo", "mu dojo", "mu.agent")):
             conflicts.append(("mu session", line.split(None, 10)[-1][:80]))
@@ -359,9 +376,8 @@ def main() -> None:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    ap.add_argument("--rounds", type=int,
-                    default=int(os.environ.get("MU_IMPROVE_ROUNDS", "1")),
-                    help="Improvement cycles (default 1; each uses 1–2 OR requests)")
+    ap.add_argument("--force", action="store_true",
+                    help="Run even if already executed today")
     args = ap.parse_args()
 
     api_key = os.environ.get("OPENROUTER_API_KEY", "")
@@ -370,23 +386,23 @@ def main() -> None:
 
     model = os.environ.get("OPENROUTER_MODEL", DEFAULT_MODEL)
 
-    print(f"mu improve-loop · model: {model} · rounds: {args.rounds}")
+    print(f"mu improve-once · model: {model}")
     print(f"mu root: {MU_ROOT}")
 
+    guard_once_per_day(args.force)
     guard_no_concurrent_sessions()
-    print("Guard passed — no concurrent mu/lms sessions.\n")
+    print("Guards passed — running today's improvement.\n")
 
     applied = 0
     try:
-        for i in range(1, args.rounds + 1):
-            if improve_once(i, model, api_key):
-                applied += 1
+        if improve_once(1, model, api_key):
+            applied = 1
     except QuotaExhausted as e:
         print(f"\nStopping: {e}")
     except KeyboardInterrupt:
         print("\nInterrupted.")
 
-    print(f"\n── {applied}/{args.rounds} improvements applied ──")
+    print(f"\n── {'improvement applied' if applied else 'no improvement applied'} ──")
     run_dojo_board()
 
 
