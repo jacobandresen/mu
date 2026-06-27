@@ -132,7 +132,6 @@ def _skill_index() -> str:
     lines = []
     for skill_md in sorted(MU_ROOT.glob("skills/*/SKILL.md")):
         name = skill_md.parent.name
-        # First non-empty non-frontmatter line as one-liner
         for line in skill_md.read_text(errors="replace").splitlines():
             line = line.strip()
             if line and not line.startswith("---") and not line.startswith("name:") \
@@ -142,6 +141,19 @@ def _skill_index() -> str:
         else:
             lines.append(f"  {name}")
     return "\n".join(lines)
+
+
+def _reflex_registry_summary() -> str:
+    """One-line per registered reflex: id → function name."""
+    reg = MU_ROOT / "src/mu/reflexes/registry.py"
+    if not reg.exists():
+        return "(registry not found)"
+    lines = []
+    for line in reg.read_text(errors="replace").splitlines():
+        # Pick up _rule(...) or direct dict entries that name a reflex
+        if "artifact" in line and "evidence" in line:
+            lines.append(f"  {line.strip()[:100]}")
+    return "\n".join(lines[:40]) or "(no entries parsed)"
 
 
 SYSTEM_PROMPT = textwrap.dedent("""\
@@ -195,16 +207,22 @@ SYSTEM_PROMPT = textwrap.dedent("""\
 
 
 def build_messages(repair_context: str = "") -> list[dict]:
-    agents   = _read(MU_ROOT / "AGENTS.md",                        max_chars=5000)
-    challeng = _read(MU_ROOT / "docs/challenges/README.md",         max_chars=4000)
-    lsp_doc  = _read(MU_ROOT / "docs/lsp.md",                      max_chars=3000)
-    skills   = _skill_index()
+    agents    = _read(MU_ROOT / "AGENTS.md",                        max_chars=5000)
+    challeng  = _read(MU_ROOT / "docs/challenges/README.md",        max_chars=3500)
+    lsp_doc   = _read(MU_ROOT / "docs/lsp.md",                     max_chars=2500)
+    ablations = _read(MU_ROOT / "docs/ablations.md",                max_chars=2000)
+    problems  = _read(MU_ROOT / "docs/problems/README.md",          max_chars=2000)
+    skills    = _skill_index()
+    reflexes  = _reflex_registry_summary()
 
     user_parts = [
         f"=== AGENTS.md (abridged) ===\n{agents}",
         f"=== docs/challenges/README.md ===\n{challeng}",
         f"=== docs/lsp.md (Roslyn / LSP repair) ===\n{lsp_doc}",
+        f"=== docs/ablations.md (lever verdicts + backlog) ===\n{ablations}",
+        f"=== docs/problems/README.md (per-problem status) ===\n{problems}",
         f"=== Existing skill files ===\n{skills}",
+        f"=== Registered reflexes (registry.py) ===\n{reflexes}",
         "Identify and implement the single best improvement. Output JSON only.",
     ]
     if repair_context:
