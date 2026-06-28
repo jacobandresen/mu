@@ -14,6 +14,7 @@ runs than binary pass/fail), and a stochasticity score.
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 from collections import Counter
@@ -34,6 +35,33 @@ def _problem(problem_id: str) -> dict:
 
 def _goal(problem_id: str) -> str:
     return _problem(problem_id)['goal']
+
+
+def _run_agent(goal: str, work: Path) -> None:
+    """Run `mu agent` with a per-run timeout (ROUND_TIMEOUT, default 1800s).
+    SIGTERM the process group on timeout, escalating to SIGKILL if needed."""
+    round_timeout = int(os.environ.get('ROUND_TIMEOUT', '1800'))
+    proc = subprocess.Popen(
+        mu_cmd() + ['agent', goal, '--dir', str(work)],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    try:
+        proc.wait(timeout=round_timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            proc.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            proc.wait()
+        print(f"  agent exceeded {round_timeout}s — killed", file=sys.stderr)
 
 
 def _rmwork(path: Path) -> None:
@@ -75,8 +103,7 @@ def run(problem_id: str, emit_json: str = '') -> int:
             work.mkdir(parents=True, exist_ok=True)
 
             marker = now()
-            subprocess.run(mu_cmd() + ['agent', goal, '--dir', str(work)],
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            _run_agent(goal, work)
 
             s = sessions.latest_since(marker)
             outcome = s.outcome if s else '?'
@@ -208,8 +235,7 @@ def board(emit_json: str = '', runs: int | None = None) -> int:
                 _rmwork(work)
                 work.mkdir(parents=True, exist_ok=True)
                 marker = now()
-                subprocess.run(mu_cmd() + ['agent', goal, '--dir', str(work)],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                _run_agent(goal, work)
                 s = sessions.latest_since(marker)
                 solved += bool(s and s.outcome == 'success')
                 if s and s.outcome != 'success':

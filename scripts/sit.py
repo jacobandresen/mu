@@ -262,7 +262,7 @@ def run_mode(cycle: int = 0) -> dict:
         _log("  Could not load run model — skipping run phase.")
         return {}
 
-    env = {**os.environ, "MU_AGENT_MODEL": RUN_MODEL}
+    env = {**os.environ, "MU_AGENT_MODEL": RUN_MODEL, "ROUND_TIMEOUT": "600"}
     BOARD_JSON.parent.mkdir(exist_ok=True)
 
     _log(f"Running dojo board (n=5) → {BOARD_JSON}")
