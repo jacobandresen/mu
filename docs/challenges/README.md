@@ -62,3 +62,6 @@ _The machine knowledge base: lessons the reflect loop distils from failed runs a
 5. **Every used symbol must be provided at link time**
   - Undefined-reference errors mean a symbol is referenced but no compiled or linked unit supplies it; ensure all object files and libraries that define used symbols are in the link step.
 
+6. **Build target inconsistency**
+  - Ensure every entry-point target in the build file is actually defined and spelled out in the test command.
+

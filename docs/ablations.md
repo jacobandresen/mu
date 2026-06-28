@@ -43,7 +43,8 @@ repo. This file is the durable distillation of those verdicts.
 |---|---|---|---|---|
 | MSB1003 `dotnet test <dir>` redirect | (always on) | empty `tests/` dir MSB1003s before compile | MSB1003 **10/15 → 0/15**; gate still 0/15 (moved deeper) | **SHIPPED** (no-regret) |
 | Scaffold (`dotnet new`) | `MU_SCAFFOLD` | model authors `net5.0`+EF8 csproj ⇒ NU1202/NETSDK1226 restore wall | NU1202/NETSDK1226 **12/15 → 0/15** (scaffold fired 15/15); gate still 0/15 (moved to CS0246 + model syntax errors); repair-iters 6.0→4.0 | **OPT-IN** — wall cleared (mechanistic win) but headline null at N=15; re-test PARKED entry-point + S2 now restore is reachable (`.mu/abl_scaffold_verdict.md`) |
-| TFM grounding | `MU_TFM_GROUNDING` | model's `net5.0` csproj fails NuGet restore (NU1202) before compile | — (A/B un-run) | **UNDER TEST** |
+| TFM grounding | `MU_TFM_GROUNDING` | model's `net5.0` csproj fails NuGet restore (NU1202) before compile | 0/15 ON, 0/8 OFF (partial); both arms identical — null Δ | **NULL — STAYS OPT-IN** (mechanistic secondary below) |
+| Roslyn LSP (`MU_LSP=all`) | `MU_LSP=all` | CS0246 persists after scaffold+TFM wall cleared — Roslyn `source.addImport` fixes remaining missing usings | — (A/B un-run) | **UNDER TEST** |
 | ASP.NET entry-point task | `MU_ASPNET_ENTRYPOINT` | architect never plans `Program.cs` ⇒ CS0246 | p10: 0/15 (behind NU1202 wall). **p13 with wall cleared (scaffold+TFM): cuts CS0246 12→6** | **OPT-IN — validated, insufficient alone** |
 | S2 cross-stage type reflexes | `MU_S2_TYPE_REFLEXES` | duplicate/missing types across stages ⇒ CS0101/CS0246 | p10: 0/15 (behind NU1202 wall). **p13 with wall cleared: cuts CS0101 10→4** | **OPT-IN — validated, insufficient alone** |
 | Build-order weave | `MU_BUILD_ORDER` | building deps before dependents cuts repair iters | n/a (tested on p1/p2/p3) — no pass-rate lift | **PARKED** |
@@ -118,16 +119,27 @@ single-run). Default-off; re-test once entry-point + TFM make CS0101/CS0246 reac
 need ordering). P2 PASS (no regression). Default-off; the value (if any) is in repair-iter
 efficiency on hard multi-layer goals — re-test once p10 builds.
 
-### TFM grounding (`MU_TFM_GROUNDING`) — UNDER TEST
+### TFM grounding (`MU_TFM_GROUNDING`) — NULL, STAYS OPT-IN
 `4d7757f`+`743c8bc`. Reflex `fix_csharp_uninstalled_tfm`: when a model-authored csproj's
 `<TargetFramework>` major is below the installed SDK and a Microsoft.*/EntityFrameworkCore
 package major exceeds it, raise the TFM to the installed SDK and add
-`AllowMissingPrunePackageData` for net9+. Directly targets the NU1202 wall above. Prereg
-`abl_tfm_prereg.md`; A/B harness `abl_tfm_run.sh`/`_analyze.py` ready but **un-run**
-(launched 2026-06-24, stopped before any arm finalized). Gates: P1 p10 backend_build
-Δq̂ CI-lo>0 ⇒ flip default-on; P2 p4 control; mechanistic secondary — did NU1202 drop
-out of the ON-arm first-error mix? **This is the lever that, if it lands, unblocks
-re-testing the two PARKED levers above.**
+`AllowMissingPrunePackageData` for net9+. Directly targets the NU1202 wall above.
+
+**A/B result (partial):** ON 0/15, OFF 0/8 partial (run interrupted); both arms all-stall,
+Δ≈0. Mechanistic secondary: NU1202 still appears in ON-arm first_errors — the reflex fires
+on the test csproj but the backend csproj (model-authored in the MVC stage) may keep a
+bad TFM. **Stays OPT-IN** — no headline lift; the p13 validation (scaffold+TFM: NU1202 15→0)
+shows it works in compound but not alone at this problem size.
+
+### Roslyn LSP (`MU_LSP=all`) — UNDER TEST
+Roslyn `Microsoft.CodeAnalysis.LanguageServer` (net10) fires after each `.cs` file write
+when `MU_LSP=all` is set; applies `source.addImport` code actions that fix CS0246
+(missing `using`) for any SDK or NuGet type — more general than the regex reflex, which
+only finds project-internal types. ~30s settle per file. Prereg `abl_lsp_prereg.md`;
+A/B harness `abl_lsp_run.sh`/`_analyze.py`. Hypothesis: in the scaffold+TFM compound
+config (wall cleared, CS0246 reachable), Roslyn cuts the residual CS0246 count further
+than the regex reflex alone — validated on p13 dark N=8 (CS0246 12→6 with EP, Roslyn
+expected to cut deeper via SDK-type usings). Gate: p13 `backend_build` Δq̂ CI-lo > 0.
 
 ## Observed failure modes (the evidence levers are aimed at)
 From archive scans (`.mu/round2-7_scan.md`, ~390 sessions) and `nu1202_diagnosis.md`.

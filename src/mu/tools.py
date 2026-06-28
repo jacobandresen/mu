@@ -14,6 +14,7 @@ are the Python functions that execute them.
 """
 
 import json
+import os
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -220,8 +221,13 @@ def _edit(path: str, old_str: str, new_str: str) -> str:
 
 def _bash(command: str) -> str:
     try:
+        env = {
+            **os.environ,
+            "SDL_VIDEODRIVER": "offscreen",
+            "SDL_AUDIODRIVER": "dummy",
+        }
         result = subprocess.run(['bash', '-c', command], capture_output=True,
-                                text=True, timeout=60)
+                                text=True, timeout=60, env=env)
         out = result.stdout + result.stderr
         return out if out else f"exit code {result.returncode}"
     except subprocess.TimeoutExpired:
