@@ -256,7 +256,11 @@ BOARD_JSON = MU_ROOT / ".mu" / "sit_board.json"
 
 
 def run_mode(cycle: int = 0) -> dict:
-    """Load 7b, run full dojo board (n=1), return board JSON dict."""
+    """Load 7b, run full dojo board (n=3), return board JSON dict.
+
+    Stops early (kills the board subprocess) if any problem solves ≤1/3 —
+    that problem is already a clear target for analysis mode.
+    """
     _log("=== RUN MODE ===")
     if not _load_model(RUN_MODEL):
         _log("  Could not load run model — skipping run phase.")
@@ -265,14 +269,47 @@ def run_mode(cycle: int = 0) -> dict:
     env = {**os.environ, "MU_AGENT_MODEL": RUN_MODEL, "ROUND_TIMEOUT": "600"}
     BOARD_JSON.parent.mkdir(exist_ok=True)
 
-    _log(f"Running dojo board (n=5) → {BOARD_JSON}")
-    r = subprocess.run(
-        [sys.executable, "-m", "mu", "dojo", "board",
-         "-n", "5", "--emit-json", str(BOARD_JSON)],
-        cwd=MU_ROOT, env=env, timeout=3600,
-    )
-    if r.returncode != 0:
-        _log("  dojo board exited non-zero")
+    _log(f"Running dojo board (n=3) → {BOARD_JSON}")
+    # Pattern emitted by measure.board() after each problem:
+    #   "  p7-flask                    solved 1/3 · layers …"
+    import re
+    solved_re = re.compile(r"solved\s+(\d+)/3")
+
+    stop_early = False
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "mu", "dojo", "board",
+             "-n", "3", "--emit-json", str(BOARD_JSON)],
+            cwd=MU_ROOT, env=env,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True,
+        )
+        deadline = time.monotonic() + 3600
+        for line in proc.stdout:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+            m = solved_re.search(line)
+            if m and int(m.group(1)) <= 1:
+                _log(f"  early stop: {line.strip()}")
+                stop_early = True
+                proc.kill()
+                proc.wait()
+                break
+            if time.monotonic() > deadline:
+                _log("  dojo board timed out after 3600s — stopping.")
+                proc.kill()
+                proc.wait()
+                break
+        else:
+            proc.wait()
+            if proc.returncode != 0:
+                _log("  dojo board exited non-zero")
+    except Exception as exc:
+        _log(f"  dojo board error: {exc}")
+        return {}
+
+    if stop_early:
+        _log("  board run stopped early — partial board loaded for analysis.")
 
     if BOARD_JSON.exists():
         try:
