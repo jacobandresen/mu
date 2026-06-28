@@ -24,6 +24,7 @@ Environment:
   MU_LMSTUDIO_HOST       LM Studio base URL (default: http://localhost:1234)
   MU_SIT_VERBOSE         Set to 1/true to enable verbose logging (prompts, responses, test output)
 """
+
 import argparse
 import datetime
 import json
@@ -37,21 +38,22 @@ from pathlib import Path
 
 import httpx
 
-MU_ROOT  = Path(__file__).resolve().parent.parent
-LOG_DIR  = MU_ROOT / ".mu" / "sit_history"
-LOG_FILE = LOG_DIR / "attempts.jsonl"   # one JSON object per line
-RUN_LOG  = LOG_DIR / "runs.jsonl"       # one record per full dojo run
+MU_ROOT = Path(__file__).resolve().parent.parent
+LOG_DIR = MU_ROOT / ".mu" / "sit_history"
+LOG_FILE = LOG_DIR / "attempts.jsonl"  # one JSON object per line
+RUN_LOG = LOG_DIR / "runs.jsonl"  # one record per full dojo run
 
 # ── defaults ──────────────────────────────────────────────────────────────────
 
-RUN_MODEL      = os.environ.get("MU_SIT_RUN_MODEL",      "qwen2.5-coder-7b-instruct")
+RUN_MODEL = os.environ.get("MU_SIT_RUN_MODEL", "qwen2.5-coder-7b-instruct")
 ANALYSIS_MODEL = os.environ.get("MU_SIT_ANALYSIS_MODEL", "qwen2.5-coder-14b-instruct")
-RUN_CTX        = int(os.environ.get("MU_SIT_RUN_CTX",      "4096"))
-ANALYSIS_CTX   = int(os.environ.get("MU_SIT_ANALYSIS_CTX", "32768"))
-LMS_HOST       = os.environ.get("MU_LMSTUDIO_HOST",      "http://localhost:1234")
-VERBOSE        = os.environ.get("MU_SIT_VERBOSE", "").strip() not in ("", "0", "false")
+RUN_CTX = int(os.environ.get("MU_SIT_RUN_CTX", "4096"))
+ANALYSIS_CTX = int(os.environ.get("MU_SIT_ANALYSIS_CTX", "32768"))
+LMS_HOST = os.environ.get("MU_LMSTUDIO_HOST", "http://localhost:1234")
+VERBOSE = os.environ.get("MU_SIT_VERBOSE", "").strip() not in ("", "0", "false")
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
 
 def _read(path: Path, max_chars: int = 6000) -> str:
     if not path.exists():
@@ -86,6 +88,7 @@ def _vlog(msg: str) -> None:
 
 # ── attempt history ───────────────────────────────────────────────────────────
 
+
 def _append_jsonl(path: Path, record: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a") as fh:
@@ -100,8 +103,8 @@ def log_attempt(
     target_problems: list[str],
     difficulty: str,
     sub_problem: str | None,
-    outcome: str,          # "applied" | "rolled_back" | "parse_error" | "model_error"
-    failure_reason: str,   # empty string on success
+    outcome: str,  # "applied" | "rolled_back" | "parse_error" | "model_error"
+    failure_reason: str,  # empty string on success
     baseline_e: float,
     new_e: float,
     test_hint: str = "",
@@ -131,10 +134,7 @@ def log_run(*, cycle: int, board: dict, e_solved: float) -> None:
         "ts": datetime.datetime.now().isoformat(timespec="seconds"),
         "cycle": cycle,
         "e_solved": round(e_solved, 4),
-        "problems": {
-            pid: round(_p_solve(data), 4)
-            for pid, data in board.items()
-        },
+        "problems": {pid: round(_p_solve(data), 4) for pid, data in board.items()},
     }
     _append_jsonl(RUN_LOG, record)
 
@@ -162,6 +162,7 @@ def load_discarded_attempts(max_recent: int = 20) -> list[dict]:
 
 # ── LMS guards / model swap ───────────────────────────────────────────────────
 
+
 def check_lms_running() -> None:
     """Exit with instructions if LM Studio server is not reachable."""
     try:
@@ -184,7 +185,9 @@ def _load_model(model_id: str) -> bool:
     _log(f"Loading model: {model_id}")
     r = subprocess.run(
         [sys.executable, "-m", "mu", "model", "load", model_id],
-        cwd=MU_ROOT, capture_output=True, text=True,
+        cwd=MU_ROOT,
+        capture_output=True,
+        text=True,
     )
     if r.returncode != 0:
         _log(f"  model load failed:\n{(r.stdout + r.stderr)[-400:]}")
@@ -207,9 +210,15 @@ def _active_model() -> str:
 
 # ── local LMS chat ────────────────────────────────────────────────────────────
 
-def lms_chat(messages: list[dict], model: str, max_tokens: int = 8192,
-             temperature: float = 0.2, timeout: float = 2400.0,
-             num_ctx: int = ANALYSIS_CTX) -> str:
+
+def lms_chat(
+    messages: list[dict],
+    model: str,
+    max_tokens: int = 8192,
+    temperature: float = 0.2,
+    timeout: float = 2400.0,
+    num_ctx: int = ANALYSIS_CTX,
+) -> str:
     """Send a chat request to the local LM Studio server."""
     _vlog(f"lms_chat model={model} max_tokens={max_tokens} num_ctx={num_ctx}")
     for i, m in enumerate(messages):
@@ -218,7 +227,7 @@ def lms_chat(messages: list[dict], model: str, max_tokens: int = 8192,
     last_err: Exception | None = None
     for attempt in range(3):
         if attempt:
-            time.sleep(2 ** attempt)
+            time.sleep(2**attempt)
         try:
             r = httpx.post(
                 f"{LMS_HOST}/v1/chat/completions",
@@ -233,11 +242,11 @@ def lms_chat(messages: list[dict], model: str, max_tokens: int = 8192,
             )
         except (httpx.TimeoutException, httpx.NetworkError) as e:
             last_err = e
-            _log(f"  network error (attempt {attempt+1}/3): {e}")
+            _log(f"  network error (attempt {attempt + 1}/3): {e}")
             continue
         if r.status_code in (429, 500, 502, 503, 504):
             last_err = RuntimeError(f"HTTP {r.status_code}")
-            _log(f"  transient HTTP {r.status_code} (attempt {attempt+1}/3)")
+            _log(f"  transient HTTP {r.status_code} (attempt {attempt + 1}/3)")
             continue
         if not r.is_success:
             raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
@@ -271,23 +280,39 @@ def run_mode(cycle: int = 0) -> dict:
     if dojo_runs_dir.exists():
         shutil.rmtree(dojo_runs_dir, ignore_errors=True)
     dojo_runs_dir.mkdir(parents=True, exist_ok=True)
-    env = {**os.environ, "MU_AGENT_MODEL": RUN_MODEL, "ROUND_TIMEOUT": "600",
-           "MU_DOJO_SAVE_RUNS": str(dojo_runs_dir)}
+    env = {
+        **os.environ,
+        "MU_AGENT_MODEL": RUN_MODEL,
+        "ROUND_TIMEOUT": "600",
+        "MU_DOJO_SAVE_RUNS": str(dojo_runs_dir),
+    }
     BOARD_JSON.parent.mkdir(exist_ok=True)
 
     _log(f"Running dojo board (n=3) → {BOARD_JSON}")
     # Pattern emitted by measure.board() after each problem:
     #   "  p7-flask                    solved 1/3 · layers …"
     import re
+
     solved_re = re.compile(r"solved\s+(\d+)/3")
 
     stop_early = False
     try:
         proc = subprocess.Popen(
-            [sys.executable, "-m", "mu", "dojo", "board",
-             "-n", "3", "--emit-json", str(BOARD_JSON)],
-            cwd=MU_ROOT, env=env,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            [
+                sys.executable,
+                "-m",
+                "mu",
+                "dojo",
+                "board",
+                "-n",
+                "3",
+                "--emit-json",
+                str(BOARD_JSON),
+            ],
+            cwd=MU_ROOT,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
         )
         deadline = time.monotonic() + 3600
@@ -323,7 +348,9 @@ def run_mode(cycle: int = 0) -> dict:
             _log(f"  board loaded: {len(board)} problems")
             log_run(cycle=cycle, board=board, e_solved=_e_solved(board))
             for pid, data in board.items():
-                _vlog(f"  {pid}: p_solve={_p_solve(data):.3f}  lang={data.get('lang','?')}  first_error={str(data.get('first_error',''))[:120]}")
+                _vlog(
+                    f"  {pid}: p_solve={_p_solve(data):.3f}  lang={data.get('lang', '?')}  first_error={str(data.get('first_error', ''))[:120]}"
+                )
             return board
         except Exception as e:
             _log(f"  could not parse board JSON: {e}")
@@ -375,6 +402,7 @@ def _e_solved(board: dict) -> float:
 
 
 # ── JSON parsing ──────────────────────────────────────────────────────────────
+
 
 def parse_json(text: str) -> dict:
     if "```" in text:
@@ -441,7 +469,7 @@ ANALYSIS_SYSTEM = textwrap.dedent("""\
       "target_problems": ["p1-helloworld"],
       "difficulty": "easy",
       "sub_problem": "the specific failure class being fixed, or null if easy",
-      "file": "src/mu/skills/python.md",
+      "file": "skills/python-writer/SKILL.md",
       "content": "<complete new file content — not a diff, not a summary>",
       "test_hint": "what behaviour to verify after applying this change"
     }
@@ -474,8 +502,7 @@ def build_analysis_messages(board: dict, repair_ctx: str = "") -> list[dict]:
     failing = _failing_problems(board)
     if failing:
         failing_summary = "\n".join(
-            f"  {pid}: p_solve={p:.2f}  [{_difficulty(p)}]"
-            for pid, p in failing[:12]
+            f"  {pid}: p_solve={p:.2f}  [{_difficulty(p)}]" for pid, p in failing[:12]
         )
     else:
         failing_summary = "  (none — all problems passing!)"
@@ -484,8 +511,11 @@ def build_analysis_messages(board: dict, repair_ctx: str = "") -> list[dict]:
     archive_readme_content = "(none yet)"
     archive_root = MU_ROOT / "archive"
     if archive_root.exists():
-        nums = [int(p.name) for p in archive_root.iterdir()
-                if p.is_dir() and p.name.isdigit()]
+        nums = [
+            int(p.name)
+            for p in archive_root.iterdir()
+            if p.is_dir() and p.name.isdigit()
+        ]
         if nums:
             latest_readme = archive_root / f"{max(nums):03d}" / "README.md"
             archive_readme_content = _read(latest_readme, 2000)
@@ -493,12 +523,12 @@ def build_analysis_messages(board: dict, repair_ctx: str = "") -> list[dict]:
     parts = [
         f"=== Failing problems (easiest first) ===\n{failing_summary}",
         f"=== Previously tried and discarded (DO NOT repeat these) ===\n{_discarded_summary()}",
-        f"=== AGENTS.md ===\n{_read(MU_ROOT/'AGENTS.md', 5000)}",
-        f"=== README.md ===\n{_read(MU_ROOT/'README.md', 3000)}",
+        f"=== AGENTS.md ===\n{_read(MU_ROOT / 'AGENTS.md', 5000)}",
+        f"=== README.md ===\n{_read(MU_ROOT / 'README.md', 3000)}",
         f"=== Latest board run (archive) ===\n{archive_readme_content}",
-        f"=== docs/challenges/README.md ===\n{_read(MU_ROOT/'docs/challenges/README.md', 4000)}",
-        f"=== docs/lsp.md ===\n{_read(MU_ROOT/'docs/lsp.md', 2000)}",
-        f"=== docs/ablations.md ===\n{_read(MU_ROOT/'docs/ablations.md', 1500)}",
+        f"=== docs/challenges/README.md ===\n{_read(MU_ROOT / 'docs/challenges/README.md', 4000)}",
+        f"=== docs/lsp.md ===\n{_read(MU_ROOT / 'docs/lsp.md', 2000)}",
+        f"=== docs/ablations.md ===\n{_read(MU_ROOT / 'docs/ablations.md', 1500)}",
         f"=== Skills ===\n{_skill_index()}",
     ]
     if repair_ctx:
@@ -514,7 +544,10 @@ def build_analysis_messages(board: dict, repair_ctx: str = "") -> list[dict]:
 def run_tests() -> tuple[bool, str]:
     r = subprocess.run(
         [sys.executable, "-m", "pytest", "tests/", "-q", "--tb=short"],
-        capture_output=True, text=True, cwd=MU_ROOT, timeout=120,
+        capture_output=True,
+        text=True,
+        cwd=MU_ROOT,
+        timeout=120,
         env={**os.environ, "PYTHONPATH": "."},
     )
     out = r.stdout + r.stderr
@@ -522,8 +555,9 @@ def run_tests() -> tuple[bool, str]:
     return r.returncode == 0, out
 
 
-def verify_board_gain(model_id: str, target_pids: list[str],
-                      baseline_e: float) -> tuple[bool, float]:
+def verify_board_gain(
+    model_id: str, target_pids: list[str], baseline_e: float
+) -> tuple[bool, float]:
     """Re-run dojo board for the targeted problems, return (net_positive, new_e).
     Falls back to accepting the change if the board can't run."""
     if not target_pids:
@@ -533,9 +567,20 @@ def verify_board_gain(model_id: str, target_pids: list[str],
     env = {**os.environ, "MU_AGENT_MODEL": model_id}
     try:
         r = subprocess.run(
-            [sys.executable, "-m", "mu", "dojo", "board",
-             "-n", "5", "--emit-json", str(tmp)],
-            cwd=MU_ROOT, env=env, timeout=3600,
+            [
+                sys.executable,
+                "-m",
+                "mu",
+                "dojo",
+                "board",
+                "-n",
+                "5",
+                "--emit-json",
+                str(tmp),
+            ],
+            cwd=MU_ROOT,
+            env=env,
+            timeout=3600,
         )
     except subprocess.TimeoutExpired:
         _log("  verify board timed out — accepting change")
@@ -596,18 +641,24 @@ def analysis_mode(board: dict, cycle: int = 0) -> bool:
             _log(f"  retry parse error: {e2}")
             _log(f"  retry raw response: {resp2[:500]!r}")
             log_attempt(
-                cycle=cycle, rationale="(parse failed)", file="?",
-                target_problems=[], difficulty="?", sub_problem=None,
-                outcome="parse_error", failure_reason=str(e2),
-                baseline_e=baseline_e, new_e=baseline_e,
+                cycle=cycle,
+                rationale="(parse failed)",
+                file="?",
+                target_problems=[],
+                difficulty="?",
+                sub_problem=None,
+                outcome="parse_error",
+                failure_reason=str(e2),
+                baseline_e=baseline_e,
+                new_e=baseline_e,
             )
             return False
 
-    target_pids  = change.get("target_problems") or []
-    difficulty   = change.get("difficulty", "?")
-    sub_problem  = change.get("sub_problem")
-    rationale    = change.get("rationale", "?")
-    test_hint    = change.get("test_hint", "")
+    target_pids = change.get("target_problems") or []
+    difficulty = change.get("difficulty", "?")
+    sub_problem = change.get("sub_problem")
+    rationale = change.get("rationale", "?")
+    test_hint = change.get("test_hint", "")
     _log(f"  rationale:  {rationale}")
     _log(f"  file:       {rel}")
     _log(f"  targets:    {target_pids}  [{difficulty}]")
@@ -628,7 +679,9 @@ def analysis_mode(board: dict, cycle: int = 0) -> bool:
             fix_resp = lms_chat(build_analysis_messages(board, repair_ctx), active)
             fix = parse_json(fix_resp)
             fix_rel, fix_target = validate_change(fix)
-            fix_original = fix_target.read_text(errors="replace") if fix_target.exists() else None
+            fix_original = (
+                fix_target.read_text(errors="replace") if fix_target.exists() else None
+            )
             if fix_target != target:
                 _rollback(original, target)
                 fix_target.parent.mkdir(parents=True, exist_ok=True)
@@ -645,11 +698,17 @@ def analysis_mode(board: dict, cycle: int = 0) -> bool:
         _log("  tests still failing — rolling back")
         _rollback(original, target)
         log_attempt(
-            cycle=cycle, rationale=rationale, file=rel,
-            target_problems=target_pids, difficulty=difficulty,
-            sub_problem=sub_problem, outcome="rolled_back",
+            cycle=cycle,
+            rationale=rationale,
+            file=rel,
+            target_problems=target_pids,
+            difficulty=difficulty,
+            sub_problem=sub_problem,
+            outcome="rolled_back",
             failure_reason=f"pytest failed: {test_out[-300:]}",
-            baseline_e=baseline_e, new_e=baseline_e, test_hint=test_hint,
+            baseline_e=baseline_e,
+            new_e=baseline_e,
+            test_hint=test_hint,
         )
         return False
 
@@ -659,33 +718,53 @@ def analysis_mode(board: dict, cycle: int = 0) -> bool:
     if not _load_model(RUN_MODEL):
         _log("  cannot reload run model for verification — accepting on pytest")
         log_attempt(
-            cycle=cycle, rationale=rationale, file=rel,
-            target_problems=target_pids, difficulty=difficulty,
-            sub_problem=sub_problem, outcome="applied",
-            failure_reason="", baseline_e=baseline_e, new_e=baseline_e,
+            cycle=cycle,
+            rationale=rationale,
+            file=rel,
+            target_problems=target_pids,
+            difficulty=difficulty,
+            sub_problem=sub_problem,
+            outcome="applied",
+            failure_reason="",
+            baseline_e=baseline_e,
+            new_e=baseline_e,
             test_hint=test_hint,
         )
         return True
 
     net_pos, new_e = verify_board_gain(RUN_MODEL, target_pids, baseline_e)
     if not net_pos:
-        _log(f"  board regression (E[#solved] {baseline_e:.3f} → {new_e:.3f}) — rolling back")
+        _log(
+            f"  board regression (E[#solved] {baseline_e:.3f} → {new_e:.3f}) — rolling back"
+        )
         _rollback(original, target)
         log_attempt(
-            cycle=cycle, rationale=rationale, file=rel,
-            target_problems=target_pids, difficulty=difficulty,
-            sub_problem=sub_problem, outcome="rolled_back",
+            cycle=cycle,
+            rationale=rationale,
+            file=rel,
+            target_problems=target_pids,
+            difficulty=difficulty,
+            sub_problem=sub_problem,
+            outcome="rolled_back",
             failure_reason=f"board regression: {baseline_e:.3f} → {new_e:.3f}",
-            baseline_e=baseline_e, new_e=new_e, test_hint=test_hint,
+            baseline_e=baseline_e,
+            new_e=new_e,
+            test_hint=test_hint,
         )
         return False
 
     _log(f"  change accepted ✓ (E[#solved] {baseline_e:.3f} → {new_e:.3f})")
     log_attempt(
-        cycle=cycle, rationale=rationale, file=rel,
-        target_problems=target_pids, difficulty=difficulty,
-        sub_problem=sub_problem, outcome="applied",
-        failure_reason="", baseline_e=baseline_e, new_e=new_e,
+        cycle=cycle,
+        rationale=rationale,
+        file=rel,
+        target_problems=target_pids,
+        difficulty=difficulty,
+        sub_problem=sub_problem,
+        outcome="applied",
+        failure_reason="",
+        baseline_e=baseline_e,
+        new_e=new_e,
         test_hint=test_hint,
     )
     return True
@@ -701,18 +780,33 @@ def _rollback(original: str | None, target: Path) -> None:
 
 # ── main loop ──────────────────────────────────────────────────────────────────
 
+
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--verbose", "-v", action="store_true",
-                    help="Emit verbose debug logs (prompts, raw responses, test output)")
-    ap.add_argument("--rounds", type=int,
-                    default=int(os.environ.get("MU_SIT_ROUNDS", "0")),
-                    help="Max improvement cycles (0 = infinite)")
-    ap.add_argument("--run-only", action="store_true",
-                    help="Only run dojo once and print the board, then exit")
-    ap.add_argument("--analysis-only", action="store_true",
-                    help="Skip the run phase; analyse existing board JSON")
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Emit verbose debug logs (prompts, raw responses, test output)",
+    )
+    ap.add_argument(
+        "--rounds",
+        type=int,
+        default=int(os.environ.get("MU_SIT_ROUNDS", "0")),
+        help="Max improvement cycles (0 = infinite)",
+    )
+    ap.add_argument(
+        "--run-only",
+        action="store_true",
+        help="Only run dojo once and print the board, then exit",
+    )
+    ap.add_argument(
+        "--analysis-only",
+        action="store_true",
+        help="Skip the run phase; analyse existing board JSON",
+    )
     args = ap.parse_args()
 
     global VERBOSE
@@ -721,7 +815,9 @@ def main() -> None:
 
     check_lms_running()
 
-    _log(f"mu sit  run={RUN_MODEL}(ctx={RUN_CTX})  analysis={ANALYSIS_MODEL}(ctx={ANALYSIS_CTX})")
+    _log(
+        f"mu sit  run={RUN_MODEL}(ctx={RUN_CTX})  analysis={ANALYSIS_MODEL}(ctx={ANALYSIS_CTX})"
+    )
     _log(f"mu root: {MU_ROOT}")
 
     if args.run_only:
@@ -741,7 +837,7 @@ def main() -> None:
     cycle = 0
     while True:
         cycle += 1
-        _log(f"\n{'='*60}")
+        _log(f"\n{'=' * 60}")
         _log(f"CYCLE {cycle}")
 
         # ── 1. Run ───────────────────────────────────────────────────────

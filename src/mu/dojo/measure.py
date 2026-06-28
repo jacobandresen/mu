@@ -238,6 +238,37 @@ def _write_archive_readme(archive_dir: Path, n: int, table=None) -> None:
     )
 
 
+def _write_run_readme(dest: Path, pid: str, run_num: int,
+                      solved: bool, s) -> None:
+    """Write a per-run README.md inside the archived problem directory."""
+    status = "SOLVED" if solved else "NOT SOLVED"
+    lines = [
+        f"# {pid} — run {run_num}",
+        "",
+        f"**Result:** {status}",
+        "",
+    ]
+    if not solved:
+        # Try to extract a useful error from tests-final.log first, then agent.log.
+        error_text = ""
+        for log_name in ("tests-final.log", "agent.log"):
+            log_path = dest / ".mu" / log_name
+            if log_path.exists():
+                text = log_path.read_text(errors="replace").strip()
+                if text:
+                    error_text = text
+                    break
+        if error_text:
+            # Keep last 4000 chars so the README stays readable.
+            if len(error_text) > 4000:
+                error_text = "…(truncated)\n" + error_text[-4000:]
+            lines += ["## Error", "", "```", error_text, "```", ""]
+        elif s is not None:
+            outcome = getattr(s, "outcome", "unknown")
+            lines += [f"**Outcome:** {outcome}", ""]
+    (dest / "README.md").write_text("\n".join(lines), encoding="utf-8")
+
+
 # --- the whole-set board (plan Step 0.2 / §A.4): per-layer q̂ over all problems ---
 
 # p10's four independent verification gates (a staged full-stack problem). Most
@@ -332,6 +363,7 @@ def board(emit_json: str = '', runs: int | None = None) -> int:
                 dest = archive_root / pid / str(i)
                 dest.mkdir(parents=True, exist_ok=True)
                 shutil.copytree(work, dest, dirs_exist_ok=True)
+                _write_run_readme(dest, pid, i, bool(s and s.outcome == 'success'), s)
                 if save_root:
                     save_dest = Path(save_root) / pid / str(i)
                     _rmwork(save_dest)
