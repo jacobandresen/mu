@@ -83,17 +83,7 @@
       "minimize": "L0"
     },
     {
-      "id": "p10-dotnet-vue-blog",
-      "goal": "write a blog application with an ASP.NET Core minimal API backend and a Vue 3 TypeScript frontend. Backend: use EF Core with SQLite, define a Post model with Id, Title, and Content, seed one example post titled 'Hello World' on startup, expose GET /api/posts returning JSON. Include an xUnit test project using WebApplicationFactory that calls GET /api/posts and asserts the 'Hello World' post is present. Frontend: Vue 3 TypeScript app built with Vite that fetches and displays posts, with a Vitest test that mocks fetch and asserts the post is rendered. Provide a Makefile with an install target (npm install in frontend/) and a test target that runs dotnet test and npx vitest run.",
-      "toolchains": [
-        "dotnet",
-        "node"
-      ],
-      "difficulty": "hard",
-      "minimize": "L0"
-    },
-    {
-      "id": "p11-foucault-sdl2",
+      "id": "p10-foucault-sdl2",
       "goal": "build a Foucault pendulum demo in C using SDL2. Open an SDL2 window and animate a Foucault pendulum: a bob swinging from a pivot whose plane of oscillation slowly precesses over time, redrawing the scene each frame. Run for a fixed number of frames (e.g. 600) and then exit cleanly returning 0, so the program terminates on its own without user input. Use sdl2-config in the Makefile to set the SDL2 compiler and linker flags.",
       "toolchains": [
         "clang",
@@ -103,7 +93,7 @@
       "minimize": "L0"
     },
     {
-      "id": "p12-physics-sdl2",
+      "id": "p11-physics-sdl2",
       "goal": "build a 2D physics demo in C using SDL2 illustrating gravity and collision detection. Spawn several falling items of different shapes - balls and boxes - that rotate as they fall. Each frame, apply gravity, advance positions and rotation, and detect collisions between items and with the ground and walls. On each collision, compute a new velocity direction and spin for the items involved, reducing their speed and spin a little each time (damping) so energy decreases over time. Animate every frame in an SDL2 window. The simulation ends when all items have come to rest lying still on the ground, at which point the program exits cleanly returning 0 (damping guarantees it settles, so it terminates without user input). Use sdl2-config in the Makefile to set the SDL2 compiler and linker flags.",
       "toolchains": [
         "clang",
@@ -113,7 +103,7 @@
       "minimize": "L0"
     },
     {
-      "id": "p13-dotnet-minimalapi",
+      "id": "p12-dotnet-minimalapi",
       "goal": "write an ASP.NET Core minimal API in C# that exposes GET /api/posts returning a JSON array containing one post with Id 1 and Title 'Hello World'. Include an xUnit test project using WebApplicationFactory that calls GET /api/posts and asserts the 'Hello World' post is present; end Program.cs with `public partial class Program { }` so the test can reference the host. Use the dotnet command to build and test.",
       "toolchains": [
         "dotnet"
@@ -122,7 +112,7 @@
       "minimize": "L0"
     },
     {
-      "id": "p14-dotnet-ef-api",
+      "id": "p13-dotnet-ef-api",
       "goal": "write an ASP.NET Core minimal API in C# using EF Core with SQLite. Define a Post model with Id, Title, and Content, seed one example post titled 'Hello World' on startup, and expose GET /api/posts returning the posts as JSON. Include an xUnit test project using WebApplicationFactory that calls GET /api/posts and asserts the 'Hello World' post is present. Use the dotnet command to build and test.",
       "toolchains": [
         "dotnet"
@@ -131,8 +121,18 @@
       "minimize": "L0"
     },
     {
-      "id": "p15-fullstack-js-blog",
+      "id": "p14-fullstack-js-blog",
       "goal": "build a full-stack blog application. Backend: an ASP.NET Core minimal API in C# using EF Core with SQLite, a Post model with Id, Title, and Content, seed one example post titled 'Hello World' on startup, exposing GET /api/posts returning JSON, with an xUnit test project using WebApplicationFactory that asserts the 'Hello World' post is present. Frontend: a plain JavaScript module in frontend/ that fetches /api/posts and renders the post titles into an HTML list, with a Node test (node --test) that mocks fetch and asserts the 'Hello World' title is rendered. Provide a Makefile with a test target that runs both dotnet test and node --test.",
+      "toolchains": [
+        "dotnet",
+        "node"
+      ],
+      "difficulty": "hard",
+      "minimize": "L0"
+    },
+    {
+      "id": "p15-dotnet-vue-blog",
+      "goal": "write a blog application with an ASP.NET Core minimal API backend and a Vue 3 TypeScript frontend. Backend: use EF Core with SQLite, define a Post model with Id, Title, and Content, seed one example post titled 'Hello World' on startup, expose GET /api/posts returning JSON. Include an xUnit test project using WebApplicationFactory that calls GET /api/posts and asserts the 'Hello World' post is present. Frontend: Vue 3 TypeScript app built with Vite that fetches and displays posts, with a Vitest test that mocks fetch and asserts the post is rendered. Provide a Makefile with an install target (npm install in frontend/) and a test target that runs dotnet test and npx vitest run.",
       "toolchains": [
         "dotnet",
         "node"

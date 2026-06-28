@@ -7,10 +7,11 @@ Two modes alternate continuously:
                 `mu dojo board -n 5 --emit-json`, record structured results.
 
   analysis mode Load qwen2.5-coder-14b (CPU swap allowed), read AGENTS.md +
-                README.md + board results, propose one targeted improvement for
-                the *smallest* failing problems, apply it, run pytest,
-                re-run a targeted dojo board to verify net gain, roll back if
-                net-negative.
+                README.md + board results, pick the failing problem whose
+                bottleneck layer offers the best expected ΔE[#solved] (the best
+                *minimal* win), apply one fix, run pytest, re-run only that
+                problem to verify net gain (partial-credit ∏ q̂), roll back on
+                any regression.
 
 On startup the script checks whether `lms server` is running; if not it prints
 the start command and exits rather than proceeding blindly.
@@ -265,16 +266,16 @@ def lms_chat(
 BOARD_JSON = MU_ROOT / ".mu" / "sit_board.json"
 
 
-def run_mode(cycle: int = 0) -> dict:
-    """Load 7b, run full dojo board (n=3), return board JSON dict.
+def run_mode(cycle: int = 0) -> tuple[dict, bool]:
+    """Load 7b, run full dojo board (n=3), return (board, stop_early).
 
-    Stops early (kills the board subprocess) if any problem solves ≤1/3 —
-    that problem is already a clear target for analysis mode.
+    stop_early=True means a problem solved ≤1/3 — go straight to analysis
+    regardless of board content.
     """
     _log("=== RUN MODE ===")
     if not _load_model(RUN_MODEL):
         _log("  Could not load run model — skipping run phase.")
-        return {}
+        return {}, False
 
     dojo_runs_dir = MU_ROOT / "dojo"
     if dojo_runs_dir.exists():
@@ -337,7 +338,7 @@ def run_mode(cycle: int = 0) -> dict:
                 _log("  dojo board exited non-zero")
     except Exception as exc:
         _log(f"  dojo board error: {exc}")
-        return {}
+        return {}, False
 
     if stop_early:
         _log("  board run stopped early — partial board loaded for analysis.")
@@ -351,28 +352,30 @@ def run_mode(cycle: int = 0) -> dict:
                 _vlog(
                     f"  {pid}: p_solve={_p_solve(data):.3f}  lang={data.get('lang', '?')}  first_error={str(data.get('first_error', ''))[:120]}"
                 )
-            return board
+            return board, stop_early
         except Exception as e:
             _log(f"  could not parse board JSON: {e}")
-    return {}
+    return {}, stop_early
 
 
 def _failing_problems(board: dict) -> list[tuple[str, float]]:
-    """Return (problem_id, p_solve) pairs for failing problems,
-    sorted easiest-first (highest p_solve among failures)."""
-    failing = []
-    for pid, data in board.items():
-        p = _p_solve(data)
-        if p < 1.0:
-            failing.append((pid, p))
-    # easiest first: highest p_solve (most tractable) at the top
-    return sorted(failing, key=lambda x: -x[1])
+    """``(problem_id, p_solve)`` for failing problems, ranked best-minimal-win first.
+
+    *Failing* is decided on the raw pass-product (``_raw_solve < 1``) so a smoothed-but-
+    solved 3/3 problem isn't mistaken for a target. The order is by *expected* ΔE[#solved]
+    of the single best (bottleneck) fix, not by current p_solve — so analysis is aimed at
+    the problem one focused fix away from the largest gain (see ``_expected_gain``)."""
+    failing = [(pid, _p_solve(data)) for pid, data in board.items()
+               if _raw_solve(data) < 1.0]
+    return sorted(failing, key=lambda x: -_expected_gain(board[x[0]])[0])
 
 
-def _difficulty(p_solve: float) -> str:
-    if p_solve > 0.5:
+def _gain_band(gain: float) -> str:
+    """Difficulty label from the best-fix *gain*, matching the bands STEP 1 of the
+    analysis prompt tells the model to use (so the shown label can't contradict them)."""
+    if gain > 0.4:
         return "easy"
-    if p_solve > 0.1:
+    if gain > 0.1:
         return "medium"
     return "hard"
 
@@ -384,17 +387,79 @@ def _unwrap_board(raw: dict) -> dict:
     return raw
 
 
+def _layer_qs(data: dict) -> dict[str, float]:
+    """``{layer: q̂}`` for a board layer-dict entry; ``{}`` for flat run-result shapes.
+
+    Board entries are ``{layer: {clears, n, q, ci}}`` — a single-layer problem has one
+    entry (often named "solved"), a multi-layer one (e.g. p10) has four."""
+    return {l: v["q"] for l, v in data.items()
+            if isinstance(v, dict) and "q" in v}
+
+
 def _p_solve(data: dict) -> float:
-    """Extract solve probability from any board-entry shape."""
+    """Solve-probability for a board entry, on one scale across both shapes.
+
+    Two shapes flow through the loop:
+      • board layer-dict  ``{layer: {clears, n, q, ci}}`` → ``∏ q̂``  (capability.p_solve)
+      • single-problem ``mu dojo run`` result (flat)       → its ``p_solve`` / ``pass_rate``
+
+    The product form is what makes partial progress visible: lifting any *one* layer of
+    a multi-layer problem (e.g. p10's backend_build 0.2→0.5) moves ``∏ q̂``, so the
+    accept-gate can see a real gain at small n instead of waiting for a full solve. The
+    old code returned 0.0 for every multi-layer problem (no ``solved`` key), blinding
+    the loop to exactly the hard problems it targets."""
     if "p_solve" in data:
         return data["p_solve"]
     if "pass_rate" in data:
         return data["pass_rate"]
-    # format: {"solved": {"q": 0.67, ...}}
-    solved = data.get("solved")
-    if isinstance(solved, dict):
-        return solved.get("q", 0.0)
+    qs = _layer_qs(data)
+    if qs:
+        prod = 1.0
+        for q in qs.values():
+            prod *= q
+        return prod
     return 0.0
+
+
+def _raw_solve(data: dict) -> float:
+    """Raw ``∏(clears/n)`` over layers — ``1.0`` only when every layer cleared every run.
+
+    Used to decide *failing* vs *solved*: the smoothed q̂ tops out below 1 at small n
+    (a clean 3/3 yields q̂≈0.8), so a ``p_solve < 1`` test would flag even a fully solved
+    problem and waste a cycle on it."""
+    rates = [v["clears"] / v["n"] for v in data.values()
+             if isinstance(v, dict) and v.get("n")]
+    if not rates:  # flat run-result
+        if "pass_rate" in data:
+            return data["pass_rate"]
+        if "p_solve" in data:
+            return data["p_solve"]
+        return 0.0
+    prod = 1.0
+    for r in rates:
+        prod *= r
+    return prod
+
+
+def _expected_gain(data: dict) -> tuple[float, str | None]:
+    """``(marginal upside, bottleneck layer)`` for a board entry — the targeting signal.
+
+    Upside ≈ ``(1 - q̂_min) · ∏ q̂_siblings`` (capability.expected_solve_gain): the
+    headroom on the weakest layer scaled by how healthy its siblings are. This is what
+    ranking by raw p_solve misses — a problem with one weak layer among healthy ones
+    (``[0.9, 0.1]``) ranks ABOVE a uniformly-mediocre one (``[0.5, 0.5]``) despite lower
+    p_solve, because it is a single minimal fix from a large ΔE[#solved]. It also encodes
+    the sibling-veto: if any sibling ≈ 0 the product collapses the score, so we don't burn
+    a cycle fixing one layer of an all-failing problem."""
+    qs = _layer_qs(data)
+    if not qs:
+        return 0.0, None
+    bn = min(qs, key=qs.get)
+    siblings = 1.0
+    for l, q in qs.items():
+        if l != bn:
+            siblings *= q
+    return (1.0 - qs[bn]) * siblings, bn
 
 
 def _e_solved(board: dict) -> float:
@@ -437,17 +502,25 @@ ANALYSIS_SYSTEM = textwrap.dedent("""\
     You improve mu, a local-LLM agent harness. Your job each cycle: pick ONE
     failing problem, identify ONE specific fix, write it to ONE file.
 
-    ── STEP 1: PICK A PROBLEM ───────────────────────────────────────────────────
-    Look at the failing problems list (easiest first = highest p_solve first).
-    Pick the problem with the highest p_solve that is NOT in the discarded list.
+    ── STEP 1: PICK A PROBLEM AND ITS BOTTLENECK LAYER ──────────────────────────
+    The failing list is already ranked best-minimal-win first: by "best-fix gain" =
+    the expected ΔE[#solved] of fixing that problem's weakest layer. Pick the FIRST
+    problem not in the discarded list. Higher gain = one focused fix buys more.
 
-    p_solve meaning:
-      p_solve > 0.5  → EASY:   the model gets it sometimes; one rule nudges it over
-      0.1–0.5        → MEDIUM: the model fails in one main pattern; fix that pattern
-      ≤ 0.1          → HARD:   the model always fails; find the first hard wall only
+    For a multi-layer problem the line shows each layer's q̂ with the bottleneck marked
+    ▶. Aim your fix at that ▶ layer — it is the weakest link in the chain, and lifting
+    it is the single change that moves p_solve most. Do NOT touch a layer already near 1.
 
-    DO NOT classify a problem as hard just because you have no board history.
-    A problem with p_solve = 0.67 is EASY, period.
+    best-fix gain meaning:
+      gain > 0.4   → EASY:   one rule nudges the weak layer over the line
+      0.1–0.4      → MEDIUM: the layer fails in one main pattern; fix that pattern
+      ≤ 0.1        → HARD:   either the layer is a hard wall, or several siblings are
+                             also weak (so any single fix buys little) — pick only the
+                             first hard wall, and prefer problems above this band.
+
+    A low gain on a multi-layer problem usually means MULTIPLE weak layers (e.g. p10
+    with all four ≈0.2): no single minimal fix helps much, so it ranks last — skip it
+    in favour of a higher-gain problem unless nothing else remains.
 
     ── STEP 2: IDENTIFY THE FIX ─────────────────────────────────────────────────
     Choose the fix type (in order of preference):
@@ -478,7 +551,8 @@ ANALYSIS_SYSTEM = textwrap.dedent("""\
     ✗ "file": null                        ← file is required
     ✗ "file": ""                          ← file is required
     ✗ "content": "... (same as before)"  ← content must be the full file
-    ✗ classifying p_solve=0.67 as hard   ← that is easy, not hard
+    ✗ picking a lower-gain problem first ← the list is pre-ranked; take the top one
+    ✗ fixing a layer already at q̂≈0.9    ← fix the ▶ bottleneck, not a healthy layer
     ✗ prose outside the JSON braces      ← JSON only, nothing else
 """)
 
@@ -498,11 +572,26 @@ def _discarded_summary(max_recent: int = 15) -> str:
     return "\n".join(lines)
 
 
+def _failing_line(pid: str, p: float, data: dict) -> str:
+    """One prompt line per failing problem: p_solve, the expected gain of its best fix,
+    and — for multi-layer problems — the per-layer q̂ with the bottleneck flagged, so the
+    model attacks the layer that actually moves the needle."""
+    gain, bn = _expected_gain(data)
+    qs = _layer_qs(data)
+    head = f"  {pid}: p_solve={p:.3f} [{_gain_band(gain)}]  best-fix gain={gain:.3f}"
+    if len(qs) > 1:
+        layers = " ".join(
+            f"{'▶' if l == bn else ''}{l}={q:.2f}" for l, q in qs.items()
+        )
+        return f"{head}  bottleneck={bn}  layers[ {layers} ]"
+    return head
+
+
 def build_analysis_messages(board: dict, repair_ctx: str = "") -> list[dict]:
     failing = _failing_problems(board)
     if failing:
         failing_summary = "\n".join(
-            f"  {pid}: p_solve={p:.2f}  [{_difficulty(p)}]" for pid, p in failing[:12]
+            _failing_line(pid, p, board[pid]) for pid, p in failing[:12]
         )
     else:
         failing_summary = "  (none — all problems passing!)"
@@ -521,7 +610,7 @@ def build_analysis_messages(board: dict, repair_ctx: str = "") -> list[dict]:
             archive_readme_content = _read(latest_readme, 2000)
 
     parts = [
-        f"=== Failing problems (easiest first) ===\n{failing_summary}",
+        f"=== Failing problems (best minimal win first) ===\n{failing_summary}",
         f"=== Previously tried and discarded (DO NOT repeat these) ===\n{_discarded_summary()}",
         f"=== AGENTS.md ===\n{_read(MU_ROOT / 'AGENTS.md', 5000)}",
         f"=== README.md ===\n{_read(MU_ROOT / 'README.md', 3000)}",
@@ -556,50 +645,58 @@ def run_tests() -> tuple[bool, str]:
 
 
 def verify_board_gain(
-    model_id: str, target_pids: list[str], baseline_e: float
+    model_id: str, target_pids: list[str], baseline_e: float, board: dict
 ) -> tuple[bool, float]:
-    """Re-run dojo board for the targeted problems, return (net_positive, new_e).
-    Falls back to accepting the change if the board can't run."""
+    """Re-run only the targeted problems (n=3), return (net_positive, new_e).
+    Falls back to accepting the change if runs can't complete."""
     if not target_pids:
         return True, baseline_e
 
-    tmp = MU_ROOT / ".mu" / "sit_verify.json"
-    env = {**os.environ, "MU_AGENT_MODEL": model_id}
-    try:
-        r = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "mu",
-                "dojo",
-                "board",
-                "-n",
-                "5",
-                "--emit-json",
-                str(tmp),
-            ],
-            cwd=MU_ROOT,
-            env=env,
-            timeout=3600,
-        )
-    except subprocess.TimeoutExpired:
-        _log("  verify board timed out — accepting change")
+    env = {**os.environ, "MU_AGENT_MODEL": model_id, "N": "3"}
+    updated_board = dict(board)
+
+    # Only problems present in the *baseline* board have a before-value to compare against.
+    # An early-stopped run produces a partial board, and the model can name a target that
+    # isn't in it; crediting such a target would just *add* its p_solve to new_e and fake a
+    # positive delta — a false accept. Gate strictly on the measurable ones.
+    measurable = [pid for pid in target_pids if pid in board]
+    if not measurable:
+        _log(f"  no targeted problem in baseline board ({target_pids}) — accepting on pytest")
         return True, baseline_e
 
-    if not tmp.exists():
-        _log("  verify board produced no JSON — accepting change")
-        return True, baseline_e
+    delta = 0.0
+    for pid in measurable:
+        tmp = MU_ROOT / ".mu" / f"sit_verify_{pid}.json"
+        _log(f"  verifying {pid} (n=3) …")
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "mu", "dojo", "run", pid, "--emit-json", str(tmp)],
+                cwd=MU_ROOT,
+                env=env,
+                timeout=900,
+            )
+        except subprocess.TimeoutExpired:
+            _log(f"  verify {pid} timed out — accepting change")
+            return True, baseline_e
 
-    try:
-        new_board = _unwrap_board(json.loads(tmp.read_text()))
-        new_e = _e_solved(new_board)
-        _log(f"  E[#solved]: {baseline_e:.3f} → {new_e:.3f}")
-        # Update the main board file with fresh data
-        tmp.rename(BOARD_JSON)
-        return new_e >= baseline_e - 0.05, new_e
-    except Exception as e:
-        _log(f"  verify board parse error: {e}")
-        return True, baseline_e
+        if tmp.exists():
+            try:
+                res = json.loads(tmp.read_text())
+                # Splice the layer-dict (always emitted now), not the flat result, so the
+                # board stays homogeneous and on the same smoothed scale as the baseline.
+                updated_board[pid] = res.get("layers", res)
+                delta += _p_solve(updated_board[pid]) - _p_solve(board[pid])
+            except Exception as e:
+                _log(f"  verify {pid} parse error: {e}")
+
+    new_e = baseline_e + delta
+    _log(f"  E[#solved]: {baseline_e:.3f} → {new_e:.3f}  (Δ {delta:+.3f} over {measurable})")
+    BOARD_JSON.write_text(json.dumps(updated_board, indent=2))
+    # Now that the metric is trustworthy and on a consistent smoothed scale, require no
+    # regression (the old -0.05 slack silently kept changes that worsened the target).
+    # Partial credit (∏ q̂) makes even a single-layer lift register, so a real improvement
+    # clears this bar; we stop short of strict-positive to avoid n=3 noise stalling the loop.
+    return delta >= 0.0, new_e
 
 
 def analysis_mode(board: dict, cycle: int = 0) -> bool:
@@ -732,7 +829,7 @@ def analysis_mode(board: dict, cycle: int = 0) -> bool:
         )
         return True
 
-    net_pos, new_e = verify_board_gain(RUN_MODEL, target_pids, baseline_e)
+    net_pos, new_e = verify_board_gain(RUN_MODEL, target_pids, baseline_e, board)
     if not net_pos:
         _log(
             f"  board regression (E[#solved] {baseline_e:.3f} → {new_e:.3f}) — rolling back"
@@ -830,7 +927,7 @@ def main() -> None:
             _log(f"Loaded existing board ({len(board)} problems)")
         else:
             _log("No existing board JSON — running dojo first")
-            board = run_mode(cycle=0)
+            board, _ = run_mode(cycle=0)
         analysis_mode(board, cycle=0)
         return
 
@@ -841,8 +938,8 @@ def main() -> None:
         _log(f"CYCLE {cycle}")
 
         # ── 1. Run ───────────────────────────────────────────────────────
-        board = run_mode(cycle=cycle)
-        if not board:
+        board, stop_early = run_mode(cycle=cycle)
+        if not board and not stop_early:
             _log("Empty board — waiting 60s before retry")
             time.sleep(60)
             continue
@@ -861,9 +958,8 @@ def main() -> None:
             _log(f"Reached --rounds {args.rounds} — stopping.")
             break
 
-        # ── 3. Rest 5 minutes ────────────────────────────────────────────
-        _log("Resting 5 minutes before next cycle …")
-        time.sleep(300)
+        # short pause to let model server settle before next cycle
+        time.sleep(5)
 
 
 if __name__ == "__main__":

@@ -145,15 +145,18 @@ def run(problem_id: str, emit_json: str = '') -> int:
             'stochasticity': stoch,
             'ts': datetime.datetime.now().isoformat(timespec='seconds'),
         }
-        if len(layers) > 1:
-            stats = {l: capability.LayerStat(clears=layer_clears[l], n=n) for l in layers}
-            result['layers'] = {
-                l: {'clears': layer_clears[l], 'n': n,
-                    'q': round(stats[l].q, 4), 'ci': [round(c, 4) for c in stats[l].ci]}
-                for l in layers
-            }
-            result['p_solve'] = round(capability.p_solve(stats), 4)
-            result['bottleneck'] = capability.bottleneck(stats)
+        # Always emit smoothed layers + p_solve (even for single-layer problems) so a
+        # consumer comparing this against a board entry uses the *same* Beta-Binomial
+        # scale on both sides — a raw pass_rate vs a smoothed q̂ would manufacture phantom
+        # deltas (a no-op 3/3 re-measure reads 1.0 against a baseline q̂≈0.8).
+        stats = {l: capability.LayerStat(clears=layer_clears[l], n=n) for l in layers}
+        result['layers'] = {
+            l: {'clears': layer_clears[l], 'n': n,
+                'q': round(stats[l].q, 4), 'ci': [round(c, 4) for c in stats[l].ci]}
+            for l in layers
+        }
+        result['p_solve'] = round(capability.p_solve(stats), 4)
+        result['bottleneck'] = capability.bottleneck(stats)
         Path(emit_json).write_text(_json.dumps(result, indent=2))
         print(f"Result written to {emit_json}")
 
@@ -373,14 +376,16 @@ def board(emit_json: str = '', runs: int | None = None) -> int:
         table[pid] = {l: capability.LayerStat(clears=clears[l], n=n) for l in layers}
         causes[pid] = dict(sorted(cause_counts.items(), key=lambda kv: -kv[1]))
         observed_solved += solved / n if n else 0.0
-        print(f"  {pid:<26} solved {solved}/{n} · "
-              f"layers " + ', '.join(f"{l}={clears[l]}/{n}" for l in layers))
-        # Checkpoint partial board to disk after each problem so a crash/kill
-        # never loses hours of completed runs (the loop reads this incrementally).
+        # Checkpoint the partial board to disk *before* printing the per-problem summary.
+        # The sit.py loop matches that printed "solved X/3" line and immediately kills this
+        # process on an early-stop trigger, so the triggering problem must already be
+        # persisted — otherwise analysis never sees the very problem that stopped the run.
         if emit_json:
             Path(emit_json).write_text(
                 _json.dumps(_board_payload(n, table, causes, observed_solved,
                                            partial=True), indent=2))
+        print(f"  {pid:<26} solved {solved}/{n} · "
+              f"layers " + ', '.join(f"{l}={clears[l]}/{n}" for l in layers))
 
     _print_board(table, observed_solved)
     _write_archive_readme(archive_root, n, table)

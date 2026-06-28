@@ -25,9 +25,9 @@ _Last round: 2026-06-25T06:01:51+02:00 · model: qwen2.5-coder-7b-instruct_
 | [p7-flask](p7-flask.md) | ❌ | STALLED |
 | [p8-node-todo](p8-node-todo.md) | ❌ | STALLED |
 | [p9-vue-todo](p9-vue-todo.md) | ✅ | PASS |
-| [p10-dotnet-vue-blog](p10-dotnet-vue-blog.md) | ❌ | STALLED |
-| [p11-foucault-sdl2](p11-foucault-sdl2.md) | ❌ | STALLED |
-| [p12-physics-sdl2](p12-physics-sdl2.md) | ❌ | STALLED |
+| [p10-foucault-sdl2](p10-foucault-sdl2.md) | ❌ | STALLED |
+| [p11-physics-sdl2](p11-physics-sdl2.md) | ❌ | STALLED |
+| [p15-dotnet-vue-blog](p15-dotnet-vue-blog.md) | ❌ | STALLED |
 <!-- DOJO-RESULTS:END -->
 
 Recurring failure classes are catalogued in [../challenges/](../challenges/) (overview in
