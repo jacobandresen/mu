@@ -8,7 +8,7 @@ Two modes alternate continuously:
 
   analysis mode Load qwen2.5-coder-14b (CPU swap allowed), read AGENTS.md +
                 README.md + board results, propose one targeted improvement for
-                the *smallest* failing non-.NET problems, apply it, run pytest,
+                the *smallest* failing problems, apply it, run pytest,
                 re-run a targeted dojo board to verify net gain, roll back if
                 net-negative.
 
@@ -49,9 +49,6 @@ RUN_CTX        = int(os.environ.get("MU_SIT_RUN_CTX",      "4096"))
 ANALYSIS_CTX   = int(os.environ.get("MU_SIT_ANALYSIS_CTX", "32768"))
 LMS_HOST       = os.environ.get("MU_LMSTUDIO_HOST",      "http://localhost:1234")
 VERBOSE        = os.environ.get("MU_SIT_VERBOSE", "").strip() not in ("", "0", "false")
-
-# Problems known to be .NET / model-ceiling: steer analysis away from them.
-_DOTNET_PROBLEMS = {"p10", "p13", "p14"}
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -291,12 +288,10 @@ def run_mode(cycle: int = 0) -> dict:
 
 
 def _failing_problems(board: dict) -> list[tuple[str, float]]:
-    """Return (problem_id, p_solve) pairs for failing non-.NET problems,
+    """Return (problem_id, p_solve) pairs for failing problems,
     sorted easiest-first (highest p_solve among failures)."""
     failing = []
     for pid, data in board.items():
-        if pid in _DOTNET_PROBLEMS:
-            continue
         p = _p_solve(data)
         if p < 1.0:
             failing.append((pid, p))
@@ -440,10 +435,10 @@ def build_analysis_messages(board: dict, repair_ctx: str = "") -> list[dict]:
             for pid, p in failing[:12]
         )
     else:
-        failing_summary = "  (none — all non-.NET problems passing!)"
+        failing_summary = "  (none — all problems passing!)"
 
     parts = [
-        f"=== Failing problems (easiest first, .NET excluded) ===\n{failing_summary}",
+        f"=== Failing problems (easiest first) ===\n{failing_summary}",
         f"=== Previously tried and discarded (DO NOT repeat these) ===\n{_discarded_summary()}",
         f"=== AGENTS.md ===\n{_read(MU_ROOT/'AGENTS.md', 5000)}",
         f"=== README.md ===\n{_read(MU_ROOT/'README.md', 3000)}",
@@ -704,7 +699,7 @@ def main() -> None:
 
         failing = _failing_problems(board)
         if not failing:
-            _log("All non-.NET problems passing — goal achieved!")
+            _log("All problems passing — goal achieved!")
             break
 
         _log(f"Failing problems: {[(p, f'{v:.2f}') for p, v in failing]}")

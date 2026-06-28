@@ -47,9 +47,11 @@ static inline void draw_scene(SDL_Renderer *ren, int w, int h) {
 }
 ```
 
-## main.c — interactive window
+## main.c — offscreen render (no window)
 
 **Use `#include <SDL.h>`** with sdl2-config — it already sets `-I/.../include/SDL2`. Do not use `<SDL2/SDL.h>`.
+
+Render into a CPU surface with `SDL_CreateSoftwareRenderer` — no window, no display driver, no popup.
 
 ```c
 #include <SDL.h>
@@ -60,28 +62,18 @@ static inline void draw_scene(SDL_Renderer *ren, int w, int h) {
 #define H 480
 
 int main(int argc, char *argv[]) {
-    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
-        fprintf(stderr, "SDL_Init error: %s\n", SDL_GetError());
-        return 1;
-    }
+    SDL_Init(0);
 
-    SDL_Window *win = SDL_CreateWindow("Title",
-        SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-        W, H, SDL_WINDOW_SHOWN);
-    if (!win) { SDL_Quit(); return 1; }
+    SDL_Surface *surf = SDL_CreateRGBSurfaceWithFormat(0, W, H, 32, SDL_PIXELFORMAT_ARGB8888);
+    if (!surf) { fprintf(stderr, "surface: %s\n", SDL_GetError()); return 1; }
 
-    SDL_Renderer *ren = SDL_CreateRenderer(win, -1, 0);
-    if (!ren) { SDL_DestroyWindow(win); SDL_Quit(); return 1; }
+    SDL_Renderer *ren = SDL_CreateSoftwareRenderer(surf);
+    if (!ren) { SDL_FreeSurface(surf); SDL_Quit(); return 1; }
 
     draw_scene(ren, W, H);
 
-    /* keep window open; auto-exit after 3 s of inactivity */
-    SDL_Event e;
-    while (SDL_WaitEventTimeout(&e, 3000))
-        if (e.type == SDL_QUIT || e.type == SDL_KEYDOWN) break;
-
     SDL_DestroyRenderer(ren);
-    SDL_DestroyWindow(win);
+    SDL_FreeSurface(surf);
     SDL_Quit();
     return 0;
 }
@@ -162,7 +154,7 @@ int main(void) {
 make && ./test_render
 ```
 
-No headless driver, no Python, no BMP files. The real window opens when you run `./sdl2_line`.
+No headless driver, no Python, no BMP files. Both `./sdl2_line` and `./test_render` render offscreen — no window ever appears.
 
 ## Common errors and fixes
 
