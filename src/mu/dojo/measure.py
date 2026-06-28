@@ -160,6 +160,84 @@ def run(problem_id: str, emit_json: str = '') -> int:
     return 0
 
 
+def _next_archive_dir(archive: Path) -> Path:
+    """Return archive/<NNN> where NNN is one higher than any existing numeric entry."""
+    existing = [int(p.name) for p in archive.iterdir() if p.is_dir() and p.name.isdigit()] \
+        if archive.exists() else []
+    next_id = max(existing, default=0) + 1
+    return archive / f"{next_id:03d}"
+
+
+def _write_archive_readme(archive_dir: Path, n: int, table=None) -> None:
+    import datetime
+    import json as _json
+    ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        git_hash = subprocess.check_output(
+            ['git', 'rev-parse', 'HEAD'], stderr=subprocess.DEVNULL,
+        ).decode().strip()
+    except Exception:
+        git_hash = 'unknown'
+
+    # Collect applied improvements from the sit attempt log written since the
+    # previous archive run, so analysis mode can see what was already tried.
+    improvements = ''
+    log_file = Path('.mu') / 'sit_history' / 'attempts.jsonl'
+    if log_file.exists():
+        prev_num = int(archive_dir.name) - 1
+        prev_ts = ''
+        if prev_num > 0:
+            prev_readme = archive_dir.parent / f"{prev_num:03d}" / 'README.md'
+            if prev_readme.exists():
+                import re as _re
+                m = _re.search(r'\*\*date\*\*: (.+)', prev_readme.read_text())
+                if m:
+                    prev_ts = m.group(1).strip()
+        lines = []
+        for raw in log_file.read_text().splitlines():
+            try:
+                r = _json.loads(raw)
+            except Exception:
+                continue
+            if r.get('outcome') != 'applied':
+                continue
+            if prev_ts and r.get('ts', '') <= prev_ts:
+                continue
+            lines.append(
+                f"- `{r['file']}` — {r['rationale']}"
+                + (f" (targets: {', '.join(r['target_problems'])})" if r.get('target_problems') else '')
+            )
+        if lines:
+            improvements = '\n## Implemented improvements\n\n' + '\n'.join(lines) + '\n'
+
+    results = ''
+    if table:
+        from .. import capability as _cap
+        rows = []
+        for pid, layers in table.items():
+            p_solve = round(_cap.p_solve(layers), 4)
+            fix_rate = f"{p_solve:.0%}"
+            layer_detail = ', '.join(
+                f"{l}={st.clears}/{st.n}" for l, st in layers.items()
+                if l != 'solved'
+            )
+            row = f"| {pid} | {fix_rate} |"
+            if layer_detail:
+                row += f" {layer_detail} |"
+            rows.append(row)
+        header = '| problem | fix rate |\n|---------|----------|\n'
+        results = '\n## Results\n\n' + header + '\n'.join(rows) + '\n'
+
+    (archive_dir / 'README.md').write_text(
+        f"# Board run {archive_dir.name}\n\n"
+        f"- **date**: {ts}\n"
+        f"- **git**: `{git_hash}`\n"
+        f"- **runs per problem**: {n}\n"
+        + results
+        + improvements
+    )
+
+
 # --- the whole-set board (plan Step 0.2 / §A.4): per-layer q̂ over all problems ---
 
 # p10's four independent verification gates (a staged full-stack problem). Most
@@ -220,6 +298,11 @@ def board(emit_json: str = '', runs: int | None = None) -> int:
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     print(f"Board: measuring {len(problems)} problems over {n} run(s) each…\n")
 
+    archive_root = _next_archive_dir(Path('archive'))
+    archive_root.mkdir(parents=True, exist_ok=True)
+    _write_archive_readme(archive_root, n)
+    print(f"Archiving runs to {archive_root}/\n")
+
     table: capability.Board = {}
     causes: dict[str, dict[str, int]] = {}
     observed_solved = 0.0
@@ -246,10 +329,13 @@ def board(emit_json: str = '', runs: int | None = None) -> int:
                 for l in layers:
                     if lc.get(l):
                         clears[l] += 1
+                dest = archive_root / pid / str(i)
+                dest.mkdir(parents=True, exist_ok=True)
+                shutil.copytree(work, dest, dirs_exist_ok=True)
                 if save_root:
-                    dest = Path(save_root) / pid / str(i)
-                    _rmwork(dest)
-                    shutil.copytree(work, dest, dirs_exist_ok=True)
+                    save_dest = Path(save_root) / pid / str(i)
+                    _rmwork(save_dest)
+                    shutil.copytree(work, save_dest, dirs_exist_ok=True)
         finally:
             _rmwork(work)
         table[pid] = {l: capability.LayerStat(clears=clears[l], n=n) for l in layers}
@@ -265,6 +351,7 @@ def board(emit_json: str = '', runs: int | None = None) -> int:
                                            partial=True), indent=2))
 
     _print_board(table, observed_solved)
+    _write_archive_readme(archive_root, n, table)
 
     if emit_json:
         Path(emit_json).write_text(

@@ -480,11 +480,22 @@ def build_analysis_messages(board: dict, repair_ctx: str = "") -> list[dict]:
     else:
         failing_summary = "  (none — all problems passing!)"
 
+    # Latest archive run README (contains implemented improvements summary).
+    archive_readme_content = "(none yet)"
+    archive_root = MU_ROOT / "archive"
+    if archive_root.exists():
+        nums = [int(p.name) for p in archive_root.iterdir()
+                if p.is_dir() and p.name.isdigit()]
+        if nums:
+            latest_readme = archive_root / f"{max(nums):03d}" / "README.md"
+            archive_readme_content = _read(latest_readme, 2000)
+
     parts = [
         f"=== Failing problems (easiest first) ===\n{failing_summary}",
         f"=== Previously tried and discarded (DO NOT repeat these) ===\n{_discarded_summary()}",
         f"=== AGENTS.md ===\n{_read(MU_ROOT/'AGENTS.md', 5000)}",
         f"=== README.md ===\n{_read(MU_ROOT/'README.md', 3000)}",
+        f"=== Latest board run (archive) ===\n{archive_readme_content}",
         f"=== docs/challenges/README.md ===\n{_read(MU_ROOT/'docs/challenges/README.md', 4000)}",
         f"=== docs/lsp.md ===\n{_read(MU_ROOT/'docs/lsp.md', 2000)}",
         f"=== docs/ablations.md ===\n{_read(MU_ROOT/'docs/ablations.md', 1500)}",
