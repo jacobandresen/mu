@@ -230,6 +230,7 @@ def board(emit_json: str = '', runs: int | None = None) -> int:
         cause_counts: dict[str, int] = {}
         solved = 0
         work = Path('dojo') / pid
+        save_root = os.environ.get('MU_DOJO_SAVE_RUNS', '')
         try:
             for i in range(1, n + 1):
                 _rmwork(work)
@@ -245,6 +246,10 @@ def board(emit_json: str = '', runs: int | None = None) -> int:
                 for l in layers:
                     if lc.get(l):
                         clears[l] += 1
+                if save_root:
+                    dest = Path(save_root) / pid / str(i)
+                    _rmwork(dest)
+                    shutil.copytree(work, dest, dirs_exist_ok=True)
         finally:
             _rmwork(work)
         table[pid] = {l: capability.LayerStat(clears=clears[l], n=n) for l in layers}

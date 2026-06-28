@@ -28,6 +28,7 @@ import argparse
 import datetime
 import json
 import os
+import shutil
 import subprocess
 import sys
 import textwrap
@@ -266,7 +267,12 @@ def run_mode(cycle: int = 0) -> dict:
         _log("  Could not load run model — skipping run phase.")
         return {}
 
-    env = {**os.environ, "MU_AGENT_MODEL": RUN_MODEL, "ROUND_TIMEOUT": "600"}
+    dojo_runs_dir = MU_ROOT / "dojo"
+    if dojo_runs_dir.exists():
+        shutil.rmtree(dojo_runs_dir, ignore_errors=True)
+    dojo_runs_dir.mkdir(parents=True, exist_ok=True)
+    env = {**os.environ, "MU_AGENT_MODEL": RUN_MODEL, "ROUND_TIMEOUT": "600",
+           "MU_DOJO_SAVE_RUNS": str(dojo_runs_dir)}
     BOARD_JSON.parent.mkdir(exist_ok=True)
 
     _log(f"Running dojo board (n=3) → {BOARD_JSON}")
