@@ -251,8 +251,8 @@ run. **Risk:** low — an oracle cannot misedit; the invocation half inherits
 Built as [`src/mu/lsp.py`](src/mu/lsp.py) (`MU_LSP`): a stdio JSON-RPC client that requests
 `textDocument/codeAction` + `source.organizeImports` per diagnostic and applies the returned
 `WorkspaceEdit` (one action per round, re-diagnose), slotted into the post-write slot after
-`run_reflexes`. Gating learned from the trials: `MU_LSP=1` runs only the fast proven servers
-(clangd, gopls); `MU_LSP=all` opts into the slow ones (Roslyn for C#, pyright, rust-analyzer, ts).
+`run_reflexes`. **Default ON** for fast proven servers (clangd, gopls); `MU_LSP=0` disables,
+`MU_LSP=all` opts into the slow ones (Roslyn for C#, pyright, rust-analyzer, ts).
 **Finding:** a *selective* repair lever — clangd add-include and gopls organizeImports are
 real wins, the Roslyn server's add-using fixes CS0246; net-negative with slow servers that return
 nothing. Full client, trials, and per-challenge applicability: [docs/lsp.md](docs/lsp.md);

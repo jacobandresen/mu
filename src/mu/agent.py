@@ -1125,11 +1125,12 @@ def _run_planner(goal: str, model: str, planner_timeout: int,
             "## Dependencies\npython>=3.11, pytest>=7\n\n"
             f"Now write the PLAN.md for the GOAL above. Start with ## Summary."
         )
-    elif os.environ.get('MU_PROMPT_CACHE') == '1':
-        # Cache-friendly layout: all stable content (instructions, skill, rules,
+    elif os.environ.get('MU_PROMPT_CACHE', '1') != '0':
+        # Cache-friendly layout (default ON): all stable content (instructions, skill, rules,
         # challenges, example) goes in the system message as a byte-identical
         # prefix across problems, so LM Studio reuses its KV cache instead of
         # re-prefilling ~1k tokens each plan. Only the volatile DIR/GOAL trails.
+        # Set MU_PROMPT_CACHE=0 to disable.
         system = ("You are a planning agent.\n"
                   "Output ONLY the raw PLAN.md markdown. No preamble, no explanation, "
                   "no code blocks. Begin with ## Summary, then ## Files.")
@@ -1690,13 +1691,19 @@ def _read_quiet(path: str) -> str:
 
 
 def _apply_lsp_repair(file_path: str) -> None:
-    """Opt-in (MU_LSP=1) language-server quick-fix pass over a just-written file.
+    """Language-server quick-fix pass over a just-written file (default: ON for fast servers).
 
     A VSCode-style repair lever: the installed server (clangd/gopls/rust-analyzer/…)
     diagnoses the file and mu applies its `quickfix` code actions (add include, import a
-    symbol, fix a signature). No-op when MU_LSP is unset, no server is installed for the
-    language, or nothing is fixable; never raises. Complements the regex reflexes."""
-    mode = os.environ.get('MU_LSP')
+    symbol, fix a signature). No-op when no server is installed for the language, or
+    nothing is fixable; never raises. Complements the regex reflexes.
+    
+    Default behavior (no MU_LSP env var): runs fast proven servers (clangd, gopls).
+    MU_LSP=0: disable all LSP repair.
+    MU_LSP=all: include slow servers (Roslyn, rust-analyzer, ts)."""
+    mode = os.environ.get('MU_LSP', '1')
+    if mode == '0':
+        return
     if mode not in ('1', 'all'):
         return
     try:

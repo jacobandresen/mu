@@ -115,11 +115,11 @@ The repair substrate beyond the core reflexes, in the order a fix gets to enter 
 
 - **Reflexes** (`src/mu/reflexes/`, always on) — deterministic post-write fixers, chained to a
   fixpoint, one general error-class each (the core mechanism above).
-- **LSP repair lever** (`src/mu/lsp.py`, opt-in `MU_LSP`) — drives **language servers** as a
+- **LSP repair lever** (`src/mu/lsp.py`, **default ON**) — drives **language servers** as a
   grammar-accurate repair oracle: add-include, organize-imports, add-using, and other code
-  actions the server authors itself. `MU_LSP=1` runs the fast proven servers (clangd, gopls);
-  `MU_LSP=all` adds the slow ones (Roslyn for C#, pyright, rust-analyzer, ts). A *selective* lever —
-  see [docs/lsp.md](docs/lsp.md).
+  actions the server authors itself. By default runs the fast proven servers (clangd, gopls);
+  `MU_LSP=all` adds the slow ones (Roslyn for C#, pyright, rust-analyzer, ts);
+  `MU_LSP=0` disables. A *selective* lever — see [docs/lsp.md](docs/lsp.md).
 - **Scaffold lever** (`src/mu/scaffold.py`, opt-in `MU_SCAFFOLD`) — runs `dotnet new` at ground
   time so the model never authors the C# project file that fails NuGet restore. Clears the
   restore wall but ships opt-in (the verdict below).

@@ -17,8 +17,8 @@ behind `MU_LSP=1`), applying:
 - `quickfix` actions bound to error diagnostics (clangd "add include", trait imports, …);
 - command-based assists (the server applies the edit via `workspace/applyEdit`).
 
-It is opt-in and degrades to a no-op when `MU_LSP` is unset or no server is installed — never
-blocks a run.
+It is **default ON** (fast servers only) and degrades to a no-op when no server is installed — never
+blocks a run. Set `MU_LSP=0` to disable.
 
 ## Usage
 
@@ -26,11 +26,12 @@ blocks a run.
 mu lsp langs            # which servers are installed
 mu lsp diagnose FILE    # show the server's diagnostics
 mu lsp fix FILE         # apply quick-fixes / organizeImports
-MU_LSP=1 mu agent …     # repair loop, fast proven servers only (clangd, gopls)
-MU_LSP=all mu agent …   # also the slow/experimental servers (rust-analyzer, ts, roslyn)
+mu agent …              # repair loop, fast proven servers by default (clangd, gopls)
+MU_LSP=0 mu agent …    # disable LSP repair
+MU_LSP=all mu agent …  # also the slow/experimental servers (rust-analyzer, ts, roslyn)
 ```
 
-`MU_LSP=1` is deliberately limited to the fast, validated servers so it can't regress a run by
+The default (`MU_LSP` unset or `MU_LSP=1`) is deliberately limited to the fast, validated servers so it can't regress a run by
 spawning a slow server that returns nothing (the p8 lesson). `MU_LSP=all` opts into the rest.
 
 ## Coverage & install (no sudo)

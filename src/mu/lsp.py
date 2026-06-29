@@ -11,8 +11,8 @@ to completion/code-actions. So the honest role here is **repair**: a determinist
 language-aware fixer that complements the reflexes and feeds precise diagnostics to the model.
 
 Servers are used only when actually installed (``shutil.which``); everything degrades to a
-no-op otherwise, so this never blocks a run. Opt-in via ``MU_LSP=1`` for the agent path; the
-``mu lsp`` CLI exercises it directly.
+no-op otherwise, so this never blocks a run. **Default ON** for fast servers (clangd, gopls) in the agent path;
+use ``MU_LSP=0`` to disable or ``MU_LSP=all`` for slow servers. The ``mu lsp`` CLI exercises it directly.
 """
 from __future__ import annotations
 
@@ -71,7 +71,7 @@ _SETTLE: dict[str, float] = {"rust-analyzer": 15.0, "gopls": 8.0, "csharp-ls": 1
                              "typescript-language-server": 8.0}
 
 
-# Servers fast + reliable enough to enable by default (MU_LSP=1). Slow-to-start servers
+# Servers fast + reliable enough to enable by default. Slow-to-start servers
 # whose fixes are unproven here (rust-analyzer, ts/csharp) only run under MU_LSP=all, so the
 # default can't regress a run by spawning a slow server that returns nothing (see p8 trial).
 FAST_SERVERS = {"clangd", "gopls"}
