@@ -74,6 +74,72 @@ def _skill_index() -> str:
     return "\n".join(lines)
 
 
+def _reflex_catalog_brief() -> str:
+    """Show existing reflexes grouped by error_class, for context in analysis.
+    
+    Includes efficacy data when available (mean Δ from ablation, negative = helped).
+    """
+    from mu.reflexes import registry
+    records = registry.discover()
+    
+    # Load efficacy from KB if available
+    efficacy_cache: dict[str, float] = {}
+    try:
+        import sqlite3
+        con = sqlite3.connect(os.path.expanduser('~/.mu/mu.db'))
+        for row in con.execute("SELECT id, efficacy FROM reflex WHERE efficacy IS NOT NULL"):
+            efficacy_cache[row['id']] = row['efficacy']
+        con.close()
+    except Exception:
+        pass
+    
+    lines = []
+    current_class = None
+    for r in records:
+        if r.error_class != current_class:
+            lines.append(f"\n{r.error_class}:")
+            current_class = r.error_class
+        eff = efficacy_cache.get(r.id)
+        efficacy_part = f" Δ={eff:+.2f}" if eff is not None else ""
+        lines.append(f"  [{r.toolchain}] {r.id}: {r.summary[:60]}{efficacy_part}")
+    return "\n".join(lines)
+
+
+def _honesty_audit_brief() -> str:
+    """List reflexes with ≥90% concentration on single problems (warning about overfitting).
+    
+    Uses the full firing data to detect reflexes that fire mostly on one problem,
+    which may indicate overfitting rather than general capability.
+    """
+    try:
+        import sqlite3
+        con = sqlite3.connect(os.path.expanduser('~/.mu/mu.db'))
+        # Get reflexes with ≥90% concentration on a single problem
+        rows = con.execute(
+            "SELECT reflex_id, problem_id, COUNT(DISTINCT session_id) n "
+            "FROM firing f JOIN session s USING(session_id) "
+            "WHERE s.problem_id IS NOT NULL "
+            "GROUP BY reflex_id, problem_id").fetchall()
+        # Check single-problem concentration
+        totals: dict[str, int] = {}
+        by_problem: dict[str, list] = {}
+        for r in rows:
+            rid, pid, n = r['reflex_id'], r['problem_id'], r['n']
+            totals[rid] = totals.get(rid, 0) + n
+            by_problem.setdefault(rid, []).append((pid, n))
+        warnings = []
+        for rid, total in totals.items():
+            if total < 5:  # Need minimum sessions to judge
+                continue
+            max_pid, max_n = max(by_problem[rid], key=lambda x: x[1])
+            if max_n / total >= 0.9:
+                warnings.append(f"  {rid}: {max_n}/{total} sessions in `{max_pid}`")
+        con.close()
+        return "\n".join(warnings) if warnings else "  (no concentration warnings)"
+    except Exception:
+        return "  (KB unavailable)"
+
+
 def _ts() -> str:
     return datetime.datetime.now().strftime("%H:%M:%S")
 
@@ -585,8 +651,49 @@ def _failing_line(pid: str, p: float, data: dict) -> str:
         layers = " ".join(
             f"{'▶' if l == bn else ''}{l}={q:.2f}" for l, q in qs.items()
         )
-        return f"{head}  bottleneck={bn}  layers[ {layers} ]"
+        # Cross-ref: which reflexes exist for this error_class?
+        reflexes_covering = _reflexes_for_problem(pid)
+        coverage = ""
+        if reflexes_covering:
+            coverage = f"  reflexes: {reflexes_covering[:80]}"
+        return f"{head}  bottleneck={bn}  layers[ {layers} ]{coverage}"
     return head
+
+
+def _reflexes_for_problem(pid: str) -> str:
+    """Show reflexes that potentially address this problem's failures.
+    
+    Reads from the KB to find reflexes with efficacy data or firing history on this problem.
+    Returns a short summary string.
+    """
+    try:
+        import sqlite3
+        con = sqlite3.connect(os.path.expanduser('~/.mu/mu.db'))
+        # Get reflexes that fired on this problem
+        rows = con.execute(
+            "SELECT r.id, r.error_class, r.efficacy "
+            "FROM firing f "
+            "JOIN session s ON f.session_id = s.session_id "
+            "JOIN reflex r ON f.reflex_id = r.id "
+            "WHERE s.problem_id = ?", (pid,)).fetchall()
+        # Also get efficacy for relevant error classes
+        by_class: dict[str, list] = {}
+        for row in rows:
+            ec = row['error_class']
+            eff = row['efficacy']
+            by_class.setdefault(ec, []).append((row['id'], eff))
+        con.close()
+        
+        parts = []
+        for ec, refs in list(by_class.items())[:3]:
+            eff_strs = [f"{rid}Δ={eff:.2f}" for rid, eff in refs if eff is not None]
+            if eff_strs:
+                parts.append(f"{ec}:[{','.join(eff_strs[:3])}]")
+            else:
+                parts.append(f"{ec}:[{','.join(r[0] for r in refs[:2])}]")
+        return " | ".join(parts) if parts else ""
+    except Exception:
+        return ""
 
 
 def build_analysis_messages(board: dict, repair_ctx: str = "") -> list[dict]:
@@ -621,6 +728,7 @@ def build_analysis_messages(board: dict, repair_ctx: str = "") -> list[dict]:
         f"=== docs/lsp.md ===\n{_read(MU_ROOT / 'docs/lsp.md', 2000)}",
         f"=== docs/ablations.md ===\n{_read(MU_ROOT / 'docs/ablations.md', 1500)}",
         f"=== Skills ===\n{_skill_index()}",
+        f"=== Existing reflexes (by error_class, efficacy Δ when known) ===\n{_reflex_catalog_brief()}",
     ]
     if repair_ctx:
         parts.append(f"=== Previous attempt failed ===\n{repair_ctx}")
