@@ -141,7 +141,8 @@ def log_run(*, cycle: int, board: dict, e_solved: float) -> None:
 
 
 def load_discarded_attempts(max_recent: int = 20) -> list[dict]:
-    """Return the most recent rolled-back/failed attempts for context injection."""
+    """Return the most recent rolled-back/failed attempts, plus applied zero-delta
+    changes, for context injection — so the model won't repeat a no-gain change."""
     if not LOG_FILE.exists():
         return []
     lines = LOG_FILE.read_text().splitlines()
@@ -152,7 +153,8 @@ def load_discarded_attempts(max_recent: int = 20) -> list[dict]:
             continue
         try:
             r = json.loads(line)
-            if r.get("outcome") != "applied":
+            # Include rolled-back/failed attempts AND applied changes that gained nothing.
+            if r.get("outcome") != "applied" or r.get("delta_e", 1.0) <= 0.0:
                 records.append(r)
                 if len(records) >= max_recent:
                     break
@@ -524,8 +526,8 @@ ANALYSIS_SYSTEM = textwrap.dedent("""\
 
     ── STEP 2: IDENTIFY THE FIX ─────────────────────────────────────────────────
     Choose the fix type (in order of preference):
-      1. Add or sharpen a rule in an existing skill file
-      2. Add a new reflex in src/mu/reflexes/<lang>/
+      1. Add a new reflex in src/mu/reflexes/<lang>/
+      2. Add or sharpen a rule in an existing skill file
       3. Add a rule to agent.py _build_autonomous_system (last resort)
 
     Before writing, check: "Would this rule apply to any program in this language,

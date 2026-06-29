@@ -196,6 +196,7 @@ def _write_archive_readme(archive_dir: Path, n: int, table=None) -> None:
                 m = _re.search(r'\*\*date\*\*: (.+)', prev_readme.read_text())
                 if m:
                     prev_ts = m.group(1).strip()
+        seen = set()
         lines = []
         for raw in log_file.read_text().splitlines():
             try:
@@ -206,6 +207,10 @@ def _write_archive_readme(archive_dir: Path, n: int, table=None) -> None:
                 continue
             if prev_ts and r.get('ts', '') <= prev_ts:
                 continue
+            key = (r.get('file', ''), r.get('rationale', ''))
+            if key in seen:
+                continue
+            seen.add(key)
             lines.append(
                 f"- `{r['file']}` — {r['rationale']}"
                 + (f" (targets: {', '.join(r['target_problems'])})" if r.get('target_problems') else '')
