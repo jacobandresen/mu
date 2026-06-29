@@ -84,6 +84,7 @@ from mu.reflexes import (apply_go_reflexes, apply_makefile_reflexes,
                          fix_python_missing_def,
                          fix_python_missing_project_imports,
                          fix_python_missing_stdlib_imports,
+                         fix_python_missing_thirdparty_imports,
                          fix_python_unindented_body,
                          fix_python_undefined_imports,
                          fix_requirements_path_entries,
@@ -806,6 +807,7 @@ def run(goal: str, model: str = '', target_dir: str = '',
                              _fired(fix_missing_close_paren, task.file_path, lint_head) or
                              _fired(fix_literal_newlines, task.file_path, lint_head) or
                              _fired(fix_python_undefined_imports, task.file_path, lint_head) or
+                             _fired(fix_python_missing_thirdparty_imports, task.file_path, lint_head) or
                              _fired(fix_rust_duplicate_use, task.file_path) or
                              _fired(fix_rust_println_missing_arg, task.file_path) or
                              _fired(fix_rust_missing_trait_import, task.file_path, lint_tail) or
@@ -1404,6 +1406,8 @@ def _run_test_repair_loop(model: str, test_cmd: str, test_log: str, p: Plan,
                 if Path(test_log).exists():
                     if _fired(fix_python_undefined_imports, t.file_path, _tail_file(test_log, 60)):
                         log("Repair reapply: added missing import(s) to %s.", t.file_path)
+                    if _fired(fix_python_missing_thirdparty_imports, t.file_path, _tail_file(test_log, 60)):
+                        log("Repair reapply: added missing third-party import(s) to %s.", t.file_path)
         for t in p.tasks:  # trailing-dot in any .go file before go mod tidy
             if t.file_path.endswith('.go') and Path(t.file_path).exists():
                 _fired(fix_go_trailing_dot, t.file_path)

@@ -67,7 +67,8 @@ _CATALOG: dict[str, list] = {
     'type-visibility': [csharp.fix_csharp_public_signature_accessibility],
     'missing-symbol-import': [
         python.fix_python_undefined_imports, python.fix_python_missing_project_imports,
-        python.fix_python_missing_stdlib_imports, javascript.fix_js_missing_requires,
+        python.fix_python_missing_stdlib_imports, python.fix_python_missing_thirdparty_imports,
+        javascript.fix_js_missing_requires,
         go.fix_go_missing_pkg_imports, csharp.fix_csharp_missing_using,
         rust.fix_rust_missing_trait_import, python.fix_test_import_module],
     'unused-import': [go.fix_go_unused_imports],

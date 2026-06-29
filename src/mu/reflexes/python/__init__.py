@@ -27,6 +27,7 @@ from .fix_flask_test_route_decorators import fix_flask_test_route_decorators
 from .fix_flask_init_db_import import fix_flask_init_db_import
 from .fix_missing_flask_client_fixture import fix_missing_flask_client_fixture
 from .fix_requirements_path_entries import fix_requirements_path_entries
+from .fix_python_missing_thirdparty_imports import fix_python_missing_thirdparty_imports
 
 __all__ = [
     'fix_multiline_single_quote',
@@ -53,4 +54,5 @@ __all__ = [
     'fix_flask_init_db_import',
     'fix_missing_flask_client_fixture',
     'fix_requirements_path_entries',
+    'fix_python_missing_thirdparty_imports',
 ]
