@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """Run dojo problems and record results.
 
-Env: MU_SIT_RUN_MODEL, MU_SIT_RUN_CTX, MU_LMSTUDIO_HOST, MU_SIT_VERBOSE
+Env:
+  MU_SIT_RUN_MODEL    model to use (default: mistral-7b-instruct-v0.2)
+  MU_SIT_RUN_CTX     context size (default: 4096)
+  MU_LMSTUDIO_HOST   LM Studio host (default: http://localhost:1234)
+  MU_SIT_VERBOSE    enable verbose logging
 """
 
-import argparse, datetime, httpx, json, os, shutil, subprocess, sys, time
+import argparse, datetime, httpx, json, os, re, shutil, subprocess, sys, time
 from pathlib import Path
 
 MU_ROOT = Path(__file__).resolve().parent.parent
@@ -44,19 +48,25 @@ def _log_error(context: str, exc=None, extra=None):
     _log(f"  ERROR LOGGED: {context}")
 
 def write_error_summary(board, archive_dir=None):
-    """Write a simple error summary."""
+    """Write a simple error summary to archive or LOG_DIR."""
     failing = _failing_problems(board)
-    lines = [f"# Error Summary\n", f"Total: {len(board)}, Failing: {len(failing)}\n"]
+    lines = ["# Error Summary", "", f"Total: {len(board)}, Failing: {len(failing)}"]
     for pid, p_solve in failing[:10]:
         data = board.get(pid, {})
-        lines.append(f"- {pid} p={p_solve:.2f} lang={data.get('lang','?')}")
-        if err := data.get('first_error', '')[:100]:
+        lang = data.get('lang', '?')
+        err = data.get('first_error', '')[:100]
+        lines.append(f"- **{pid}** p={p_solve:.2f} lang={lang}")
+        if err:
             lines.append(f"  {err}")
-    content = '\n'.join(lines)
+    
     output_path = (archive_dir or LOG_DIR) / "ERROR_SUMMARY.md"
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(content)
-    _log(f"  Summary written to {output_path.relative_to(MU_ROOT)}")
+    output_path.write_text("\n".join(lines))
+    try:
+        rel = output_path.relative_to(MU_ROOT)
+        _log(f"  Summary written to {rel}")
+    except ValueError:
+        _log(f"  Summary written to {output_path}")
 
 def _ts():
     return datetime.datetime.now().strftime("%H:%M:%S")
@@ -171,8 +181,7 @@ def run_mode(cycle=0):
            "ROUND_TIMEOUT": "600", "MU_DOJO_SAVE_RUNS": str(dojo_runs_dir)}
     BOARD_JSON.parent.mkdir(exist_ok=True)
 
-    _log(f"Running dojo board (n=3) → {BOARD_JSON}")
-    import re
+    _log("Running dojo board (n=3) → " + str(BOARD_JSON))
     solved_re = re.compile(r"solved\s+(\d+)/3")
 
     stop_early = False
@@ -187,7 +196,7 @@ def run_mode(cycle=0):
             sys.stdout.flush()
             m = solved_re.search(line)
             if m and int(m.group(1)) <= 1:
-                _log(f"  early stop: {line.strip()}")
+                _log(f"  early stop: solved {m.group(1)}/3")
                 stop_early = True
                 proc.kill()
                 break
@@ -220,10 +229,10 @@ def run_mode(cycle=0):
     return {}, stop_early
 
 def main():
+    global VERBOSE
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--verbose", "-v", action="store_true")
     args = ap.parse_args()
-    global VERBOSE
     if args.verbose:
         VERBOSE = True
 
@@ -232,12 +241,15 @@ def main():
     _log("Running dojo board...")
     board, stop_early = run_mode(cycle=1)
     
-    if not board and not stop_early:
-        _log("Empty board — no results.")
+    if not board:
+        if stop_early:
+            _log("Board run stopped early.")
+        else:
+            _log("Empty board — no results.")
     elif failing := _failing_problems(board):
-        _log(f"Failing: {[(p, f'{v:.2f}') for p, v in failing]}")
+        _log(f"Failing ({len(failing)} problems): {[(p, f'{v:.2f}') for p, v in failing]}")
     else:
-        _log("All passing!")
+        _log(f"All {len(board)} problems passing!")
 
 if __name__ == "__main__":
     main()
