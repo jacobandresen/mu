@@ -725,10 +725,72 @@ def _shrink_oversized(messages: list[dict]) -> list[dict]:
     return msgs
 
 
+def _normalize_message_roles(messages: list[dict]) -> list[dict]:
+    """Normalize message roles to only use 'user' and 'assistant'.
+
+    Some models (e.g. Mistral 7B Instruct v0.2/v0.3 GGUF) ship with a Jinja
+    chat template that raises: "Only user and assistant roles are supported!"
+    This function works around that by:
+    - Prepending system message content to the first user message
+    - Converting tool messages to user role (they're tool responses, not calls)
+    - Converting any other unexpected roles to user
+
+    Preserves tool_calls on assistant messages unchanged.
+    """
+    if not messages:
+        return messages
+
+    msgs = [dict(m) for m in messages]
+    system_content = []
+    first_user_idx = None
+
+    # Collect system content and find first user message
+    for i, msg in enumerate(msgs):
+        role = msg.get('role', '')
+        if role == 'system':
+            content = msg.get('content', '')
+            if content:
+                system_content.append(content)
+        elif role == 'user' and first_user_idx is None:
+            first_user_idx = i
+
+    # Prepend system content to first user message
+    if system_content and first_user_idx is not None:
+        user_content = msgs[first_user_idx].get('content', '')
+        combined = '\n\n'.join(system_content)
+        if user_content:
+            combined += '\n\n' + user_content
+        msgs[first_user_idx]['content'] = combined
+
+    # Remove system messages and normalize other roles
+    result = []
+    for msg in msgs:
+        role = msg.get('role', '')
+        if role == 'system':
+            # If there's no user message to merge into, convert system to user
+            if first_user_idx is None:
+                msg['role'] = 'user'
+                result.append(msg)
+            continue  # already merged into first user message
+        elif role == 'tool':
+            # Tool responses become user messages
+            msg['role'] = 'user'
+            result.append(msg)
+        elif role in ('user', 'assistant'):
+            result.append(msg)
+        else:
+            # Unknown role - default to user
+            msg['role'] = 'user'
+            result.append(msg)
+
+    return result
+
+
 def chat(model: str, messages: list[dict], tools: Optional[list[dict]],
          timeout: float, tool_choice: str = 'auto') -> tuple[dict, ChatStats]:
     import httpx
     messages = _shrink_oversized(messages)
+    messages = _normalize_message_roles(messages)
     body: dict = {
         'model': model,
         'messages': messages,
