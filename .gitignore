@@ -27,3 +27,5 @@ practice_output.txt
 # Local collection-run state: logs, launcher, thermal/bench data, scan reports.
 # Operational scratch under the repo's .mu/ — never source of truth.
 .mu/
+# Archive directories with session history
+archive/
