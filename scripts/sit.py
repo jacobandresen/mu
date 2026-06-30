@@ -21,7 +21,7 @@ LOG_FILE = LOG_DIR / "attempts.jsonl"
 RUN_LOG = LOG_DIR / "runs.jsonl"
 ERROR_LOG = LOG_DIR / "errors.jsonl"
 
-RUN_MODEL = os.environ.get("MU_SIT_RUN_MODEL", "mistralai/Mistral-7B-Instruct-v0.2")
+RUN_MODEL = os.environ.get("MU_SIT_RUN_MODEL", "mistral-7b-instruct-v0.2")
 RUN_CTX = int(os.environ.get("MU_SIT_RUN_CTX", "4096"))
 LMS_HOST = os.environ.get("MU_LMSTUDIO_HOST", "http://localhost:1234")
 VERBOSE = os.environ.get("MU_SIT_VERBOSE", "").strip() not in ("", "0", "false")

@@ -791,6 +791,17 @@ def chat(model: str, messages: list[dict], tools: Optional[list[dict]],
     import httpx
     messages = _shrink_oversized(messages)
     messages = _normalize_message_roles(messages)
+    
+    # Models with broken Jinja templates for tool calls (e.g. mistral-7b-instruct-v0.2)
+    # need to have tools removed to avoid "Only user and assistant roles are supported!" errors
+    # even though messages are normalized. Track known problematic models here.
+    _TOOL_UNSUPPORTED_MODELS = {
+        'mistral-7b-instruct-v0.2',
+        'mistralai/Mistral-7B-Instruct-v0.2',
+    }
+    model_normalized = model.lower().replace('mistralai/', '')
+    tools_unsupported = model_normalized in _TOOL_UNSUPPORTED_MODELS
+    
     body: dict = {
         'model': model,
         'messages': messages,
@@ -813,7 +824,7 @@ def chat(model: str, messages: list[dict], tools: Optional[list[dict]],
     if _SEED is not None:
         body['seed'] = int(_SEED)
         body['temperature'] = 0.0
-    if tools:
+    if tools and not tools_unsupported:
         body['tools'] = tools
         # 'required' forces the model to emit a real tool call instead of prose.
         # Small models (e.g. Granite) otherwise drift into 228-token explanations
@@ -821,6 +832,10 @@ def chat(model: str, messages: list[dict], tools: Optional[list[dict]],
         # routes them through LM Studio's native tool-call path. Callers that
         # genuinely may not need a tool (none today) can pass 'auto'.
         body['tool_choice'] = tool_choice
+    elif tools and tools_unsupported:
+        # Model doesn't support tool calls due to Jinja template limitations.
+        # Fall back to non-tool mode. The caller will need to parse text output.
+        pass
     r = httpx.post(f"{LMS_HOST}/v1/chat/completions", json=body,
                    timeout=max(timeout, 10.0))
     try:
