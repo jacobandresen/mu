@@ -585,17 +585,6 @@ def run_mode(cycle: int = 0) -> tuple[dict, bool]:
             for pid, data in board.items():
                 _vlog(f"  {pid}: p_solve={_p_solve(data):.3f}  lang={data.get('lang', '?')}  first_error={str(data.get('first_error', ''))[:120]}")
             
-            # Log module improvement suggestions
-            failing = _failing_problems(board)
-            if failing:
-                _log(f"  Problems needing attention: {len(failing)}")
-                for pid, _ in failing[:5]:  # Top 5
-                    data = board.get(pid, {})
-                    gain, bottleneck = _expected_gain(data)
-                    if bottleneck:
-                        module = _layer_to_module(bottleneck)
-                        _log(f"    {pid}: bottleneck='{bottleneck}' → improve {module} (gain={gain:.3f})")
-            
             return board, stop_early
         except Exception as e:
             _log(f"  could not parse board JSON: {e}")
