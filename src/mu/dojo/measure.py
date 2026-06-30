@@ -45,6 +45,7 @@ def _run_agent(goal: str, work: Path) -> None:
         mu_cmd() + ['agent', goal, '--dir', str(work)],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         start_new_session=True,
+        env=os.environ,
     )
     try:
         proc.wait(timeout=round_timeout)
