@@ -25,27 +25,19 @@ The dojo runs 15 fixed problems to measure the **harness's real capability**, no
 
 Where the marginal capability is, so your work lands where it moves the number:
 
-- **Chip deterministic fruit on the non-.NET problems.** A step's value is its expected gain in
+- **Chip deterministic fruit across all fifteen problems.** A step's value is its expected gain in
   `E[N_solved]` over the whole set, ∝ logistic headroom `q(1−q)` × the chain factor — so the
   steep mid-tier problems (p2, p4, p7, p8) and **broad, no-regret levers** dominate dragging the
   hardest problem. Pick a class that recurs across problems, not a one-off.
-- **The .NET ladder (p10/p13/p14): what can actually be done.** The structural levers
-  (`MU_SCAFFOLD`, `MU_TFM_GROUNDING`, entry-point, S2) clear the build wall (NU1202 15→0) but the
-  residual binder is **model semantics** — CS0103 undefined-name ×21, CS1929, CS0841 — 7B-class
-  models write semantically broken C# even for a trivial API. Mapping candidate solutions to that binder:
-  - *Stronger model* — the only lever that targets the binder directly, and the discriminating test
-    of "is it the model." **Hardware-capped on this host:** GTX 1660 SUPER, 6 GB VRAM (the 7b already
-    fills it); a 14b/22b cannot load. Revisit on a bigger GPU — there it's the headline experiment.
-  - *Generation skill* (`skills/dotnet-mvc`) — already a thorough contract (WebApplicationFactory +
-    `Program` partial + EF `EnsureCreated` wiring). The model ignores it under load, so another prompt
-    rule has diminishing returns; improve it only on a *specific* recurring deviation, not in general.
-  - *C# LSP repair* (`MU_LSP=all`, the Roslyn net10 server) — add-using fixes CS0246, but sits **above** the CS0103
-    binder; no-regret support, not a solution. The dark board already trials it on p10/p13/p14 — read
-    its first_errors before launching a separate .NET LSP probe.
-  - *Roslyn `diagnose` oracle* (TOOLS §6.2, unbuilt) — sharper FOCUS hints for the cascade; also above
-    the binder. Consolation, not a fix.
-  So: on *this* host the ladder is model-bound **and** hardware-capped; bank no pass-rate, keep the
-  levers opt-in, and put the headline p10/.NET attempt behind a GPU that can hold a 14b.
+- **.NET stack (p4, p12, p13, p14, p15):** Structural levers already clear the build wall:
+  - `MU_SCAFFOLD` + `MU_TFM_GROUNDING` + entry-point + S2 → NU1202 15→0
+  - **C# reflexes** in `src/mu/reflexes/csharp/` target common compiler errors:
+    `fix_csharp_missing_using`, `fix_csharp_missing_braces`, `fix_csharp_duplicate_classes`,
+    `fix_csharp_lambda_brace_confusion`, `fix_csharp_package_tfm_mismatch`, and more
+  - **C# LSP repair** (`MU_LSP=all`, Roslyn net10 server) — add-using fixes CS0246, organize-imports
+  - `skills/dotnet-mvc` provides contract guidance (WebApplicationFactory, EF `EnsureCreated`)
+  These levers combine to solve the general classes of .NET build and syntax errors. Remaining
+  failures are addressed via deterministic reflexes targeting specific error patterns.
 - **Prefer the LSP repair lever for the import/include/symbol classes.** `MU_LSP` drives language
   servers as a grammar-accurate repair oracle (add-include, organize-imports, add-using) — strictly
   more general than a hand-rolled regex reflex for that class, and it can't make the regex's

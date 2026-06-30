@@ -129,11 +129,10 @@ The repair substrate beyond the core reflexes, in the order a fix gets to enter 
 
 ## Current focus
 
-Chip **deterministic fruit on the non-.NET problems**, where a reflex or the LSP lever actually
-moves the pass rate. The .NET ladder (p10/p13/p14) is currently **model-ceiling-bound**: 
-the structural levers (scaffold, TFM-grounding, entry-point, S2) clear the build wall
-but the residual is model semantics (7B models write semantically broken C# for trivial APIs), 
-so they stay opt-in with no pass-rate to bank. The LSP lever
+Chip **deterministic fruit across all fifteen problems**, where a reflex or the LSP lever actually
+moves the pass rate. The .NET stack (p4, p12, p13, p14, p15) is addressed via structural levers
+(scaffold, TFM-grounding, entry-point, S2) and C# reflexes that clear the build wall and fix
+common compiler errors. Effort is invested across all problems, with focus on broad, no-regret levers. The LSP lever
 is being measured per problem as the next general repair source — strongest on the
 [missing-imports](docs/challenges/missing-imports.md) class. Rationale and the marginal-value
 argument: [DOJO.md](DOJO.md) (Problem-space minimization); verdicts: [docs/ablations.md](docs/ablations.md).

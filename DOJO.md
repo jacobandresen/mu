@@ -1,6 +1,6 @@
 # Dojo
 
-Stress-tests mu by driving a guest model through 10 fixed problems and recording where the
+Stress-tests mu by driving a guest model through fifteen fixed problems and recording where the
 autonomous loop breaks. The problem set, per-problem detail, and the last round's result
 live in **[docs/problems/](docs/problems/)**; recurring failure classes in
 **[docs/challenges/](docs/challenges/README.md)**.
@@ -69,14 +69,15 @@ The improvement backlog, worst-first. Evidence base: per-problem run data
 work is not tracked here — see git history, [docs/challenges/](docs/challenges/README.md)
 for fixes, and [docs/ablations.md](docs/ablations.md) for behaviour-lever A/B verdicts.
 
-1. **p10 full-stack (the open problem).** Multi-project C#/Vue — challenge
+1. **p12/p13/p14/p15 .NET stack.** Multi-project C#/Vue/Minimal API — challenge
    [csharp-aspnet-scaffolding](docs/challenges/csharp-aspnet-scaffolding.md). Dominant errors:
    CS0101 duplicate types across files, MSB1003 no project/solution at the test dir, CS0053
    inconsistent accessibility on EF types. Mix of scaffolding (staged-plan type dedup; ensure
-   `dotnet test` sees a csproj/solution) and model ceiling (cascading errors, repair
-   oscillates). Biggest gap. **Lever:** template scaffolding at ground time (offline
-   `dotnet new`) — SHIPPED opt-in (`MU_SCAFFOLD`); A/B verdict in
-   [docs/ablations.md](docs/ablations.md) (Scaffold row).
+   `dotnet test` sees a csproj/solution) and deterministic reflexes. **Levers:**
+   - Template scaffolding at ground time (offline `dotnet new`) — SHIPPED opt-in (`MU_SCAFFOLD`)
+   - C# reflex suite in `src/mu/reflexes/csharp/` for common compiler errors
+   - C# LSP repair (`MU_LSP=all`, Roslyn net10 server)
+   - A/B verdicts in [docs/ablations.md](docs/ablations.md) (Scaffold row).
 2. **p8 jest globals** — challenge [vue-vitest-jest-setup](docs/challenges/vue-vitest-jest-setup.md).
    `describe/test/it/jest is not defined` when tests run under plain `node`. The
    package.json-script half is deterministic (`fix_package_json_bare_jest`); residual is the
@@ -136,7 +137,8 @@ on problem *i*, layer *ℓ* scales as the *logistic headroom* `q(1−q)` times t
 layer sits at q≈0, so both factors ≈0 — a step there buys almost nothing; a mid-tier problem
 at q≈0.5 with healthy siblings buys far more. So prefer **broad, no-regret levers** (honest
 gates, cross-stage reflexes, organize-imports/LSP) and the **steep mid-tier** problems first;
-treat p10/.NET as the frontier, invested in only via levers that also help others. The .NET
-ladder (p10/p13/p14) is currently judged **model-ceiling-bound** — the structural levers
-clear the build wall but the residual is model semantics (7B models) — so deterministic effort 
-goes to the non-.NET problems. Full lever verdicts and that conclusion: [docs/ablations.md](docs/ablations.md).
+treat .NET problems (p4, p12, p13, p14, p15) alongside others. The C# reflex suite in
+`src/mu/reflexes/csharp/` targets common compiler errors (CS0103, CS1929, CS0841, etc.), and
+structural levers (`MU_SCAFFOLD`, `MU_TFM_GROUNDING`, entry-point, S2) clear the build wall.
+Deterministic reflexes solve general classes of .NET errors, so effort is invested across
+all fifteen problems. Full lever verdicts and that conclusion: [docs/ablations.md](docs/ablations.md).
