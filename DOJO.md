@@ -78,17 +78,17 @@ gates:
 
 | Layer | Gate | Success Criteria | Common Errors Fixed By |
 |---|---|---|---|
-| **build** | `dotnet build` | Zero compiler errors | C# reflexes (CS0017, CS0101, CS0053, CS1519, etc.) |
-| **test** | `dotnet test` + custom tests | All tests pass | fix_csharp_package_tfm_mismatch, fix_csharp_xunit_packages, LSP |
+| **prototype** | `dotnet build` | Zero compiler errors | C# reflexes (CS0017, CS0101, CS0053, CS1519, etc.) |
+| **refine** | `dotnet test` + custom tests | All tests pass | fix_csharp_package_tfm_mismatch, fix_csharp_xunit_packages, LSP |
 
 **Why this works:**
-- **Clear boundaries:** build → test is easier to debug than 4+ interdependent layers
-- **Higher success rate:** Passing build means syntax is correct (70% of failures)
+- **Clear boundaries:** prototype → refine mirrors the actual write → repair loop
+- **Higher success rate:** Passing prototype means syntax is correct (70% of failures)
 - **Faster feedback:** Each layer has a single, fast check
-- **Existing reflexes map cleanly:** Most C# reflexes target build errors
+- **Existing reflexes map cleanly:** Most C# reflexes target prototype errors
 
-This approach replaces the multi-stage cascade with a **build-then-test** model, reducing
-complexity while maintaining coverage. The C# reflex suite + structural levers already
+This approach replaces the multi-stage cascade with a **prototype-then-refine** model, 
+matching mu's iterative workflow while reducing complexity and maintaining coverage. The C# reflex suite + structural levers already
 address the dominant error classes at each gate.
 
 1. **p12/p13/p14/p15 .NET stack.** Multi-project C#/Vue/Minimal API — challenge
