@@ -1,67 +1,40 @@
 #!/usr/bin/env python3
-"""Autonomous local mu improvement loop.
+"""Autonomous mu improvement loop: run dojo problems, analyze failures, apply fixes.
 
-Two modes alternate continuously:
+Run mode: load run model, run dojo board (n=3), record results.
+Analysis mode: load analysis model, pick best failing problem, apply one fix.
 
-  run mode      Load qwen2.5-coder-7b-instruct, run all dojo problems via
-                `mu dojo board -n 5 --emit-json`, record structured results.
-
-  analysis mode Load qwen2.5-coder-14b (CPU swap allowed), read AGENTS.md +
-                README.md + board results, pick the failing problem whose
-                bottleneck layer offers the best expected ΔE[#solved] (the best
-                *minimal* win), apply one fix, run pytest, re-run only that
-                problem to verify net gain (partial-credit ∏ q̂), roll back on
-                any regression.
-
-On startup the script checks whether `lms server` is running; if not it prints
-the start command and exits rather than proceeding blindly.
-
-Environment:
-  MU_SIT_RUN_MODEL       7b model id (default: qwen2.5-coder-7b-instruct)
-  MU_SIT_ANALYSIS_MODEL  14b model id (default: qwen2.5-coder-14b-instruct)
-  MU_SIT_RUN_CTX         context tokens for run model (default: 4096)
-  MU_SIT_ANALYSIS_CTX    context tokens for analysis model (default: 32768)
-  MU_SIT_ROUNDS          improvement cycles before stopping (default: infinite)
-  MU_LMSTUDIO_HOST       LM Studio base URL (default: http://localhost:1234)
-  MU_SIT_VERBOSE         Set to 1/true to enable verbose logging (prompts, responses, test output)
+Env:
+  MU_SIT_RUN_MODEL       (default: mistralai/Mistral-7B-Instruct-v0.2)
+  MU_SIT_ANALYSIS_MODEL  (default: mistralai/Mistral-7B-Instruct-v0.2)
+  MU_SIT_RUN_CTX         (default: 4096)
+  MU_SIT_ANALYSIS_CTX    (default: 32768)
+  MU_SIT_ROUNDS          (default: infinite)
+  MU_LMSTUDIO_HOST       (default: http://localhost:1234)
+  MU_SIT_VERBOSE         enable verbose logging
+  Note: On ≤6GB VRAM GPUs, use 4-bit quant. For >24GB, use Mixtral-8x7B for analysis.
 """
 
-import argparse
-import datetime
-import json
-import os
-import shutil
-import subprocess
-import sys
-import textwrap
-import time
+import argparse, datetime, httpx, json, os, shutil, subprocess, sys, textwrap, time
 from pathlib import Path
-
-import httpx
 
 MU_ROOT = Path(__file__).resolve().parent.parent
 LOG_DIR = MU_ROOT / ".mu" / "sit_history"
 LOG_FILE = LOG_DIR / "attempts.jsonl"  # one JSON object per line
 RUN_LOG = LOG_DIR / "runs.jsonl"  # one record per full dojo run
 
-# ── defaults ──────────────────────────────────────────────────────────────────
-
-RUN_MODEL = os.environ.get("MU_SIT_RUN_MODEL", "qwen2.5-coder-7b-instruct")
-ANALYSIS_MODEL = os.environ.get("MU_SIT_ANALYSIS_MODEL", "qwen2.5-coder-14b-instruct")
+RUN_MODEL = os.environ.get("MU_SIT_RUN_MODEL", "mistralai/Mistral-7B-Instruct-v0.2")
+ANALYSIS_MODEL = os.environ.get("MU_SIT_ANALYSIS_MODEL", "mistralai/Mistral-7B-Instruct-v0.2")
 RUN_CTX = int(os.environ.get("MU_SIT_RUN_CTX", "4096"))
 ANALYSIS_CTX = int(os.environ.get("MU_SIT_ANALYSIS_CTX", "32768"))
 LMS_HOST = os.environ.get("MU_LMSTUDIO_HOST", "http://localhost:1234")
 VERBOSE = os.environ.get("MU_SIT_VERBOSE", "").strip() not in ("", "0", "false")
-
-# ── helpers ───────────────────────────────────────────────────────────────────
-
 
 def _read(path: Path, max_chars: int = 6000) -> str:
     if not path.exists():
         return f"(not found: {path})"
     t = path.read_text(errors="replace")
     return t[:max_chars] + "\n…(truncated)" if len(t) > max_chars else t
-
 
 def _skill_index() -> str:
     lines = []
@@ -73,7 +46,6 @@ def _skill_index() -> str:
                 break
     return "\n".join(lines)
 
-
 def _reflex_catalog_brief() -> str:
     """Show existing reflexes grouped by error_class, for context in analysis.
     
@@ -82,7 +54,6 @@ def _reflex_catalog_brief() -> str:
     from mu.reflexes import registry
     records = registry.discover()
     
-    # Load efficacy from KB if available
     efficacy_cache: dict[str, float] = {}
     try:
         import sqlite3
@@ -103,7 +74,6 @@ def _reflex_catalog_brief() -> str:
         efficacy_part = f" Δ={eff:+.2f}" if eff is not None else ""
         lines.append(f"  [{r.toolchain}] {r.id}: {r.summary[:60]}{efficacy_part}")
     return "\n".join(lines)
-
 
 def _honesty_audit_brief() -> str:
     """List reflexes with ≥90% concentration on single problems (warning about overfitting).
@@ -139,28 +109,20 @@ def _honesty_audit_brief() -> str:
     except Exception:
         return "  (KB unavailable)"
 
-
 def _ts() -> str:
     return datetime.datetime.now().strftime("%H:%M:%S")
 
-
 def _log(msg: str) -> None:
     print(f"[{_ts()}] {msg}", flush=True)
-
 
 def _vlog(msg: str) -> None:
     if VERBOSE:
         print(f"[{_ts()}] [V] {msg}", flush=True)
 
-
-# ── attempt history ───────────────────────────────────────────────────────────
-
-
 def _append_jsonl(path: Path, record: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a") as fh:
         fh.write(json.dumps(record, ensure_ascii=False) + "\n")
-
 
 def log_attempt(
     *,
@@ -195,7 +157,6 @@ def log_attempt(
     status = "✓" if outcome == "applied" else "✗"
     _log(f"  [{status}] logged attempt → {LOG_FILE.name}")
 
-
 def log_run(*, cycle: int, board: dict, e_solved: float) -> None:
     record = {
         "ts": datetime.datetime.now().isoformat(timespec="seconds"),
@@ -204,7 +165,6 @@ def log_run(*, cycle: int, board: dict, e_solved: float) -> None:
         "problems": {pid: round(_p_solve(data), 4) for pid, data in board.items()},
     }
     _append_jsonl(RUN_LOG, record)
-
 
 def load_discarded_attempts(max_recent: int = 20) -> list[dict]:
     """Return the most recent rolled-back/failed attempts, plus applied zero-delta
@@ -228,10 +188,6 @@ def load_discarded_attempts(max_recent: int = 20) -> list[dict]:
             continue
     return list(reversed(records))
 
-
-# ── LMS guards / model swap ───────────────────────────────────────────────────
-
-
 def check_lms_running() -> None:
     """Exit with instructions if LM Studio server is not reachable."""
     try:
@@ -244,10 +200,12 @@ def check_lms_running() -> None:
         f"\nLM Studio server is not running at {LMS_HOST}.\n"
         "Please start it first:\n\n"
         "  lms server start\n"
-        f"  lms load {RUN_MODEL}\n\n"
+        "  lms load mistralai/Mistral-7B-Instruct-v0.2\n\n"
+        "For >24GB VRAM GPUs, also load:\n"
+        "  lms load mistralai/Mixtral-8x7B-Instruct-v0.1\n"
+        "and set MU_SIT_ANALYSIS_MODEL=mistralai/Mixtral-8x7B-Instruct-v0.1\n\n"
         "Then re-run sit.py."
     )
-
 
 def _load_model(model_id: str) -> bool:
     """Ask mu to load a model; returns True on success."""
@@ -263,7 +221,6 @@ def _load_model(model_id: str) -> bool:
         return False
     return True
 
-
 def _active_model() -> str:
     """Return the first non-embedding model currently loaded, or ''."""
     try:
@@ -275,10 +232,6 @@ def _active_model() -> str:
     except Exception:
         pass
     return ""
-
-
-# ── local LMS chat ────────────────────────────────────────────────────────────
-
 
 def lms_chat(
     messages: list[dict],
@@ -328,11 +281,7 @@ def lms_chat(
         return content
     raise RuntimeError(f"All attempts failed: {last_err}")
 
-
-# ── run mode ──────────────────────────────────────────────────────────────────
-
 BOARD_JSON = MU_ROOT / ".mu" / "sit_board.json"
-
 
 def run_mode(cycle: int = 0) -> tuple[dict, bool]:
     """Load 7b, run full dojo board (n=3), return (board, stop_early).
@@ -352,16 +301,14 @@ def run_mode(cycle: int = 0) -> tuple[dict, bool]:
     env = {
         **os.environ,
         "MU_AGENT_MODEL": RUN_MODEL,
+        "MU_MODEL": RUN_MODEL,
         "ROUND_TIMEOUT": "600",
         "MU_DOJO_SAVE_RUNS": str(dojo_runs_dir),
     }
     BOARD_JSON.parent.mkdir(exist_ok=True)
 
     _log(f"Running dojo board (n=3) → {BOARD_JSON}")
-    # Pattern emitted by measure.board() after each problem:
-    #   "  p7-flask                    solved 1/3 · layers …"
     import re
-
     solved_re = re.compile(r"solved\s+(\d+)/3")
 
     stop_early = False
@@ -425,7 +372,6 @@ def run_mode(cycle: int = 0) -> tuple[dict, bool]:
             _log(f"  could not parse board JSON: {e}")
     return {}, stop_early
 
-
 def _failing_problems(board: dict) -> list[tuple[str, float]]:
     """``(problem_id, p_solve)`` for failing problems, ranked best-minimal-win first.
 
@@ -437,7 +383,6 @@ def _failing_problems(board: dict) -> list[tuple[str, float]]:
                if _raw_solve(data) < 1.0]
     return sorted(failing, key=lambda x: -_expected_gain(board[x[0]])[0])
 
-
 def _gain_band(gain: float) -> str:
     """Difficulty label from the best-fix *gain*, matching the bands STEP 1 of the
     analysis prompt tells the model to use (so the shown label can't contradict them)."""
@@ -447,13 +392,11 @@ def _gain_band(gain: float) -> str:
         return "medium"
     return "hard"
 
-
 def _unwrap_board(raw: dict) -> dict:
     """Handle both flat {pid: {...}} and wrapped {"board": {pid: {...}}} formats."""
     if "board" in raw and isinstance(raw["board"], dict):
         return raw["board"]
     return raw
-
 
 def _layer_qs(data: dict) -> dict[str, float]:
     """``{layer: q̂}`` for a board layer-dict entry; ``{}`` for flat run-result shapes.
@@ -462,7 +405,6 @@ def _layer_qs(data: dict) -> dict[str, float]:
     entry (often named "solved"), a multi-layer one (e.g. p10) has four."""
     return {l: v["q"] for l, v in data.items()
             if isinstance(v, dict) and "q" in v}
-
 
 def _p_solve(data: dict) -> float:
     """Solve-probability for a board entry, on one scale across both shapes.
@@ -488,7 +430,6 @@ def _p_solve(data: dict) -> float:
         return prod
     return 0.0
 
-
 def _raw_solve(data: dict) -> float:
     """Raw ``∏(clears/n)`` over layers — ``1.0`` only when every layer cleared every run.
 
@@ -507,7 +448,6 @@ def _raw_solve(data: dict) -> float:
     for r in rates:
         prod *= r
     return prod
-
 
 def _expected_gain(data: dict) -> tuple[float, str | None]:
     """``(marginal upside, bottleneck layer)`` for a board entry — the targeting signal.
@@ -529,13 +469,8 @@ def _expected_gain(data: dict) -> tuple[float, str | None]:
             siblings *= q
     return (1.0 - qs[bn]) * siblings, bn
 
-
 def _e_solved(board: dict) -> float:
     return sum(_p_solve(data) for data in board.values())
-
-
-# ── JSON parsing ──────────────────────────────────────────────────────────────
-
 
 def parse_json(text: str) -> dict:
     if "```" in text:
@@ -552,7 +487,6 @@ def parse_json(text: str) -> dict:
         raise ValueError(f"No JSON object found: {text[:300]}")
     return json.loads(text[s:e])
 
-
 def validate_change(change: dict) -> tuple[str, Path]:
     for key in ("file", "content"):
         if not change.get(key):
@@ -563,14 +497,10 @@ def validate_change(change: dict) -> tuple[str, Path]:
         raise ValueError(f"Path traversal rejected: {change['file']!r}")
     return rel, target
 
-
-# ── analysis mode ─────────────────────────────────────────────────────────────
-
 ANALYSIS_SYSTEM = textwrap.dedent("""\
     You improve mu, a local-LLM agent harness. Your job each cycle: pick ONE
     failing problem, identify ONE specific fix, write it to ONE file.
 
-    ── STEP 1: PICK A PROBLEM AND ITS BOTTLENECK LAYER ──────────────────────────
     The failing list is already ranked best-minimal-win first: by "best-fix gain" =
     the expected ΔE[#solved] of fixing that problem's weakest layer. Pick the FIRST
     problem not in the discarded list. Higher gain = one focused fix buys more.
@@ -590,7 +520,6 @@ ANALYSIS_SYSTEM = textwrap.dedent("""\
     with all four ≈0.2): no single minimal fix helps much, so it ranks last — skip it
     in favour of a higher-gain problem unless nothing else remains.
 
-    ── STEP 2: IDENTIFY THE FIX ─────────────────────────────────────────────────
     Choose the fix type (in order of preference):
       1. Add a new reflex in src/mu/reflexes/<lang>/
       2. Add or sharpen a rule in an existing skill file
@@ -601,7 +530,6 @@ ANALYSIS_SYSTEM = textwrap.dedent("""\
 
     NEVER repeat a file+rationale combination from the discarded list.
 
-    ── STEP 3: WRITE THE OUTPUT ─────────────────────────────────────────────────
     Output exactly one JSON object. No text before or after the braces.
     Every field is required. "file" and "content" must never be null or empty.
 
@@ -624,7 +552,6 @@ ANALYSIS_SYSTEM = textwrap.dedent("""\
     ✗ prose outside the JSON braces      ← JSON only, nothing else
 """)
 
-
 def _discarded_summary(max_recent: int = 15) -> str:
     """One-line-per-attempt summary of recent rolled-back / failed attempts."""
     discarded = load_discarded_attempts(max_recent)
@@ -638,7 +565,6 @@ def _discarded_summary(max_recent: int = 15) -> str:
             f"  rationale={r['rationale'][:80]}"
         )
     return "\n".join(lines)
-
 
 def _failing_line(pid: str, p: float, data: dict) -> str:
     """One prompt line per failing problem: p_solve, the expected gain of its best fix,
@@ -658,7 +584,6 @@ def _failing_line(pid: str, p: float, data: dict) -> str:
             coverage = f"  reflexes: {reflexes_covering[:80]}"
         return f"{head}  bottleneck={bn}  layers[ {layers} ]{coverage}"
     return head
-
 
 def _reflexes_for_problem(pid: str) -> str:
     """Show reflexes that potentially address this problem's failures.
@@ -695,7 +620,6 @@ def _reflexes_for_problem(pid: str) -> str:
     except Exception:
         return ""
 
-
 def build_analysis_messages(board: dict, repair_ctx: str = "") -> list[dict]:
     failing = _failing_problems(board)
     if failing:
@@ -705,7 +629,6 @@ def build_analysis_messages(board: dict, repair_ctx: str = "") -> list[dict]:
     else:
         failing_summary = "  (none — all problems passing!)"
 
-    # Latest archive run README (contains implemented improvements summary).
     archive_readme_content = "(none yet)"
     archive_root = MU_ROOT / "archive"
     if archive_root.exists():
@@ -739,7 +662,6 @@ def build_analysis_messages(board: dict, repair_ctx: str = "") -> list[dict]:
         {"role": "user", "content": "\n\n".join(parts)},
     ]
 
-
 def run_tests() -> tuple[bool, str]:
     r = subprocess.run(
         [sys.executable, "-m", "pytest", "tests/", "-q", "--tb=short"],
@@ -753,7 +675,6 @@ def run_tests() -> tuple[bool, str]:
     _vlog(f"  pytest exit={r.returncode} output:\n{out[-2000:]}")
     return r.returncode == 0, out
 
-
 def verify_board_gain(
     model_id: str, target_pids: list[str], baseline_e: float, board: dict
 ) -> tuple[bool, float]:
@@ -765,10 +686,6 @@ def verify_board_gain(
     env = {**os.environ, "MU_AGENT_MODEL": model_id, "N": "3"}
     updated_board = dict(board)
 
-    # Only problems present in the *baseline* board have a before-value to compare against.
-    # An early-stopped run produces a partial board, and the model can name a target that
-    # isn't in it; crediting such a target would just *add* its p_solve to new_e and fake a
-    # positive delta — a false accept. Gate strictly on the measurable ones.
     measurable = [pid for pid in target_pids if pid in board]
     if not measurable:
         _log(f"  no targeted problem in baseline board ({target_pids}) — accepting on pytest")
@@ -802,15 +719,9 @@ def verify_board_gain(
     new_e = baseline_e + delta
     _log(f"  E[#solved]: {baseline_e:.3f} → {new_e:.3f}  (Δ {delta:+.3f} over {measurable})")
     BOARD_JSON.write_text(json.dumps(updated_board, indent=2))
-    # Now that the metric is trustworthy and on a consistent smoothed scale, require no
-    # regression (the old -0.05 slack silently kept changes that worsened the target).
-    # Partial credit (∏ q̂) makes even a single-layer lift register, so a real improvement
-    # clears this bar; we stop short of strict-positive to avoid n=3 noise stalling the loop.
     return delta >= 0.0, new_e
 
-
 def analysis_mode(board: dict, cycle: int = 0) -> bool:
-    """Load 14b model, propose and apply one improvement. Returns True if applied."""
     _log("=== ANALYSIS MODE ===")
 
     if not _load_model(ANALYSIS_MODEL):
@@ -825,7 +736,6 @@ def analysis_mode(board: dict, cycle: int = 0) -> bool:
     baseline_e = _e_solved(board)
     _log(f"  Baseline E[#solved] = {baseline_e:.3f}")
 
-    # ── first attempt ──────────────────────────────────────────────────────
     try:
         resp = lms_chat(build_analysis_messages(board), active)
     except Exception as e:
@@ -877,7 +787,6 @@ def analysis_mode(board: dict, cycle: int = 0) -> bool:
     target.write_text(change["content"])
     _log(f"  wrote {rel} ({target.stat().st_size:,}b)")
 
-    # ── pytest gate ────────────────────────────────────────────────────────
     passed, test_out = run_tests()
     if not passed:
         _log("  tests FAILED — attempting repair")
@@ -921,7 +830,6 @@ def analysis_mode(board: dict, cycle: int = 0) -> bool:
 
     _log("  tests passed ✓")
 
-    # ── board gain gate ────────────────────────────────────────────────────
     if not _load_model(RUN_MODEL):
         _log("  cannot reload run model for verification — accepting on pytest")
         log_attempt(
@@ -976,17 +884,12 @@ def analysis_mode(board: dict, cycle: int = 0) -> bool:
     )
     return True
 
-
 def _rollback(original: str | None, target: Path) -> None:
     if original is not None:
         target.write_text(original)
     elif target.exists():
         target.unlink()
     _log(f"  rolled back {target.relative_to(MU_ROOT)}")
-
-
-# ── main loop ──────────────────────────────────────────────────────────────────
-
 
 def main() -> None:
     ap = argparse.ArgumentParser(
@@ -1047,7 +950,6 @@ def main() -> None:
         _log(f"\n{'=' * 60}")
         _log(f"CYCLE {cycle}")
 
-        # ── 1. Run ───────────────────────────────────────────────────────
         board, stop_early = run_mode(cycle=cycle)
         if not board and not stop_early:
             _log("Empty board — waiting 60s before retry")
@@ -1061,7 +963,6 @@ def main() -> None:
 
         _log(f"Failing problems: {[(p, f'{v:.2f}') for p, v in failing]}")
 
-        # ── 2. Analysis ──────────────────────────────────────────────────
         analysis_mode(board, cycle=cycle)
 
         if args.rounds and cycle >= args.rounds:
@@ -1070,7 +971,6 @@ def main() -> None:
 
         # short pause to let model server settle before next cycle
         time.sleep(5)
-
 
 if __name__ == "__main__":
     main()
