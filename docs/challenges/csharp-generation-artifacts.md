@@ -13,8 +13,9 @@ C#-specific malformations: top-level statements before a namespace (CS1529), ver
 
 ## Problems affected
 
-- [p4-fibonacci](../problems/p4-fibonacci.md) — stuttered `public void TestX() {` openers (run-4 dominant bucket)
-- [p10-dotnet-vue-blog](../problems/p10-dotnet-vue-blog.md) — mixed artifacts in generated controllers/tests
+- [p4-fibonacci](../problems/p4-fibonacci.md) — stuttered `public void TestX() {` openers
+- [p14-fullstack-js-blog](../problems/p14-fullstack-js-blog.md) — mixed artifacts in generated controllers/tests
+- [p15-dotnet-vue-blog](../problems/p15-dotnet-vue-blog.md) — stuttered `public void TestX() {` openers, mixed artifacts in generated controllers/tests
 
 ## Relevant reflexes & mechanisms
 

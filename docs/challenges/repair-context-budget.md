@@ -15,7 +15,8 @@ The loaded window bounds prompt AND generation together; large skill stacks and 
 
 - [p8-node-todo](../problems/p8-node-todo.md) — long repair histories with whole files in tool-call args
 - [p9-vue-todo](../problems/p9-vue-todo.md) — heavy writer prompts (304k phase tokens, run 7)
-- [p10-dotnet-vue-blog](../problems/p10-dotnet-vue-blog.md) — largest prompts in the set (33k median, run 7)
+- [p14-fullstack-js-blog](../problems/p14-fullstack-js-blog.md) — large prompts (dotnet+node)
+- [p15-dotnet-vue-blog](../problems/p15-dotnet-vue-blog.md) — largest prompts in the set (33k median, run 7)
 
 ## Relevant reflexes & mechanisms
 

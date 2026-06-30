@@ -15,7 +15,8 @@ JS/TS test-tooling configuration: Jest `_test.js` naming → 'No tests found'; m
 
 - [p8-node-todo](../problems/p8-node-todo.md) — `describe/test is not a function` (run 7 ×14) — run via `node`, not `npx jest`
 - [p9-vue-todo](../problems/p9-vue-todo.md) — `Vitest: test suite has 0 tests` (run 7 ×4)
-- [p10-dotnet-vue-blog](../problems/p10-dotnet-vue-blog.md) — Vitest frontend stage
+- [p14-fullstack-js-blog](../problems/p14-fullstack-js-blog.md) — Node test stage
+- [p15-dotnet-vue-blog](../problems/p15-dotnet-vue-blog.md) — Vitest frontend stage
 
 ## Relevant reflexes & mechanisms
 

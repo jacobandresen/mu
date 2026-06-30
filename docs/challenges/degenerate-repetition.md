@@ -14,7 +14,8 @@ The model falls into a token loop: `print(f"{task[print(f"{task[…`. The output
 ## Problems affected
 
 - [p8-node-todo](../problems/p8-node-todo.md) — long multi-file tasks raise the odds
-- [p10-dotnet-vue-blog](../problems/p10-dotnet-vue-blog.md) — longest prompts, most exposure
+- [p14-fullstack-js-blog](../problems/p14-fullstack-js-blog.md) — longest prompts, most exposure
+- [p15-dotnet-vue-blog](../problems/p15-dotnet-vue-blog.md) — longest prompts, most exposure
 
 ## Relevant reflexes & mechanisms
 

@@ -12,7 +12,7 @@ This file is the source of truth for how to work on mu. If it conflicts with oth
 
 ## 0. Prime directive: keep the dojo honest
 
-The dojo runs 15 fixed problems to measure the **harness's real capability**, not to score points.
+The dojo runs 13 fixed problems to measure the **harness's real capability**, not to score points.
 
 **Do not optimize against specific dojo problems:**
 - No hardcoded languages or filenames.
@@ -25,11 +25,11 @@ The dojo runs 15 fixed problems to measure the **harness's real capability**, no
 
 Where the marginal capability is, so your work lands where it moves the number:
 
-- **Chip deterministic fruit across all fifteen problems.** A step's value is its expected gain in
+- **Chip deterministic fruit across all thirteen problems.** A step's value is its expected gain in
   `E[N_solved]` over the whole set, ∝ logistic headroom `q(1−q)` × the chain factor — so the
-  steep mid-tier problems (p2, p4, p7, p8) and **broad, no-regret levers** dominate dragging the
+  steep mid-tier problems (p2, p4, p5, p7, p8) and **broad, no-regret levers** dominate dragging the
   hardest problem. Pick a class that recurs across problems, not a one-off.
-- **.NET stack (p4, p12, p13, p14, p15):** Structural levers already clear the build wall:
+- **.NET stack (p4, p14, p15):** Structural levers already clear the build wall:
   - `MU_SCAFFOLD` + `MU_TFM_GROUNDING` + entry-point + S2 → NU1202 15→0
   - **C# reflexes** in `src/mu/reflexes/csharp/` target common compiler errors:
     `fix_csharp_missing_using`, `fix_csharp_missing_braces`, `fix_csharp_duplicate_classes`,

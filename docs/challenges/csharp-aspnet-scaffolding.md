@@ -4,8 +4,7 @@ _‹ [All challenges](README.md)_
 
 - **ID:** `csharp-aspnet-scaffolding`
 - **Group:** Full-stack orchestration / multi-file
-- **Open list:** [item 8](README.md#open)
-- **Status:** partial — many reflexes; p10 still 0-pass
+- **Status:** partial — many reflexes
 
 ## What it is
 
@@ -13,8 +12,9 @@ Multi-project .NET needs scaffolding a minimal SDK template lacks: a test csproj
 
 ## Problems affected
 
-- [p4-fibonacci](../problems/p4-fibonacci.md) — CS0017 two `Main` entry points (run 7 ×19) — the test SDK auto-generates a second
-- [p10-dotnet-vue-blog](../problems/p10-dotnet-vue-blog.md) — CS0101 duplicate types ×14, MSB1003 no project ×8, CS0053 inconsistent accessibility ×8 (run 7; 0/12)
+- [p4-fibonacci](../problems/p4-fibonacci.md) — CS0017 two `Main` entry points
+- [p14-fullstack-js-blog](../problems/p14-fullstack-js-blog.md) — CS0101 duplicate types, MSB1003 no project
+- [p15-dotnet-vue-blog](../problems/p15-dotnet-vue-blog.md) — CS0017 two `Main` entry points, CS0101 duplicate types, MSB1003 no project, CS0053 inconsistent accessibility
 
 ## Relevant reflexes & mechanisms
 
@@ -26,4 +26,5 @@ Multi-project .NET needs scaffolding a minimal SDK template lacks: a test csproj
 
 ## Residual / notes
 
-p10 is **the open problem**: cascading errors across backend/test/frontend stages where repair oscillates. See [DOJO.md](../../DOJO.md#open-problems--ranked-by-impact) item 1.
+The .NET ladder (p4 simple, p14 full-stack JS, p15 full-stack Vue/TS) is addressed via the
+prototype-then-refine layer split and the C# reflex suite.

@@ -13,8 +13,9 @@ Syntax errors specifically in the generated test file: JS same-scope `const` re-
 
 ## Problems affected
 
-- [p8-node-todo](../problems/p8-node-todo.md) — same-scope `const todos = …` re-declared mid-block (10+ sessions)
 - [p4-fibonacci](../problems/p4-fibonacci.md) — C# test-file syntax (stuttered openers)
+- [p8-node-todo](../problems/p8-node-todo.md) — same-scope `const todos = …` re-declared mid-block (10+ sessions)
+- [p15-dotnet-vue-blog](../problems/p15-dotnet-vue-blog.md) — C# test-file syntax (stuttered openers)
 
 ## Relevant reflexes & mechanisms
 

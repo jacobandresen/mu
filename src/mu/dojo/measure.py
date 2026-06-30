@@ -279,46 +279,50 @@ def _write_run_readme(dest: Path, pid: str, run_num: int,
 
 # --- the whole-set board (plan Step 0.2 / §A.4): per-layer q̂ over all problems ---
 
-# p10's four independent verification gates (a staged full-stack problem). Most
-# problems are a single gate; only a dotnet+node full stack declares these four.
-_P10_LAYERS = ('backend_build', 'backend_test', 'frontend_build', 'frontend_test')
+# p15's two independent verification gates (dotnet+node full-stack). Most
+# problems are a single gate; p15 uses a prototype-then-refine model.
+_P15_LAYERS = ('prototype', 'refine')
 
 
 def _problem_layers(problem: dict) -> tuple[str, ...]:
     """The verification layers a problem declares. A trivial problem (e.g.
-    p1-helloworld) is a single gate, L=1; a staged dotnet+node full stack (p10) has
-    four. Keyed on toolchains, not the id, so it generalizes."""
+    p1-helloworld) is a single gate, L=1; p15-dotnet-vue-blog uses a two-layer
+    prototype-then-refine model. Keyed on toolchains, not the id, so it generalizes."""
     tc = set(problem.get('toolchains') or [])
     if {'dotnet', 'node'} <= tc:
-        return _P10_LAYERS
+        return _P15_LAYERS
     return ('solved',)
 
 
-def _p10_layer_clears(session_dir: Path) -> dict[str, bool]:
-    """One p10 run's per-layer pass/fail, parsed from the staged gate logs (§A.4).
+def _p15_layer_clears(session_dir: Path) -> dict[str, bool]:
+    """One p15 run's per-layer pass/fail, parsed from the staged gate logs (§A.4).
     Honest only because S1 (Step 0.1) makes a 'green' that ran no tests not a clear.
-    A missing/garbled log reads as 'not cleared', never a crash."""
+    A missing/garbled log reads as 'not cleared', never a crash.
+    
+    prototype: dotnet build succeeds with no C# compiler errors
+    refine: dotnet test passes + frontend builds and tests pass
+    """
     try:
         text = '\n'.join(p.read_text(errors='ignore')
                          for p in (session_dir / 'logs').glob('*.log'))
     except OSError:
         text = ''
     return {
-        'backend_build':  'Build succeeded' in text and 'error CS' not in text,
-        'backend_test':   bool(re.search(r'Passed!\s+-\s+Failed:\s+0', text)),
-        'frontend_build': 'vite build' in text and 'error TS' not in text,
-        'frontend_test':  bool(re.search(r'Test Files\s+\d+ passed', text)),
+        'prototype': 'Build succeeded' in text and 'error CS' not in text,
+        'refine': bool(re.search(r'Passed!\s+-\s+Failed:\s+0', text)) and 
+                  ('vite build' in text and 'error TS' not in text) and
+                  bool(re.search(r'Test Files\s+\d+ passed', text)),
     }
 
 
 def _layer_clears(problem: dict, session) -> dict[str, bool]:
     """Per-layer pass/fail for one run. Single-gate problems clear iff the session
-    succeeded; the full-stack stack reads its four layers from the logs."""
+    succeeded; p15 reads its two layers from the logs."""
     layers = _problem_layers(problem)
-    if layers == _P10_LAYERS:
+    if layers == _P15_LAYERS:
         if session is None:
-            return {l: False for l in _P10_LAYERS}
-        return _p10_layer_clears(session.dir)
+            return {l: False for l in _P15_LAYERS}
+        return _p15_layer_clears(session.dir)
     return {'solved': bool(session and session.outcome == 'success')}
 
 

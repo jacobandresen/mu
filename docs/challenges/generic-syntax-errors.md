@@ -13,9 +13,10 @@ Plain syntax mistakes a weak model makes across languages: Python indentation/co
 
 ## Problems affected
 
-- [p4-fibonacci](../problems/p4-fibonacci.md) — `CS1519: Invalid token 'for'` in a member declaration (run 7 ×3)
 - [p5-gin](../problems/p5-gin.md) — `./main.go: syntax error: unexpected ., expected }` — a dangling `.Run()` (run 7 ×3)
 - [p2-sqlite](../problems/p2-sqlite.md) — Python def/class body written at the parent's column (`expected an indented block`)
+- [p4-fibonacci](../problems/p4-fibonacci.md) — `CS1519: Invalid token` in C# member declarations
+- [p15-dotnet-vue-blog](../problems/p15-dotnet-vue-blog.md) — `CS1519: Invalid token` in C# member declarations
 
 ## Relevant reflexes & mechanisms
 

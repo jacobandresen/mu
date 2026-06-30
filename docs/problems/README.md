@@ -1,6 +1,6 @@
 # Problems — status & index
 
-The dojo stress-tests mu against ten fixed goals spanning C, Python, Go, Rust, C#, Node,
+The dojo stress-tests mu against eleven fixed goals spanning C, Python, Go, Rust, C#, Node,
 and full-stack TypeScript. Each problem has a page here with its statement, what it builds,
 the dominant errors and token usage from the last run, and the reflexes that carry it.
 

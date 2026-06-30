@@ -13,9 +13,10 @@ The model uses a symbol it never imported: Python omits the import of the module
 
 ## Problems affected
 
+- [p4-fibonacci](../problems/p4-fibonacci.md) — missing C# `using` (CS0246)
 - [p7-flask](../problems/p7-flask.md) — `ModuleNotFoundError: flask` (run 7 ×3); repair-introduced `Flask(__name__)` without the import
 - [p2-sqlite](../problems/p2-sqlite.md) — module-under-test not imported
-- [p10-dotnet-vue-blog](../problems/p10-dotnet-vue-blog.md) — missing C# `using` (CS0246)
+- [p15-dotnet-vue-blog](../problems/p15-dotnet-vue-blog.md) — missing C# `using` (CS0246)
 
 ## Relevant reflexes & mechanisms
 
@@ -23,7 +24,7 @@ The model uses a symbol it never imported: Python omits the import of the module
 - [`fix_python_missing_project_imports`](../../src/mu/reflexes/python/fix_python_missing_project_imports.py) — imports a sibling project module
 - [`fix_csharp_missing_using`](../../src/mu/reflexes/csharp/fix_csharp_missing_using.py) — adds a `using` for a CS0246 type found in a sibling file
 - [`fix_missing_pip_packages`](../../src/mu/reflexes/python/fix_missing_pip_packages.py) — adds a missing package to requirements
-- **LSP ([`lsp.py`](../../src/mu/lsp.py), `MU_LSP`)** — the strongest generalizer for *this* class: a language server resolves the missing import for **any** symbol, not the fixed set the regex reflexes hard-code. the **Roslyn** C# server's add-using is verified (fixes CS0246 by importing the namespace, diagnostics clear); `pyright`/`gopls` `source.organizeImports` add the missing module name-aware. The reflexes stay the fast no-server default; LSP extends them under `MU_LSP=1` (gopls) / `MU_LSP=all` (Roslyn for the p10 CS0246, pyright).
+- **LSP ([`lsp.py`](../../src/mu/lsp.py), `MU_LSP`)** — the strongest generalizer for *this* class: a language server resolves the missing import for **any** symbol, not the fixed set the regex reflexes hard-code. the **Roslyn** C# server's add-using is verified (fixes CS0246 by importing the namespace, diagnostics clear); `pyright`/`gopls` `source.organizeImports` add the missing module name-aware. The reflexes stay the fast no-server default; LSP extends them under `MU_LSP=1` (gopls) / `MU_LSP=all` (Roslyn for .NET CS0246, pyright).
 
 ## Residual / notes
 

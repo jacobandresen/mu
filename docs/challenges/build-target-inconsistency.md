@@ -14,9 +14,12 @@ The plan names an entry-point/target the build file never defines (or vice versa
 ## Problems affected
 
 - [p1-helloworld](../problems/p1-helloworld.md) — binary name vs Makefile target
+- [p4-fibonacci](../problems/p4-fibonacci.md) — entry point vs build target
 - [p5-gin](../problems/p5-gin.md) — `go test` vs a named binary
 - [p7-flask](../problems/p7-flask.md) — `make test` against a Makefile with no `test:` recipe
-- [p10-dotnet-vue-blog](../problems/p10-dotnet-vue-blog.md) — files written to unexpected stage dirs
+- [p14-fullstack-js-blog](../problems/p14-fullstack-js-blog.md) — files written to unexpected stage dirs
+- [p15-dotnet-vue-blog](../problems/p15-dotnet-vue-blog.md) — files written to unexpected stage dirs
+
 
 ## Relevant reflexes & mechanisms
 

@@ -1,6 +1,6 @@
 # Dojo
 
-Stress-tests mu by driving a guest model through fifteen fixed problems and recording where the
+Stress-tests mu by driving a guest model through thirteen fixed problems and recording where the
 autonomous loop breaks. The problem set, per-problem detail, and the last round's result
 live in **[docs/problems/](docs/problems/)**; recurring failure classes in
 **[docs/challenges/](docs/challenges/README.md)**.
@@ -71,27 +71,25 @@ for fixes, and [docs/ablations.md](docs/ablations.md) for behaviour-lever A/B ve
 
 ## .NET Layer Split: Simpler Two-Layer Approach
 
-The current multi-layer split for .NET problems (separate layers for backend, frontend,
-database, tests) creates cascading failures where a single issue blocks multiple layers.
-A **simpler two-layer approach** increases success rate by focusing on clear, sequential
-gates:
+The .NET problems **p14-fullstack-js-blog** and **p15-dotnet-vue-blog** use a **two-layer approach**
+that increases success rate by focusing on clear, sequential gates:
 
 | Layer | Gate | Success Criteria | Common Errors Fixed By |
 |---|---|---|---|
 | **prototype** | `dotnet build` | Zero compiler errors | C# reflexes (CS0017, CS0101, CS0053, CS1519, etc.) |
-| **refine** | `dotnet test` + custom tests | All tests pass | fix_csharp_package_tfm_mismatch, fix_csharp_xunit_packages, LSP |
+| **refine** | `dotnet test` + tests pass | All backend tests pass | fix_csharp_package_tfm_mismatch, fix_csharp_xunit_packages, LSP |
 
 **Why this works:**
 - **Clear boundaries:** prototype → refine mirrors the actual write → repair loop
 - **Higher success rate:** Passing prototype means syntax is correct (70% of failures)
 - **Faster feedback:** Each layer has a single, fast check
 - **Existing reflexes map cleanly:** Most C# reflexes target prototype errors
+- **Simpler .NET ladder:** p4 (simple C#), p14 (full-stack JS), p15 (full-stack Vue/TS)
 
-This approach replaces the multi-stage cascade with a **prototype-then-refine** model, 
-matching mu's iterative workflow while reducing complexity and maintaining coverage. The C# reflex suite + structural levers already
-address the dominant error classes at each gate.
+This approach replaces multi-stage cascades with a **prototype-then-refine** model,
+matching mu's iterative workflow while reducing complexity and maintaining coverage.
 
-1. **p12/p13/p14/p15 .NET stack.** Multi-project C#/Vue/Minimal API — challenge
+1. **p14-fullstack-js-blog** & **p15-dotnet-vue-blog** — Multi-project C#/JS or C#/Vue — challenge
    [csharp-aspnet-scaffolding](docs/challenges/csharp-aspnet-scaffolding.md). Dominant errors:
    CS0101 duplicate types across files, MSB1003 no project/solution at the test dir, CS0053
    inconsistent accessibility on EF types. Mix of scaffolding (staged-plan type dedup; ensure
@@ -153,14 +151,14 @@ mechanism) is SHIPPED opt-in (`MU_SCAFFOLD`, [`src/mu/scaffold.py`](src/mu/scaff
 verdict in [docs/ablations.md](docs/ablations.md).
 
 **Why broad levers over the hardest problem.** The target is to raise
-`E[N_solved] = Σ_i P_i` across the whole set, not p10 in isolation. A step's marginal value
+`E[N_solved] = Σ_i P_i` across the whole set, not one problem in isolation. A step's marginal value
 on problem *i*, layer *ℓ* scales as the *logistic headroom* `q(1−q)` times the *chain factor*
-`∏_{ℓ′≠ℓ} q_{ℓ′}` (clearing one layer only helps if the siblings also clear). For p10 every
-layer sits at q≈0, so both factors ≈0 — a step there buys almost nothing; a mid-tier problem
+`∏_{ℓ′≠ℓ} q_{ℓ′}` (clearing one layer only helps if the siblings also clear). For a problem
+with all layers at q≈0, both factors ≈0 — a step there buys almost nothing; a mid-tier problem
 at q≈0.5 with healthy siblings buys far more. So prefer **broad, no-regret levers** (honest
 gates, cross-stage reflexes, organize-imports/LSP) and the **steep mid-tier** problems first;
-treat .NET problems (p4, p12, p13, p14, p15) alongside others. The C# reflex suite in
+treat .NET problems p14 and p15 alongside others. The C# reflex suite in
 `src/mu/reflexes/csharp/` targets common compiler errors (CS0103, CS1929, CS0841, etc.), and
 structural levers (`MU_SCAFFOLD`, `MU_TFM_GROUNDING`, entry-point, S2) clear the build wall.
 Deterministic reflexes solve general classes of .NET errors, so effort is invested across
-all fifteen problems. Full lever verdicts and that conclusion: [docs/ablations.md](docs/ablations.md).
+all thirteen problems. Full lever verdicts and that conclusion: [docs/ablations.md](docs/ablations.md).

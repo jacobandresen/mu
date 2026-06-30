@@ -86,7 +86,7 @@ Declared in `pyproject.toml`; installed automatically by pip or pipx. Dependenci
 
 ## Dojo
 
-The dojo stress-tests mu against a fixed problem set of fifteen goals spanning C, Python, Go, Rust, C#, Node, full-stack TypeScript, and SDL2 graphics/physics. Problems are defined in `problems-catalog.json`; only problems whose toolchains are installed are run.
+The dojo stress-tests mu against a fixed problem set of thirteen goals spanning C, Python, Go, Rust, C#, Node, full-stack TypeScript/JavaScript, and SDL2 graphics/physics. Problems are defined in `problems-catalog.json`; only problems whose toolchains are installed are run.
 
 ```sh
 mu dojo run               # run all available problems once
@@ -129,8 +129,8 @@ The repair substrate beyond the core reflexes, in the order a fix gets to enter 
 
 ## Current focus
 
-Chip **deterministic fruit across all fifteen problems**, where a reflex or the LSP lever actually
-moves the pass rate. The .NET stack (p4, p12, p13, p14, p15) is addressed via structural levers
+Chip **deterministic fruit across all thirteen problems**, where a reflex or the LSP lever actually
+moves the pass rate. The .NET stack (p4, p14, p15) is addressed via structural levers
 (scaffold, TFM-grounding, entry-point, S2) and C# reflexes that clear the build wall and fix
 common compiler errors. Effort is invested across all problems, with focus on broad, no-regret levers. The LSP lever
 is being measured per problem as the next general repair source — strongest on the
