@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Autonomous mu improvement loop: run dojo problems and record results.
+"""Run dojo problems and record results.
 
 Run mode: load run model, run dojo board (n=3), record results.
 
 Env:
-  MU_SIT_RUN_MODEL       (default: mistralai/Mistral-7B-Instruct-v0.2)
+  MU_SIT_RUN_MODEL       (default: mistral-7b-instruct-v0.2)
   MU_SIT_RUN_CTX         (default: 4096)
-  MU_SIT_ROUNDS          (default: infinite)
   MU_LMSTUDIO_HOST       (default: http://localhost:1234)
   MU_SIT_VERBOSE         enable verbose logging
   Note: On <=6GB VRAM GPUs, use 4-bit quant. For >24GB, use Mixtral-8x7B-Instruct-v0.1.
@@ -598,10 +597,6 @@ def main() -> None:
     )
     ap.add_argument("--verbose", "-v", action="store_true",
                     help="Emit verbose debug logs")
-    ap.add_argument("--rounds", type=int, default=int(os.environ.get("MU_SIT_ROUNDS", "0")),
-                    help="Max run cycles (0 = infinite)")
-    ap.add_argument("--run-only", action="store_true",
-                    help="Only run dojo once and print the board, then exit")
     args = ap.parse_args()
 
     global VERBOSE
@@ -613,34 +608,17 @@ def main() -> None:
     _log(f"mu sit  run={RUN_MODEL}(ctx={RUN_CTX})")
     _log(f"mu root: {MU_ROOT}")
 
-    if args.run_only:
-        run_mode(cycle=0)
-        return
-
-    cycle = 0
-    while True:
-        cycle += 1
-        _log(f"\n{'=' * 60}")
-        _log(f"CYCLE {cycle}")
-
-        board, stop_early = run_mode(cycle=cycle)
-        if not board and not stop_early:
-            _log("Empty board — waiting 60s before retry")
-            time.sleep(60)
-            continue
-
+    _log("Running dojo board...")
+    board, stop_early = run_mode(cycle=1)
+    
+    if not board and not stop_early:
+        _log("Empty board — no results available.")
+    else:
         failing = _failing_problems(board)
         if not failing:
             _log("All problems passing — goal achieved!")
-            break
-
-        _log(f"Failing problems: {[(p, f'{v:.2f}') for p, v in failing]}")
-
-        if args.rounds and cycle >= args.rounds:
-            _log(f"Reached --rounds {args.rounds} — stopping.")
-            break
-
-        time.sleep(5)
+        else:
+            _log(f"Failing problems: {[(p, f'{v:.2f}') for p, v in failing]}")
 
 
 if __name__ == "__main__":
