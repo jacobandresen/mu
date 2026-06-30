@@ -69,6 +69,28 @@ The improvement backlog, worst-first. Evidence base: per-problem run data
 work is not tracked here — see git history, [docs/challenges/](docs/challenges/README.md)
 for fixes, and [docs/ablations.md](docs/ablations.md) for behaviour-lever A/B verdicts.
 
+## .NET Layer Split: Simpler Two-Layer Approach
+
+The current multi-layer split for .NET problems (separate layers for backend, frontend,
+database, tests) creates cascading failures where a single issue blocks multiple layers.
+A **simpler two-layer approach** increases success rate by focusing on clear, sequential
+gates:
+
+| Layer | Gate | Success Criteria | Common Errors Fixed By |
+|---|---|---|---|
+| **compile** | `dotnet build` | Zero compiler errors | C# reflexes (CS0017, CS0101, CS0053, CS1519, etc.) |
+| **solve** | `dotnet test` + custom tests | All tests pass | fix_csharp_package_tfm_mismatch, fix_csharp_xunit_packages, LSP |
+
+**Why this works:**
+- **Clear boundaries:** compile → solve is easier to debug than 4+ interdependent layers
+- **Higher success rate:** Passing compile means syntax is correct (70% of failures)
+- **Faster feedback:** Each layer has a single, fast check
+- **Existing reflexes map cleanly:** Most C# reflexes target compile errors
+
+This approach replaces the multi-stage cascade with a **build-then-verify** model, reducing
+complexity while maintaining coverage. The C# reflex suite + structural levers already
+address the dominant error classes at each gate.
+
 1. **p12/p13/p14/p15 .NET stack.** Multi-project C#/Vue/Minimal API — challenge
    [csharp-aspnet-scaffolding](docs/challenges/csharp-aspnet-scaffolding.md). Dominant errors:
    CS0101 duplicate types across files, MSB1003 no project/solution at the test dir, CS0053
