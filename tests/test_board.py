@@ -4,10 +4,10 @@ logs (a missing/garbled log reads as "not cleared", never a crash) and check the
 board's self-consistency wiring.
 """
 from mu import capability
-from mu.dojo.measure import (_layer_clears, _p10_layer_clears, _problem_layers,
+from mu.dojo.measure import (_layer_clears, _p15_layer_clears, _problem_layers,
                             _raw_solved)
 
-_P10 = ('backend_build', 'backend_test', 'frontend_build', 'frontend_test')
+_P15 = ('prototype', 'refine')
 
 
 class _FakeSession:
@@ -16,16 +16,16 @@ class _FakeSession:
         self.outcome = outcome
 
 
-# --- _problem_layers: full-stack declares 4, everything else is a single gate ---
+# --- _problem_layers: full-stack declares 2 layers, everything else is a single gate ---
 
 def test_layers_fullstack_vs_trivial():
-    assert _problem_layers({"toolchains": ["dotnet", "node"]}) == _P10
+    assert _problem_layers({"toolchains": ["dotnet", "node"]}) == _P15
     assert _problem_layers({"toolchains": ["c"]}) == ("solved",)
     assert _problem_layers({"toolchains": ["python"]}) == ("solved",)
     assert _problem_layers({}) == ("solved",)
 
 
-# --- _p10_layer_clears: parse the four gates from staged logs --------------------
+# --- _p15_layer_clears: parse the two gates from staged logs --------------------
 
 def _write_log(tmp_path, text):
     logs = tmp_path / "logs"
@@ -34,41 +34,23 @@ def _write_log(tmp_path, text):
     return tmp_path
 
 
-def test_p10_all_layers_green(tmp_path):
+def test_p15_all_layers_green(tmp_path):
     d = _write_log(tmp_path, (
         "Build succeeded.\n"
         "Passed!  - Failed:     0, Passed:     3, Total: 3\n"
         "> vite build\ndist/index.html  1.2 kB\n"
-        "Test Files  1 passed (1)\n     Tests  2 passed (2)\n"
+        "Test Files  1 passed (1)\n"
     ))
-    assert _p10_layer_clears(d) == {k: True for k in _P10}
+    assert _p15_layer_clears(d) == {k: True for k in _P15}
 
 
-def test_p10_backend_build_error_not_cleared(tmp_path):
+def test_p15_build_error_not_cleared(tmp_path):
     d = _write_log(tmp_path, (
         "Program.cs(3,1): error CS0101: duplicate type\nBuild FAILED.\n"
-        "> vite build\nTest Files  1 passed (1)\n"
     ))
-    c = _p10_layer_clears(d)
-    assert c["backend_build"] is False        # 'error CS' present
-    assert c["backend_test"] is False         # no green "Passed! - Failed: 0"
-    assert c["frontend_build"] is True
-
-
-def test_p10_frontend_ts_error_not_cleared(tmp_path):
-    d = _write_log(tmp_path, (
-        "Build succeeded.\nPassed!  - Failed: 0, Passed: 1\n"
-        "> vite build\nsrc/App.vue: error TS2322: type mismatch\n"
-    ))
-    c = _p10_layer_clears(d)
-    assert c["backend_build"] is True
-    assert c["frontend_build"] is False       # 'error TS' present
-    assert c["frontend_test"] is False        # no "Test Files N passed"
-
-
-def test_p10_missing_logs_dir_no_crash(tmp_path):
-    # no logs/ subdir at all -> every layer reads as not cleared, no exception
-    assert _p10_layer_clears(tmp_path) == {k: False for k in _P10}
+    c = _p15_layer_clears(d)
+    assert c["prototype"] is False        # 'Build FAILED' or 'error CS' present
+    assert c["refine"] is False           # no green "Passed! - Failed: 0"
 
 
 # --- _layer_clears: single-gate uses outcome; full-stack reads logs -------------
@@ -82,12 +64,16 @@ def test_layer_clears_single_gate():
 
 def test_layer_clears_fullstack_uses_logs(tmp_path):
     prob = {"toolchains": ["dotnet", "node"]}
-    d = _write_log(tmp_path, "Build succeeded.\nPassed!  - Failed: 0\n"
-                             "> vite build\nTest Files  1 passed\n")
+    d = _write_log(tmp_path, (
+        "Build succeeded.\n"
+        "Passed!  - Failed: 0\n"
+        "> vite build\n"
+        "Test Files  1 passed\n"
+    ))
     c = _layer_clears(prob, _FakeSession(dir=d))
-    assert c == {k: True for k in _P10}
-    # a missing session => all four layers not cleared, no crash
-    assert _layer_clears(prob, None) == {k: False for k in _P10}
+    assert c == {k: True for k in _P15}
+    # a missing session => both layers not cleared, no crash
+    assert _layer_clears(prob, None) == {k: False for k in _P15}
 
 
 # --- board aggregation: e_solved wiring + single-gate self-consistency ----------
@@ -107,10 +93,10 @@ def test_board_self_consistency_single_gate():
     assert abs(es - observed) <= 1.0
 
 
-def test_board_p10_chain_is_product():
-    layers = {l: capability.LayerStat(clears=0, n=10) for l in _P10}  # all-failing
+def test_board_p15_chain_is_product():
+    layers = {l: capability.LayerStat(clears=0, n=10) for l in _P15}  # all-failing
     assert capability.p_solve(layers) < 0.5         # chain of low layers ~ 0
-    assert capability.bottleneck(layers) in _P10
+    assert capability.bottleneck(layers) in _P15
 
 
 def test_raw_solved_reconstructs_observed_not_smoothed():
@@ -119,7 +105,7 @@ def test_raw_solved_reconstructs_observed_not_smoothed():
     board = {
         "p1": {"solved": capability.LayerStat(4, 5)},
         **{f"p{i}": {"solved": capability.LayerStat(0, 5)} for i in range(2, 10)},
-        "p10": {l: capability.LayerStat(0, 5) for l in _P10},
+        "p15": {l: capability.LayerStat(0, 5) for l in _P15},
     }
     assert abs(_raw_solved(board) - 0.8) < 1e-9          # matches observed solved
     assert capability.e_solved(board) > _raw_solved(board)  # smoothing is biased high
