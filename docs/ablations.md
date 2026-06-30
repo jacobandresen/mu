@@ -82,7 +82,7 @@ substitutes, in the multi-project layout.
 **The levers work** — the restore wall clears (NU1202 15→0) and S2/entry-point cut their target
 errors once reachable (CS0101 10→4, CS0246 12→6, repair-iters 3.8→2.2). But p13 stays **0/8**:
 the residual is the **model semantic ceiling** (CS0103 undefined-name ×21, CS1929, CS0841) —
-qwen-7b writes semantically broken C# even for a trivial API. **Conclusion: on the .NET stack the
+7B-class models write semantically broken C# even for a trivial API. **Conclusion: on the .NET stack the
 binding constraint is the model, not structure.** The structural levers are necessary and now
 *validated*, but insufficient for this model; they stay opt-in (no pass-rate lift to bank).
 

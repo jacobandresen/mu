@@ -31,8 +31,8 @@ Where the marginal capability is, so your work lands where it moves the number:
   hardest problem. Pick a class that recurs across problems, not a one-off.
 - **The .NET ladder (p10/p13/p14): what can actually be done.** The structural levers
   (`MU_SCAFFOLD`, `MU_TFM_GROUNDING`, entry-point, S2) clear the build wall (NU1202 15→0) but the
-  residual binder is **model semantics** — CS0103 undefined-name ×21, CS1929, CS0841 — qwen-7b
-  writes semantically broken C# even for a trivial API. Mapping candidate solutions to that binder:
+  residual binder is **model semantics** — CS0103 undefined-name ×21, CS1929, CS0841 — 7B-class
+  models write semantically broken C# even for a trivial API. Mapping candidate solutions to that binder:
   - *Stronger model* — the only lever that targets the binder directly, and the discriminating test
     of "is it the model." **Hardware-capped on this host:** GTX 1660 SUPER, 6 GB VRAM (the 7b already
     fills it); a 14b/22b cannot load. Revisit on a bigger GPU — there it's the headline experiment.

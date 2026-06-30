@@ -137,6 +137,6 @@ layer sits at q≈0, so both factors ≈0 — a step there buys almost nothing; 
 at q≈0.5 with healthy siblings buys far more. So prefer **broad, no-regret levers** (honest
 gates, cross-stage reflexes, organize-imports/LSP) and the **steep mid-tier** problems first;
 treat p10/.NET as the frontier, invested in only via levers that also help others. The .NET
-ladder (p10/p13/p14) is now judged **model-ceiling-bound for qwen-7b** — the structural levers
-clear the build wall but the residual is model semantics — so deterministic effort goes to the
-non-.NET problems. Full lever verdicts and that conclusion: [docs/ablations.md](docs/ablations.md).
+ladder (p10/p13/p14) is currently judged **model-ceiling-bound** — the structural levers
+clear the build wall but the residual is model semantics (7B models) — so deterministic effort 
+goes to the non-.NET problems. Full lever verdicts and that conclusion: [docs/ablations.md](docs/ablations.md).

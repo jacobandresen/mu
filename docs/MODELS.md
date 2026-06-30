@@ -9,12 +9,17 @@ multi-file), not HumanEval.
 
 | Model | Resident | Role |
 |---|---|---|
-| `qwen2.5-coder-7b-instruct` **Q3_K_L** | 4.09 GB | **Primary on 8 GB** — measured **7.0/10** on the L0 board, the best that runs here (see trials below). Pin the served id `qwen2.5-coder-7b-instruct` |
+| `mistralai/Mistral-7B-Instruct-v0.2` **Q4_K_M** | ~4.1 GB | **Primary on 8 GB** — Mistral 7B with 4-bit quantization. Pin the served id `mistralai/Mistral-7B-Instruct-v0.2` |
+| `qwen2.5-coder-7b-instruct` **Q3_K_L** | 4.09 GB | **Alternative** — measured **7.0/10** on the L0 board, historical primary (see trials below) |
 
-The 7B **Q4_K_M** (~4.7 GB) does **not** fit (it exhausts RAM); **Q3_K_L** (3.8 GB on
-disk) is the quant that runs. Models >~4.1 GB resident hit a GPU `Compute error` on 8 GB
-(see trials). Bigger machines can run bigger models (e.g. Devstral-Small at 16/32 GB),
-but mu is tuned and measured on the above; everything below assumes the 8 GB envelope.
+**Note:** `scripts/sit.py` now defaults to Mistral-7B. The 7B **Q4_K_M** quant for Mistral
+fits in 6GB VRAM. Models >~4.1 GB resident hit a GPU `Compute error` on 8 GB unified memory
+(see trials). Bigger machines can run Mixtral-8x7B (24GB+ VRAM) for better analysis capability.
+
+For Qwen models: **Q3_K_L** (3.8 GB on disk) is the quant that runs on 8 GB. Models >~4.1 GB
+resident hit a GPU `Compute error` on 8 GB (see trials). Bigger machines can run bigger models
+(e.g. Devstral-Small at 16/32 GB), but mu is tuned and measured on the above; everything below
+assumes the 8 GB envelope.
 
 ## Integration
 

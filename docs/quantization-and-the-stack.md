@@ -4,6 +4,9 @@ A field report written from a concrete experiment: finding the best local model 
 mu's ten dojo coding problems on an **8 GB M2 MacBook**. The numbers and failure modes
 below are all measured on that host (2026-06-20/22), not theoretical.
 
+**Note (2026-06-30):** `scripts/sit.py` now defaults to `mistralai/Mistral-7B-Instruct-v0.2`
+(Q4_K_M, ~4.1 GB resident) which follows the same ~4.1 GB ceiling principle described below.
+
 ---
 
 ## 0. The result that motivated the report

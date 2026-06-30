@@ -18,7 +18,7 @@ source .venv/bin/activate
 
 # Start LM Studio's server and load a model with the lms CLI
 lms server start                  # serve on http://localhost:1234
-lms load qwen2.5-coder-7b-instruct   # load a model
+lms load mistralai/Mistral-7B-Instruct-v0.2   # load a model (7B, fits 6GB VRAM)
 
 mu check                          # verify dependencies + toolchains + LM Studio reachable
 mu setup                          # install missing toolchains (interactive)
@@ -67,7 +67,7 @@ model too large to load.
 
 `make setup-host` sets both for this machine: it probes the GPU and writes
 `~/.zshrc.mu` (machine-local, outside the repo) — the 7B
-(`qwen2.5-coder-7b-instruct`) with `MU_NUM_CTX=12288` on a discrete NVIDIA card
+(`mistralai/Mistral-7B-Instruct-v0.2`) with `MU_NUM_CTX=12288` on a discrete NVIDIA card
 with ≥6 GB VRAM, the snappier 3B on everything else. Re-run after a hardware change.
 
 `~/.zshrc.mu` only takes effect if your shell sources it. Add to `~/.zshrc` (or
@@ -130,9 +130,10 @@ The repair substrate beyond the core reflexes, in the order a fix gets to enter 
 ## Current focus
 
 Chip **deterministic fruit on the non-.NET problems**, where a reflex or the LSP lever actually
-moves the pass rate. The .NET ladder (p10/p13/p14) is now judged **model-ceiling-bound for
-qwen-7b**: the structural levers (scaffold, TFM-grounding, entry-point, S2) clear the build wall
-but the residual is model semantics, so they stay opt-in with no pass-rate to bank. The LSP lever
+moves the pass rate. The .NET ladder (p10/p13/p14) is currently **model-ceiling-bound**: 
+the structural levers (scaffold, TFM-grounding, entry-point, S2) clear the build wall
+but the residual is model semantics (7B models write semantically broken C# for trivial APIs), 
+so they stay opt-in with no pass-rate to bank. The LSP lever
 is being measured per problem as the next general repair source — strongest on the
 [missing-imports](docs/challenges/missing-imports.md) class. Rationale and the marginal-value
 argument: [DOJO.md](DOJO.md) (Problem-space minimization); verdicts: [docs/ablations.md](docs/ablations.md).

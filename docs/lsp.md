@@ -55,7 +55,7 @@ and npm servers under `--prefix ~/.local`. `toolchain.prepend_tool_paths` adds `
 > `repair()` applies **one** action per round and re-diagnoses — applying several at once
 > scrambles the file (the old csharp-ls corrupted a file into garbage before this was enforced).
 
-## Empirical (dark dojo trials, qwen-7b, 2026-06-26)
+## Empirical (dark dojo trials, 7B model, 2026-06-26)
 
 - **p3-sdl2 (clangd):** 5/6 vs 85% baseline — no headroom, **no regression**; LSP fired 5/6.
 - **p5-gin (gopls):** 6/8 (75%) vs 71% baseline, **repair-iters 0.8** — `organizeImports`
